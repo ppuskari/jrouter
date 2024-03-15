@@ -31,6 +31,5 @@ func main() {
 			log.Printf("Failed to read packet: %v", readErr)
 			continue
 		}
-
 	}
 }

@@ -403,6 +403,27 @@ func parseOpenRsp(p []byte) (*OpenRspPacket, error) {
 	}, nil
 }
 
+type RIReqPacket struct {
+	*Header
+}
+
+type RIRspPacket struct {
+	*Header
+
+	RTMPData []byte
+}
+
+func (p *RIRspPacket) WriteTo(w io.Writer) (int64, error) {
+	a := acc(w)
+	a.writeTo(p.Header)
+	a.write(p.RTMPData)
+	return a.ret()
+}
+
+type RIAckPacket struct {
+	*Header
+}
+
 // ParsePacket parses the body of a UDP packet for a domain header, and then
 // based on the packet type, an AURP-Tr header, an AURP routing header, and
 // then a particular packet type.
@@ -451,6 +472,22 @@ func ParsePacket(p []byte) (Packet, error) {
 			}
 			orsp.Header = h
 			return orsp, nil
+
+		case CmdCodeRIReq:
+			return &RIReqPacket{
+				Header: h,
+			}, nil
+
+		case CmdCodeRIRsp:
+			return &RIRspPacket{
+				Header:   h,
+				RTMPData: p,
+			}, nil
+
+		case CmdCodeRIAck:
+			return &RIAckPacket{
+				Header: h,
+			}, nil
 
 		default:
 			return nil, fmt.Errorf("unknown routing packet command code %d", h.CommandCode)
