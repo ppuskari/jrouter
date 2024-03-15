@@ -259,8 +259,10 @@ func (ot *OptionTuple) WriteTo(w io.Writer) (int64, error) {
 	}
 
 	a := acc(w)
-	a.write8(uint8(len(ot.Data) + 1))
-	a.write8(uint8(ot.Type))
+	a.write([]byte{
+		byte(len(ot.Data) + 1),
+		byte(ot.Type),
+	})
 	a.write(ot.Data)
 	return a.ret()
 }
@@ -371,6 +373,36 @@ func parseOpenReq(p []byte) (*OpenReqPacket, error) {
 	}, nil
 }
 
+// OpenRsp is used to respond to Open-Req.
+type OpenRspPacket struct {
+	*Header
+
+	RateOrErrCode int16
+	Options       Options
+}
+
+func (p *OpenRspPacket) WriteTo(w io.Writer) (int64, error) {
+	a := acc(w)
+	a.writeTo(p.Header)
+	a.write16(uint16(p.RateOrErrCode))
+	a.writeTo(p.Options)
+	return a.ret()
+}
+
+func parseOpenRsp(p []byte) (*OpenRspPacket, error) {
+	if len(p) < 3 {
+		return nil, fmt.Errorf("insufficient input length %d for Open-Rsp packet", len(p))
+	}
+	opts, err := parseOptions(p[2:])
+	if err != nil {
+		return nil, err
+	}
+	return &OpenRspPacket{
+		RateOrErrCode: int16(binary.BigEndian.Uint16(p[:2])),
+		Options:       opts,
+	}, nil
+}
+
 // ParsePacket parses the body of a UDP packet for a domain header, and then
 // based on the packet type, an AURP-Tr header, an AURP routing header, and
 // then a particular packet type.
@@ -419,6 +451,9 @@ func ParsePacket(p []byte) (Packet, error) {
 			}
 			orsp.Header = h
 			return orsp, nil
+
+		default:
+			return nil, fmt.Errorf("unknown routing packet command code %d", h.CommandCode)
 		}
 
 	default:

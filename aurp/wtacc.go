@@ -1,13 +1,12 @@
 package aurp
 
 import (
-	"encoding/binary"
 	"io"
 )
 
 // wtacc is a helper for io.WriterTo implementations.
-// It sacrifices early returns for a shorter syntax. However, it refuses to
-// continue writing to the destination writer after detecting an error.
+// It sacrifices early returns for a shorter syntax. However, it won't continue
+// writing to the destination writer after detecting an error.
 type wtacc struct {
 	w   io.Writer
 	n   int64
@@ -21,25 +20,17 @@ func (a *wtacc) ret() (int64, error) {
 }
 
 func (a *wtacc) write8(x uint8) {
-	if a.err != nil {
-		return
-	}
-	_, a.err = a.w.Write([]byte{x})
-	if a.err != nil {
-		return
-	}
-	a.n++
+	a.write([]byte{x})
 }
 
 func (a *wtacc) write16(x uint16) {
-	if a.err != nil {
-		return
-	}
-	a.err = binary.Write(a.w, binary.BigEndian, x)
-	if a.err != nil {
-		return
-	}
-	a.n += 2
+	// Could do this with:
+	//     binary.Write(a.w, binary.BigEndian, x)
+	// - but don't wanna
+	a.write([]byte{
+		byte(x >> 8),
+		byte(x & 0xff),
+	})
 }
 
 func (a *wtacc) write(b []byte) {
