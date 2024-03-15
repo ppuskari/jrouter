@@ -24,7 +24,7 @@ func (a *wtacc) write8(x uint8) {
 	if a.err != nil {
 		return
 	}
-	a.err = binary.Write(a.w, binary.BigEndian, x)
+	_, a.err = a.w.Write([]byte{x})
 	if a.err != nil {
 		return
 	}

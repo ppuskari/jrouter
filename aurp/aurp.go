@@ -39,14 +39,14 @@ func (dh *DomainHeader) WriteTo(w io.Writer) (int64, error) {
 	return a.ret()
 }
 
-// ParseDomainHeader parses a domain header, returning the DH and the remainder
+// parseDomainHeader parses a domain header, returning the DH and the remainder
 // of the input slice. It does not validate the version or packet type fields.
-func ParseDomainHeader(b []byte) (*DomainHeader, []byte, error) {
-	ddi, b, err := ParseDomainIdentifier(b)
+func parseDomainHeader(b []byte) (*DomainHeader, []byte, error) {
+	ddi, b, err := parseDomainIdentifier(b)
 	if err != nil {
 		return nil, b, err
 	}
-	sdi, b, err := ParseDomainIdentifier(b)
+	sdi, b, err := parseDomainIdentifier(b)
 	if err != nil {
 		return nil, b, err
 	}
@@ -110,9 +110,9 @@ const (
 	AuthorityIP
 )
 
-// ParseDomainIdentifier parses a DI from the front of b, and returns the DI and
-// the remainder of the input slice.
-func ParseDomainIdentifier(b []byte) (DomainIdentifier, []byte, error) {
+// parseDomainIdentifier parses a DI from the front of b, and returns the DI and
+// the remainder of the input slice or an error.
+func parseDomainIdentifier(b []byte) (DomainIdentifier, []byte, error) {
 	if len(b) < 2 {
 		return nil, b, fmt.Errorf("insufficient input length %d for domain identifier", len(b))
 	}
@@ -140,25 +140,36 @@ func ParseDomainIdentifier(b []byte) (DomainIdentifier, []byte, error) {
 
 // TrHeader represent an AURP-Tr packet header. It includes the domain header.
 type TrHeader struct {
-	DomainHeader
+	*DomainHeader
 
 	ConnectionID uint16
 	Sequence     uint16 // Note: 65535 is succeeded by 1, not 0
 }
 
-// WriteTo writes the encoded form of the header to w.
+// WriteTo writes the encoded form of the header to w, including the domain
+// header.
 func (h *TrHeader) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
-	a.writeTo(&h.DomainHeader)
+	a.writeTo(h.DomainHeader)
 	a.write16(h.ConnectionID)
 	a.write16(h.Sequence)
 	return a.ret()
 }
 
+func parseTrHeader(p []byte) (*TrHeader, []byte, error) {
+	if len(p) < 4 {
+		return nil, p, fmt.Errorf("insufficient input length %d for tr header", len(p))
+	}
+	return &TrHeader{
+		ConnectionID: binary.BigEndian.Uint16(p[:2]),
+		Sequence:     binary.BigEndian.Uint16(p[2:4]),
+	}, p[4:], nil
+}
+
 // Header represents an AURP packet header. It includes the AURP-Tr header,
 // which includes the domain header.
 type Header struct {
-	TrHeader
+	*TrHeader
 
 	CommandCode CmdCode
 	Flags       RoutingFlag
@@ -167,10 +178,20 @@ type Header struct {
 // WriteTo writes the encoded form of the header to w.
 func (h *Header) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
-	a.writeTo(&h.TrHeader)
+	a.writeTo(h.TrHeader)
 	a.write16(uint16(h.CommandCode))
 	a.write16(uint16(h.Flags))
 	return a.ret()
+}
+
+func parseHeader(p []byte) (*Header, []byte, error) {
+	if len(p) < 4 {
+		return nil, p, fmt.Errorf("insufficient input length %d for header", len(p))
+	}
+	return &Header{
+		CommandCode: CmdCode(binary.BigEndian.Uint16(p[:2])),
+		Flags:       RoutingFlag(binary.BigEndian.Uint16(p[2:4])),
+	}, p[4:], nil
 }
 
 // CmdCode is the command code used in AURP packets.
@@ -233,11 +254,29 @@ type OptionTuple struct {
 }
 
 func (ot *OptionTuple) WriteTo(w io.Writer) (int64, error) {
+	if len(ot.Data) > 254 {
+		return 0, fmt.Errorf("option tuple data too long [%d > 254]", len(ot.Data))
+	}
+
 	a := acc(w)
 	a.write8(uint8(len(ot.Data) + 1))
 	a.write8(uint8(ot.Type))
 	a.write(ot.Data)
 	return a.ret()
+}
+
+func parseOptionTuple(p []byte) (OptionTuple, []byte, error) {
+	if len(p) < 2 {
+		return OptionTuple{}, p, fmt.Errorf("insufficient input length %d for option tuple", len(p))
+	}
+	olen := int(p[0]) + 1
+	if len(p) < olen {
+		return OptionTuple{}, p, fmt.Errorf("insufficient input for option tuple data length %d", olen)
+	}
+	return OptionTuple{
+		Type: OptionType(p[1]),
+		Data: p[2:olen],
+	}, p[olen:], nil
 }
 
 // OptionType is used to distinguish different options.
@@ -249,6 +288,39 @@ const (
 	// All other types reserved
 )
 
+type Options []OptionTuple
+
+func (o Options) WriteTo(w io.Writer) (int64, error) {
+	if len(o) > 255 {
+		return 0, fmt.Errorf("too many options [%d > 255]", len(o))
+	}
+
+	a := acc(w)
+	a.write8(uint8(len(o)))
+	for _, ot := range o {
+		a.writeTo(&ot)
+	}
+	return a.ret()
+}
+
+func parseOptions(p []byte) (Options, error) {
+	if len(p) < 1 {
+		return nil, fmt.Errorf("insufficint input length %d for options", len(p))
+	}
+	optc := p[0]
+	opts := make([]OptionTuple, optc)
+	for i := range optc {
+		ot, np, err := parseOptionTuple(p)
+		if err != nil {
+			return nil, fmt.Errorf("parsing option %d: %w", i, err)
+		}
+		opts[i] = ot
+		p = np
+	}
+	// TODO: warn about trailing data?
+	return opts, nil
+}
+
 // Packet represents a full AURP packet, not including UDP or lower layers, but
 // including the domain header and higher layers.
 type Packet interface {
@@ -257,42 +329,99 @@ type Packet interface {
 
 // AppleTalkPacket is for encapsulated AppleTalk traffic.
 type AppleTalkPacket struct {
-	DomainHeader // where PacketTypeAppleTalk
-	Data         []byte
+	*DomainHeader // where PacketTypeAppleTalk
+
+	Data []byte
 }
 
 func (p *AppleTalkPacket) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
-	a.writeTo(&p.DomainHeader)
+	a.writeTo(p.DomainHeader)
 	a.write(p.Data)
 	return a.ret()
 }
 
 // OpenReq is used to open a one-way connection between AIRs.
 type OpenReqPacket struct {
-	Header
+	*Header
 
 	Version uint16 // currently always 1
-	//OptionCount uint8 = len(Options)
-	Options []OptionTuple
+	Options Options
 }
 
 func (p *OpenReqPacket) WriteTo(w io.Writer) (int64, error) {
-	if len(p.Options) > 255 {
-		return 0, fmt.Errorf("too many options [%d > 255]", len(p.Options))
-	}
-
 	a := acc(w)
-	a.writeTo(&p.Header)
+	a.writeTo(p.Header)
 	a.write16(p.Version)
-	a.write8(uint8(len(p.Options)))
-	for _, o := range p.Options {
-		a.writeTo(&o)
-	}
+	a.writeTo(p.Options)
 	return a.ret()
 }
 
+func parseOpenReq(p []byte) (*OpenReqPacket, error) {
+	if len(p) < 3 {
+		return nil, fmt.Errorf("insufficient input length %d for Open-Req packet", len(p))
+	}
+	opts, err := parseOptions(p[2:])
+	if err != nil {
+		return nil, err
+	}
+	return &OpenReqPacket{
+		Version: binary.BigEndian.Uint16(p[:2]),
+		Options: opts,
+	}, nil
+}
+
+// ParsePacket parses the body of a UDP packet for a domain header, and then
+// based on the packet type, an AURP-Tr header, an AURP routing header, and
+// then a particular packet type.
+//
+// (This function contains the big switch statement.)
 func ParsePacket(p []byte) (Packet, error) {
-	// TODO
-	return nil, nil
+	dh, p, err := parseDomainHeader(p)
+	if err != nil {
+		return nil, err
+	}
+	if dh.Version != 1 {
+		return nil, fmt.Errorf("unsupported domain header version %d", dh.Version)
+	}
+	switch dh.PacketType {
+	case PacketTypeAppleTalk:
+		return &AppleTalkPacket{
+			DomainHeader: dh,
+			Data:         p,
+		}, nil
+
+	case PacketTypeRouting:
+		tr, p, err := parseTrHeader(p)
+		if err != nil {
+			return nil, err
+		}
+		tr.DomainHeader = dh
+		h, p, err := parseHeader(p)
+		if err != nil {
+			return nil, err
+		}
+		h.TrHeader = tr
+
+		switch h.CommandCode {
+		case CmdCodeOpenReq:
+			oreq, err := parseOpenReq(p)
+			if err != nil {
+				return nil, err
+			}
+			oreq.Header = h
+			return oreq, nil
+
+		case CmdCodeOpenRsp:
+			orsp, err := parseOpenRsp(p)
+			if err != nil {
+				return nil, err
+			}
+			orsp.Header = h
+			return orsp, nil
+		}
+
+	default:
+		return nil, fmt.Errorf("unsupported domain header packet type %d", dh.PacketType)
+	}
 }

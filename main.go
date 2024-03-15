@@ -18,15 +18,18 @@ func main() {
 	// Incoming packet loop
 	pb := make([]byte, 65536)
 	for {
-		plen, _, err := ln.ReadFromUDP(pb)
-		if err != nil {
-			log.Printf("Failed to read packet: %v", err)
-			continue
+		pktlen, _, readErr := ln.ReadFromUDP(pb)
+		// "Callers should always process
+		// the n > 0 bytes returned before considering the error err."
+
+		_, parseErr := aurp.ParsePacket(pb[:pktlen])
+		if parseErr != nil {
+			log.Printf("Failed to parse packet: %v", parseErr)
 		}
 
-		_, err = aurp.ParsePacket(pb[:plen])
-		if err != nil {
-			log.Printf("Failed to parse packet: %v", err)
+		if readErr != nil {
+			log.Printf("Failed to read packet: %v", readErr)
+			continue
 		}
 
 	}
