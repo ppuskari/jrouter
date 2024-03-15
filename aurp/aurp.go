@@ -3,9 +3,9 @@
 package aurp
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
 )
 
@@ -15,88 +15,85 @@ type DomainHeader struct {
 	DestinationDI DomainIdentifier
 	SourceDI      DomainIdentifier
 	Version       uint16 // Should always be 0x0001
-	PacketType    uint16 // 2 = AppleTalk data packet, 3 = AURP packet
+	Reserved      uint16
+	PacketType    PacketType // 2 = AppleTalk data packet, 3 = AURP packet
 }
 
-// Encode returns the encoded form of the header.
-func (dh *DomainHeader) Encode() ([]byte, error) {
-	var b bytes.Buffer
-	ddi, err := dh.DestinationDI.Encode()
-	if err != nil {
-		return nil, err
-	}
-	sdi, err := dh.SourceDI.Encode()
-	if err != nil {
-		return nil, err
-	}
-	b.Write(ddi)
-	b.Write(sdi)
-	binary.Write(&b, binary.BigEndian, dh.Version)
-	binary.Write(&b, binary.BigEndian, uint16(0x0000)) // Reserved
-	binary.Write(&b, binary.BigEndian, dh.PacketType)
-	return b.Bytes(), nil
+// PacketType is used to distinguish domain-header encapsulated packets.
+type PacketType uint16
+
+// Various packet types.
+const (
+	PacketTypeAppleTalk PacketType = 0x0002
+	PacketTypeRouting   PacketType = 0x0003
+)
+
+// WriteTo writes the encoded form of the domain header to w.
+func (dh *DomainHeader) WriteTo(w io.Writer) (int64, error) {
+	a := acc(w)
+	a.writeTo(dh.DestinationDI)
+	a.writeTo(dh.SourceDI)
+	a.write16(dh.Version)
+	a.write16(dh.Reserved)
+	a.write16(uint16(dh.PacketType))
+	return a.ret()
 }
 
-// ParseDH parses a domain header, returning the DH and the remainder of the
-// input slice.
-func ParseDH(b []byte) (*DomainHeader, []byte, error) {
-	ddi, b, err := ParseDI(b)
+// ParseDomainHeader parses a domain header, returning the DH and the remainder
+// of the input slice. It does not validate the version or packet type fields.
+func ParseDomainHeader(b []byte) (*DomainHeader, []byte, error) {
+	ddi, b, err := ParseDomainIdentifier(b)
 	if err != nil {
 		return nil, b, err
 	}
-	sdi, b, err := ParseDI(b)
+	sdi, b, err := ParseDomainIdentifier(b)
 	if err != nil {
 		return nil, b, err
 	}
 	if len(b) < 6 { // sizeof(version + reserved + packettype)
 		return nil, b, fmt.Errorf("insufficient remaining input length %d < 6", len(b))
 	}
-	ver := binary.BigEndian.Uint16(b[:2])
-	if ver != 1 {
-		return nil, b, fmt.Errorf("unknown version %d", ver)
-	}
-	// Note: b[2:4] (reserved field) is ignored
-	pt := binary.BigEndian.Uint16(b[4:6])
-	if pt != 2 && pt != 3 {
-		return nil, b, fmt.Errorf("unknown packet type %d", pt)
-	}
-	b = b[6:]
 	return &DomainHeader{
 		DestinationDI: ddi,
 		SourceDI:      sdi,
-		Version:       ver,
-		PacketType:    pt,
-	}, b, nil
+		Version:       binary.BigEndian.Uint16(b[:2]),
+		Reserved:      binary.BigEndian.Uint16(b[2:4]),
+		PacketType:    PacketType(binary.BigEndian.Uint16(b[4:6])),
+	}, b[6:], nil
 }
 
 // DomainIdentifier is the byte representation of a domain identifier.
 type DomainIdentifier interface {
-	Encode() ([]byte, error)
+	io.WriterTo
 }
 
-// NullDI represents a null domain identifier.
-type NullDI struct{}
+// NullDomainIdentifier represents a null domain identifier.
+type NullDomainIdentifier struct{}
 
-// Encode returns the encoded form of the identifier.
-func (NullDI) Encode() ([]byte, error) {
-	return []byte{0x01, 0x00}, nil
+// WriteTo writes the encoded form of the domain identifier to w.
+func (NullDomainIdentifier) WriteTo(w io.Writer) (int64, error) {
+	n, err := w.Write([]byte{0x01, 0x00})
+	return int64(n), err
 }
 
-// IPDI represents an IP address in a domain identifier.
-type IPDI net.IP
+// IPDomainIdentifier represents an IP address in a domain identifier.
+type IPDomainIdentifier net.IP
 
-// Encode returns the encoded form of the identifier.
-func (i IPDI) Encode() ([]byte, error) {
+// WriteTo writes the encoded form of the domain identifier to w.
+func (i IPDomainIdentifier) WriteTo(w io.Writer) (int64, error) {
 	v4 := net.IP(i).To4()
 	if v4 == nil {
-		return nil, fmt.Errorf("need v4 IP address, got %v", i)
+		return 0, fmt.Errorf("need v4 IP address, got %v", i)
 	}
-	return append([]byte{
-			0x07,       // byte 1: length of the DI in bytes
-			0x01,       // byte 2: authority: 1 = IP address
-			0x00, 0x00, // bytes 3, 4: distinguisher: reserved
-		}, v4...), // bytes 5-8: the IP address
-		nil
+
+	a := acc(w)
+	a.write([]byte{
+		0x07,       // byte 1: length of the DI, in bytes
+		0x01,       // byte 2: authority: 1 = IP address
+		0x00, 0x00, // bytes 3, 4: distinguisher: reserved)
+	})
+	a.write(v4) // bytes 5-8: IP address
+	return a.ret()
 }
 
 // Authority represents the different possible authorities ("types") for domain
@@ -113,9 +110,9 @@ const (
 	AuthorityIP
 )
 
-// ParseDI parses a DI from the front of b, and returns the DI and the remainder
-// of the input slice.
-func ParseDI(b []byte) (DomainIdentifier, []byte, error) {
+// ParseDomainIdentifier parses a DI from the front of b, and returns the DI and
+// the remainder of the input slice.
+func ParseDomainIdentifier(b []byte) (DomainIdentifier, []byte, error) {
 	if len(b) < 2 {
 		return nil, b, fmt.Errorf("insufficient input length %d for domain identifier", len(b))
 	}
@@ -128,29 +125,52 @@ func ParseDI(b []byte) (DomainIdentifier, []byte, error) {
 	switch Authority(b[1]) {
 	case AuthorityNull:
 		// That's it, that's the whole DI.
-		return NullDI{}, b[2:], nil
+		return NullDomainIdentifier{}, b[2:], nil
 
 	case AuthorityIP:
 		if lf != 7 {
 			return nil, b, fmt.Errorf("incorrect length %d for IP domain identifier", lf)
 		}
-		return IPDI(b[5:8]), b[8:], nil
+		return IPDomainIdentifier(b[5:8]), b[8:], nil
 
 	default:
 		return nil, b, fmt.Errorf("unknown domain identifier authority %d", b[1])
 	}
 }
 
-// TrHeader represent an AURP-Tr packet header.
+// TrHeader represent an AURP-Tr packet header. It includes the domain header.
 type TrHeader struct {
+	DomainHeader
+
 	ConnectionID uint16
 	Sequence     uint16 // Note: 65535 is succeeded by 1, not 0
 }
 
-// Header represents an AURP packet header.
+// WriteTo writes the encoded form of the header to w.
+func (h *TrHeader) WriteTo(w io.Writer) (int64, error) {
+	a := acc(w)
+	a.writeTo(&h.DomainHeader)
+	a.write16(h.ConnectionID)
+	a.write16(h.Sequence)
+	return a.ret()
+}
+
+// Header represents an AURP packet header. It includes the AURP-Tr header,
+// which includes the domain header.
 type Header struct {
+	TrHeader
+
 	CommandCode CmdCode
 	Flags       RoutingFlag
+}
+
+// WriteTo writes the encoded form of the header to w.
+func (h *Header) WriteTo(w io.Writer) (int64, error) {
+	a := acc(w)
+	a.writeTo(&h.TrHeader)
+	a.write16(uint16(h.CommandCode))
+	a.write16(uint16(h.Flags))
+	return a.ret()
 }
 
 // CmdCode is the command code used in AURP packets.
@@ -203,3 +223,76 @@ const (
 	// RI-Ack
 	RoutingFlagSendZoneInfo RoutingFlag = 0x4000
 )
+
+// OptionTuple is used to pass option information in Open-Req and Open-Rsp
+// packets.
+type OptionTuple struct {
+	// Length uint8 = 1(for Type) + len(Data)
+	Type OptionType
+	Data []byte
+}
+
+func (ot *OptionTuple) WriteTo(w io.Writer) (int64, error) {
+	a := acc(w)
+	a.write8(uint8(len(ot.Data) + 1))
+	a.write8(uint8(ot.Type))
+	a.write(ot.Data)
+	return a.ret()
+}
+
+// OptionType is used to distinguish different options.
+type OptionType uint8
+
+// Various option types
+const (
+	OptionTypeAuthentication OptionType = 0x01
+	// All other types reserved
+)
+
+// Packet represents a full AURP packet, not including UDP or lower layers, but
+// including the domain header and higher layers.
+type Packet interface {
+	io.WriterTo
+}
+
+// AppleTalkPacket is for encapsulated AppleTalk traffic.
+type AppleTalkPacket struct {
+	DomainHeader // where PacketTypeAppleTalk
+	Data         []byte
+}
+
+func (p *AppleTalkPacket) WriteTo(w io.Writer) (int64, error) {
+	a := acc(w)
+	a.writeTo(&p.DomainHeader)
+	a.write(p.Data)
+	return a.ret()
+}
+
+// OpenReq is used to open a one-way connection between AIRs.
+type OpenReqPacket struct {
+	Header
+
+	Version uint16 // currently always 1
+	//OptionCount uint8 = len(Options)
+	Options []OptionTuple
+}
+
+func (p *OpenReqPacket) WriteTo(w io.Writer) (int64, error) {
+	if len(p.Options) > 255 {
+		return 0, fmt.Errorf("too many options [%d > 255]", len(p.Options))
+	}
+
+	a := acc(w)
+	a.writeTo(&p.Header)
+	a.write16(p.Version)
+	a.write8(uint8(len(p.Options)))
+	for _, o := range p.Options {
+		a.writeTo(&o)
+	}
+	return a.ret()
+}
+
+func ParsePacket(p []byte) (Packet, error) {
+	// TODO
+	return nil, nil
+}
