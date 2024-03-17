@@ -39,19 +39,19 @@ func (dh *DomainHeader) WriteTo(w io.Writer) (int64, error) {
 
 // parseDomainHeader parses a domain header, returning the DH and the remainder
 // of the input slice. It does not validate the version or packet type fields.
-func parseDomainHeader(b []byte) (*DomainHeader, []byte, error) {
+func parseDomainHeader(b []byte) (DomainHeader, []byte, error) {
 	ddi, b, err := parseDomainIdentifier(b)
 	if err != nil {
-		return nil, b, err
+		return DomainHeader{}, b, err
 	}
 	sdi, b, err := parseDomainIdentifier(b)
 	if err != nil {
-		return nil, b, err
+		return DomainHeader{}, b, err
 	}
 	if len(b) < 6 { // sizeof(version + reserved + packettype)
-		return nil, b, fmt.Errorf("insufficient remaining input length %d < 6", len(b))
+		return DomainHeader{}, b, fmt.Errorf("insufficient remaining input length %d < 6", len(b))
 	}
-	return &DomainHeader{
+	return DomainHeader{
 		DestinationDI: ddi,
 		SourceDI:      sdi,
 		Version:       binary.BigEndian.Uint16(b[:2]),

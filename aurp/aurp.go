@@ -10,7 +10,7 @@ import (
 
 // TrHeader represent an AURP-Tr packet header. It includes the domain header.
 type TrHeader struct {
-	*DomainHeader
+	DomainHeader
 
 	ConnectionID uint16
 	Sequence     uint16 // Note: 65535 is succeeded by 1, not 0
@@ -20,17 +20,17 @@ type TrHeader struct {
 // header.
 func (h *TrHeader) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
-	a.writeTo(h.DomainHeader)
+	a.writeTo(&h.DomainHeader)
 	a.write16(h.ConnectionID)
 	a.write16(h.Sequence)
 	return a.ret()
 }
 
-func parseTrHeader(p []byte) (*TrHeader, []byte, error) {
+func parseTrHeader(p []byte) (TrHeader, []byte, error) {
 	if len(p) < 4 {
-		return nil, p, fmt.Errorf("insufficient input length %d for tr header", len(p))
+		return TrHeader{}, p, fmt.Errorf("insufficient input length %d for tr header", len(p))
 	}
-	return &TrHeader{
+	return TrHeader{
 		ConnectionID: binary.BigEndian.Uint16(p[:2]),
 		Sequence:     binary.BigEndian.Uint16(p[2:4]),
 	}, p[4:], nil
@@ -39,7 +39,7 @@ func parseTrHeader(p []byte) (*TrHeader, []byte, error) {
 // Header represents an AURP packet header. It includes the AURP-Tr header,
 // which includes the domain header.
 type Header struct {
-	*TrHeader
+	TrHeader
 
 	CommandCode CmdCode
 	Flags       RoutingFlag
@@ -48,17 +48,17 @@ type Header struct {
 // WriteTo writes the encoded form of the header to w.
 func (h *Header) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
-	a.writeTo(h.TrHeader)
+	a.writeTo(&h.TrHeader)
 	a.write16(uint16(h.CommandCode))
 	a.write16(uint16(h.Flags))
 	return a.ret()
 }
 
-func parseHeader(p []byte) (*Header, []byte, error) {
+func parseHeader(p []byte) (Header, []byte, error) {
 	if len(p) < 4 {
-		return nil, p, fmt.Errorf("insufficient input length %d for header", len(p))
+		return Header{}, p, fmt.Errorf("insufficient input length %d for header", len(p))
 	}
-	return &Header{
+	return Header{
 		CommandCode: CmdCode(binary.BigEndian.Uint16(p[:2])),
 		Flags:       RoutingFlag(binary.BigEndian.Uint16(p[2:4])),
 	}, p[4:], nil
@@ -123,14 +123,14 @@ type Packet interface {
 
 // AppleTalkPacket is for encapsulated AppleTalk traffic.
 type AppleTalkPacket struct {
-	*DomainHeader // where PacketTypeAppleTalk
+	DomainHeader // where PacketTypeAppleTalk
 
 	Data []byte
 }
 
 func (p *AppleTalkPacket) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
-	a.writeTo(p.DomainHeader)
+	a.writeTo(&p.DomainHeader)
 	a.write(p.Data)
 	return a.ret()
 }

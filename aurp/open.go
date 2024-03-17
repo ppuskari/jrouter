@@ -8,7 +8,7 @@ import (
 
 // OpenReq is used to open a one-way connection between AIRs.
 type OpenReqPacket struct {
-	*Header
+	Header
 
 	Version uint16 // currently always 1
 	Options Options
@@ -16,7 +16,7 @@ type OpenReqPacket struct {
 
 func (p *OpenReqPacket) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
-	a.writeTo(p.Header)
+	a.writeTo(&p.Header)
 	a.write16(p.Version)
 	a.writeTo(p.Options)
 	return a.ret()
@@ -38,7 +38,7 @@ func parseOpenReq(p []byte) (*OpenReqPacket, error) {
 
 // OpenRsp is used to respond to Open-Req.
 type OpenRspPacket struct {
-	*Header
+	Header
 
 	RateOrErrCode int16
 	Options       Options
@@ -46,7 +46,7 @@ type OpenRspPacket struct {
 
 func (p *OpenRspPacket) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
-	a.writeTo(p.Header)
+	a.writeTo(&p.Header)
 	a.write16(uint16(p.RateOrErrCode))
 	a.writeTo(p.Options)
 	return a.ret()

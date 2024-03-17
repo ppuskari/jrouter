@@ -7,18 +7,18 @@ import (
 )
 
 type RIReqPacket struct {
-	*Header
+	Header
 }
 
 type RIRspPacket struct {
-	*Header
+	Header
 
 	Networks NetworkTuples
 }
 
 func (p *RIRspPacket) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
-	a.writeTo(p.Header)
+	a.writeTo(&p.Header)
 	a.writeTo(p.Networks)
 	return a.ret()
 }
@@ -34,18 +34,18 @@ func parseRIRsp(p []byte) (*RIRspPacket, error) {
 }
 
 type RIAckPacket struct {
-	*Header
+	Header
 }
 
 type RIUpdPacket struct {
-	*Header
+	Header
 
 	Events EventTuples
 }
 
 func (p *RIUpdPacket) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
-	a.writeTo(p.Header)
+	a.writeTo(&p.Header)
 	a.writeTo(p.Events)
 	return a.ret()
 }
