@@ -210,6 +210,14 @@ func ParsePacket(p []byte) (Packet, error) {
 			riu.Header = h
 			return riu, nil
 
+		case CmdCodeRD:
+			rd, err := parseRD(p)
+			if err != nil {
+				return nil, err
+			}
+			rd.Header = h
+			return rd, nil
+
 		default:
 			return nil, fmt.Errorf("unknown routing packet command code %d", h.CommandCode)
 		}
