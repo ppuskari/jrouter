@@ -4,7 +4,6 @@ package aurp
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 )
@@ -214,7 +213,7 @@ func ParsePacket(p []byte) (Packet, error) {
 				return nil, err
 			}
 			switch sc {
-			case CmdSubcodeZoneInfoReq:
+			case SubcodeZoneInfoReq:
 				zir, err := parseZIReqPacket(p)
 				if err != nil {
 					return nil, err
@@ -222,11 +221,21 @@ func ParsePacket(p []byte) (Packet, error) {
 				zir.Header = h
 				return zir, nil
 
-			case CmdSubcodeGetDomainZoneList:
-				// TODO
+			case SubcodeGetDomainZoneList:
+				gdzl, err := parseGDZLReqPacket(p)
+				if err != nil {
+					return nil, err
+				}
+				gdzl.Header = h
+				return gdzl, nil
 
-			case CmdSubcodeGetZonesNet:
-				// TODO
+			case SubcodeGetZonesNet:
+				gzn, err := parseGZNReqPacket(p)
+				if err != nil {
+					return nil, err
+				}
+				gzn.Header = h
+				return gzn, nil
 
 			default:
 				return nil, fmt.Errorf("unknown subcode %d", sc)
@@ -238,20 +247,30 @@ func ParsePacket(p []byte) (Packet, error) {
 				return nil, err
 			}
 			switch sc {
-			case CmdSubcodeZoneInfoNonExt, CmdSubcodeZoneInfoExt:
+			case SubcodeZoneInfoNonExt, SubcodeZoneInfoExt:
 				zir, err := parseZIRspPacket(p)
 				if err != nil {
 					return nil, err
 				}
 				zir.Header = h
-				zir.Subcode = sc
+				zir.Subcode = sc // 1 or 2, only known at this layer
 				return zir, nil
 
-			case CmdSubcodeGetDomainZoneList:
-				// TODO
+			case SubcodeGetDomainZoneList:
+				gdzl, err := parseGDZLRspPacket(p)
+				if err != nil {
+					return nil, err
+				}
+				gdzl.Header = h
+				return gdzl, nil
 
-			case CmdSubcodeGetZonesNet:
-				// TODO
+			case SubcodeGetZonesNet:
+				gzn, err := parseGZNRspPacket(p)
+				if err != nil {
+					return nil, err
+				}
+				gzn.Header = h
+				return gzn, nil
 
 			default:
 				return nil, fmt.Errorf("unknown subcode %d", sc)
@@ -274,6 +293,4 @@ func ParsePacket(p []byte) (Packet, error) {
 	default:
 		return nil, fmt.Errorf("unsupported domain header packet type %d", dh.PacketType)
 	}
-
-	return nil, errors.New("unimplemented packet handling")
 }

@@ -6,29 +6,28 @@ import (
 	"io"
 )
 
-// CmdSubcode is used to distinguish types of zone request/response.
-type CmdSubcode uint16
+// Subcode is used to distinguish types of zone request/response.
+type Subcode uint16
 
 // Various subcodes.
 const (
-	CmdSubcodeZoneInfoReq       CmdSubcode = 0x0001
-	CmdSubcodeZoneInfoNonExt    CmdSubcode = 0x0001
-	CmdSubcodeZoneInfoExt       CmdSubcode = 0x0002
-	CmdSubcodeGetZonesNet       CmdSubcode = 0x0003
-	CmdSubcodeGetDomainZoneList CmdSubcode = 0x0004
+	SubcodeZoneInfoReq       Subcode = 0x0001
+	SubcodeZoneInfoNonExt    Subcode = 0x0001
+	SubcodeZoneInfoExt       Subcode = 0x0002
+	SubcodeGetZonesNet       Subcode = 0x0003
+	SubcodeGetDomainZoneList Subcode = 0x0004
 )
 
-func parseSubcode(p []byte) (CmdSubcode, []byte, error) {
+func parseSubcode(p []byte) (Subcode, []byte, error) {
 	if len(p) < 2 {
 		return 0, p, fmt.Errorf("insufficient input length %d for subcode", len(p))
 	}
-	return CmdSubcode(binary.BigEndian.Uint16(p[:2])), p[2:], nil
+	return Subcode(binary.BigEndian.Uint16(p[:2])), p[2:], nil
 }
 
 type ZIReqPacket struct {
 	Header
-
-	Subcode  CmdSubcode
+	Subcode
 	Networks []uint16
 }
 
@@ -36,7 +35,7 @@ func (p *ZIReqPacket) WriteTo(w io.Writer) (int64, error) {
 	p.Sequence = 0
 	p.CommandCode = CmdCodeZoneReq
 	p.Flags = 0
-	p.Subcode = CmdSubcodeZoneInfoReq
+	p.Subcode = SubcodeZoneInfoReq
 
 	a := acc(w)
 	a.writeTo(&p.Header)
@@ -57,7 +56,7 @@ func parseZIReqPacket(p []byte) (*ZIReqPacket, error) {
 		ns[i] = binary.BigEndian.Uint16(p[i*2:][:2])
 	}
 	return &ZIReqPacket{
-		Subcode:  CmdSubcodeZoneInfoReq,
+		Subcode:  SubcodeZoneInfoReq,
 		Networks: ns,
 	}, nil
 }
@@ -75,8 +74,8 @@ func parseZIReqPacket(p []byte) (*ZIReqPacket, error) {
 // "Duplicate zone names never exist in extended ZI-Rsp packets"
 type ZIRspPacket struct {
 	Header
-	Subcode CmdSubcode
-	Zones   ZoneTuples
+	Subcode
+	Zones ZoneTuples
 }
 
 func (p *ZIRspPacket) WriteTo(w io.Writer) (int64, error) {
@@ -101,6 +100,196 @@ func parseZIRspPacket(p []byte) (*ZIRspPacket, error) {
 		// Subcode needs to be provided by layer above
 		Zones: zs,
 	}, nil
+}
+
+type GDZLReqPacket struct {
+	Header
+	Subcode
+	StartIndex uint16
+}
+
+func (p *GDZLReqPacket) WriteTo(w io.Writer) (int64, error) {
+	p.Sequence = 0
+	p.CommandCode = CmdCodeZoneReq
+	p.Flags = 0
+	p.Subcode = SubcodeGetDomainZoneList
+
+	a := acc(w)
+	a.writeTo(&p.Header)
+	a.write16(uint16(p.Subcode))
+	a.write16(p.StartIndex)
+	return a.ret()
+}
+
+func parseGDZLReqPacket(p []byte) (*GDZLReqPacket, error) {
+	if len(p) < 2 {
+		return nil, fmt.Errorf("insufficient input length %d for GDZL-Req packet", len(p))
+	}
+	return &GDZLReqPacket{
+		Subcode:    SubcodeGetDomainZoneList,
+		StartIndex: binary.BigEndian.Uint16(p[:2]),
+	}, nil
+}
+
+type GDZLRspPacket struct {
+	Header
+	Subcode
+	StartIndex int16
+	ZoneNames  []string
+}
+
+func (p *GDZLRspPacket) WriteTo(w io.Writer) (int64, error) {
+	for _, zn := range p.ZoneNames {
+		if len(zn) > 127 {
+			return 0, fmt.Errorf("zone name %q too long", zn)
+		}
+	}
+
+	p.Sequence = 0
+	p.CommandCode = CmdCodeZoneRsp
+	// Flags is used to distinguish the final response packet, so leave alone
+	p.Subcode = SubcodeGetDomainZoneList
+
+	a := acc(w)
+	a.writeTo(&p.Header)
+	a.write16(uint16(p.Subcode))
+	a.write16(uint16(p.StartIndex))
+	if p.StartIndex == -1 {
+		return a.ret()
+	}
+	for _, zn := range p.ZoneNames {
+		// The spec is not clear what format these take, and Apple's example
+		// implementation always returns -1 (not supported), and I have no
+		// packet captures of this subcode.
+		// I'm guessing they're Pascal-style (length-prefixed) since that's used
+		// in the ZI-Rsp long tuples as well as throughout all the ancient Mac
+		// code.
+		a.write8(uint8(len(zn)))
+		a.write([]byte(zn))
+	}
+	return a.ret()
+}
+
+func parseGDZLRspPacket(p []byte) (*GDZLRspPacket, error) {
+	if len(p) < 2 {
+		return nil, fmt.Errorf("insufficient input length %d for GDZL-Rsp packet", len(p))
+	}
+	gdzl := &GDZLRspPacket{
+		Subcode:    SubcodeGetDomainZoneList,
+		StartIndex: int16(binary.BigEndian.Uint16(p[:2])),
+	}
+	if gdzl.StartIndex == -1 {
+		return gdzl, nil
+	}
+	// See comment in GDZLRspPacket.WriteTo about the assumption here.
+	p = p[2:]
+	for len(p) > 0 {
+		strLen := p[0]
+		p = p[1:]
+		if len(p) < int(strLen) {
+			return nil, fmt.Errorf("insufficient remaining input length %d for zone name with length prefix %d", len(p), strLen)
+		}
+		gdzl.ZoneNames = append(gdzl.ZoneNames, string(p[:strLen]))
+		p = p[strLen:]
+	}
+
+	return gdzl, nil
+}
+
+type GZNReqPacket struct {
+	Header
+	Subcode
+	ZoneName string
+}
+
+func (p *GZNReqPacket) WriteTo(w io.Writer) (int64, error) {
+	if len(p.ZoneName) > 127 {
+		return 0, fmt.Errorf("zone name %q too long", p.ZoneName)
+	}
+
+	p.Sequence = 0
+	p.CommandCode = CmdCodeZoneReq
+	p.Flags = 0
+	p.Subcode = SubcodeGetZonesNet
+
+	a := acc(w)
+	a.writeTo(&p.Header)
+	a.write16(uint16(p.Subcode))
+	a.write8(uint8(len(p.ZoneName)))
+	a.write([]byte(p.ZoneName))
+	return a.ret()
+}
+
+func parseGZNReqPacket(p []byte) (*GZNReqPacket, error) {
+	if len(p) < 1 {
+		return nil, fmt.Errorf("insufficient input length %d for GZN-Req packet", len(p))
+	}
+	strLen := p[0]
+	p = p[1:]
+	if len(p) < int(strLen) {
+		return nil, fmt.Errorf("insufficient remaining input length %d for zone name with length prefix %d", len(p), strLen)
+	}
+	return &GZNReqPacket{
+		Subcode:  SubcodeGetZonesNet,
+		ZoneName: string(p[:strLen]),
+	}, nil
+}
+
+type GZNRspPacket struct {
+	Header
+	Subcode
+	ZoneName     string
+	NotSupported bool
+	Networks     NetworkTuples
+}
+
+func (p *GZNRspPacket) WriteTo(w io.Writer) (int64, error) {
+	if len(p.ZoneName) > 127 {
+		return 0, fmt.Errorf("zone name %q too long", p.ZoneName)
+	}
+
+	a := acc(w)
+	a.writeTo(&p.Header)
+	a.write16(uint16(p.Subcode))
+	a.write8(uint8(len(p.ZoneName)))
+	if p.NotSupported {
+		a.write16(0xffff) // -1
+		return a.ret()
+	}
+	a.writeTo(p.Networks)
+	return a.ret()
+}
+
+func parseGZNRspPacket(p []byte) (*GZNRspPacket, error) {
+	if len(p) < 1 {
+		return nil, fmt.Errorf("insufficient input length %d for GZN-Rsp packet", len(p))
+	}
+	gzn := &GZNRspPacket{
+		Subcode: SubcodeGetZonesNet,
+	}
+
+	strLen := p[0]
+	p = p[1:]
+	if len(p) < int(strLen) {
+		return nil, fmt.Errorf("insufficient remaining input length %d for zone name with length prefix %d", len(p), strLen)
+	}
+	gzn.ZoneName = string(p[:strLen])
+	p = p[strLen:]
+
+	if len(p) < 2 {
+		return nil, fmt.Errorf("insufficient remaining input length %d for GZN-Rsp packet", len(p))
+	}
+	gzn.NotSupported = p[0] == 0xff && p[1] == 0xff
+	if gzn.NotSupported {
+		return gzn, nil
+	}
+
+	ns, err := parseNetworkTuples(p)
+	if err != nil {
+		return nil, err
+	}
+	gzn.Networks = ns
+	return gzn, nil
 }
 
 type ZoneTuples []ZoneTuple
