@@ -10,6 +10,12 @@ type RIReqPacket struct {
 	Header
 }
 
+func (p *RIReqPacket) WriteTo(w io.Writer) (int64, error) {
+	p.Sequence = 0
+	p.CommandCode = CmdCodeRIReq
+	return p.Header.WriteTo(w)
+}
+
 type RIRspPacket struct {
 	Header
 
@@ -17,6 +23,8 @@ type RIRspPacket struct {
 }
 
 func (p *RIRspPacket) WriteTo(w io.Writer) (int64, error) {
+	p.CommandCode = CmdCodeRIRsp
+
 	a := acc(w)
 	a.writeTo(&p.Header)
 	a.writeTo(p.Networks)
@@ -37,6 +45,11 @@ type RIAckPacket struct {
 	Header
 }
 
+func (p *RIAckPacket) WriteTo(w io.Writer) (int64, error) {
+	p.CommandCode = CmdCodeRIAck
+	return p.Header.WriteTo(w)
+}
+
 type RIUpdPacket struct {
 	Header
 
@@ -44,6 +57,8 @@ type RIUpdPacket struct {
 }
 
 func (p *RIUpdPacket) WriteTo(w io.Writer) (int64, error) {
+	p.CommandCode = CmdCodeRIUpd
+
 	a := acc(w)
 	a.writeTo(&p.Header)
 	a.writeTo(p.Events)

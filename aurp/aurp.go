@@ -4,6 +4,7 @@ package aurp
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 )
@@ -80,17 +81,6 @@ const (
 	CmdCodeOpenRsp   CmdCode = 0x0009
 	CmdCodeTickle    CmdCode = 0x000e
 	CmdCodeTickleAck CmdCode = 0x000f
-)
-
-// CmdSubcode is used to distinguish types of zone request/response.
-type CmdSubcode uint16
-
-// Various subcodes.
-const (
-	CmdSubcodeZoneInfo1         CmdSubcode = 0x0001
-	CmdSubcodeZoneInfo2         CmdSubcode = 0x0002 // only for responses
-	CmdSubcodeGetZonesNet       CmdSubcode = 0x0003
-	CmdSubcodeGetDomainZoneList CmdSubcode = 0x0004
 )
 
 // RoutingFlag is used in the flags field
@@ -218,6 +208,65 @@ func ParsePacket(p []byte) (Packet, error) {
 			rd.Header = h
 			return rd, nil
 
+		case CmdCodeZoneReq:
+			sc, p, err := parseSubcode(p)
+			if err != nil {
+				return nil, err
+			}
+			switch sc {
+			case CmdSubcodeZoneInfoReq:
+				zir, err := parseZIReqPacket(p)
+				if err != nil {
+					return nil, err
+				}
+				zir.Header = h
+				return zir, nil
+
+			case CmdSubcodeGetDomainZoneList:
+				// TODO
+
+			case CmdSubcodeGetZonesNet:
+				// TODO
+
+			default:
+				return nil, fmt.Errorf("unknown subcode %d", sc)
+			}
+
+		case CmdCodeZoneRsp:
+			sc, p, err := parseSubcode(p)
+			if err != nil {
+				return nil, err
+			}
+			switch sc {
+			case CmdSubcodeZoneInfoNonExt, CmdSubcodeZoneInfoExt:
+				zir, err := parseZIRspPacket(p)
+				if err != nil {
+					return nil, err
+				}
+				zir.Header = h
+				zir.Subcode = sc
+				return zir, nil
+
+			case CmdSubcodeGetDomainZoneList:
+				// TODO
+
+			case CmdSubcodeGetZonesNet:
+				// TODO
+
+			default:
+				return nil, fmt.Errorf("unknown subcode %d", sc)
+			}
+
+		case CmdCodeTickle:
+			return &TicklePacket{
+				Header: h,
+			}, nil
+
+		case CmdCodeTickleAck:
+			return &TickleAckPacket{
+				Header: h,
+			}, nil
+
 		default:
 			return nil, fmt.Errorf("unknown routing packet command code %d", h.CommandCode)
 		}
@@ -225,4 +274,6 @@ func ParsePacket(p []byte) (Packet, error) {
 	default:
 		return nil, fmt.Errorf("unsupported domain header packet type %d", dh.PacketType)
 	}
+
+	return nil, errors.New("unimplemented packet handling")
 }

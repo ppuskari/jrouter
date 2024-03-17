@@ -9,10 +9,12 @@ import (
 type RDPacket struct {
 	Header
 
-	ErrorCode int16
+	ErrorCode ErrorCode
 }
 
 func (p *RDPacket) WriteTo(w io.Writer) (int64, error) {
+	p.CommandCode = CmdCodeRD
+
 	a := acc(w)
 	a.writeTo(&p.Header)
 	a.write16(uint16(p.ErrorCode))
@@ -24,6 +26,6 @@ func parseRD(p []byte) (*RDPacket, error) {
 		return nil, fmt.Errorf("insufficient input length %d for router down packet", len(p))
 	}
 	return &RDPacket{
-		ErrorCode: int16(binary.BigEndian.Uint16(p[:2])),
+		ErrorCode: ErrorCode(binary.BigEndian.Uint16(p[:2])),
 	}, nil
 }
