@@ -190,10 +190,12 @@ func ParsePacket(p []byte) (Packet, error) {
 			}, nil
 
 		case CmdCodeRIRsp:
-			return &RIRspPacket{
-				Header:   h,
-				RTMPData: p,
-			}, nil
+			rir, err := parseRIRsp(p)
+			if err != nil {
+				return nil, err
+			}
+			rir.Header = h
+			return rir, nil
 
 		case CmdCodeRIAck:
 			return &RIAckPacket{
