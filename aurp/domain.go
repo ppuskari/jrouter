@@ -12,8 +12,8 @@ import (
 type DomainHeader struct {
 	DestinationDI DomainIdentifier
 	SourceDI      DomainIdentifier
-	Version       uint16 // Should always be 0x0001
-	Reserved      uint16
+	Version       uint16     // Should always be 0x0001
+	Reserved      uint16     // Should always be 0x0000
 	PacketType    PacketType // 2 = AppleTalk data packet, 3 = AURP packet
 }
 

@@ -13,8 +13,6 @@ type RDPacket struct {
 }
 
 func (p *RDPacket) WriteTo(w io.Writer) (int64, error) {
-	p.CommandCode = CmdCodeRD
-
 	a := acc(w)
 	a.writeTo(&p.Header)
 	a.write16(uint16(p.ErrorCode))

@@ -8,34 +8,6 @@ import (
 	"io"
 )
 
-// TrHeader represent an AURP-Tr packet header. It includes the domain header.
-type TrHeader struct {
-	DomainHeader
-
-	ConnectionID uint16
-	Sequence     uint16 // Note: 65535 is succeeded by 1, not 0
-}
-
-// WriteTo writes the encoded form of the header to w, including the domain
-// header.
-func (h *TrHeader) WriteTo(w io.Writer) (int64, error) {
-	a := acc(w)
-	a.writeTo(&h.DomainHeader)
-	a.write16(h.ConnectionID)
-	a.write16(h.Sequence)
-	return a.ret()
-}
-
-func parseTrHeader(p []byte) (TrHeader, []byte, error) {
-	if len(p) < 4 {
-		return TrHeader{}, p, fmt.Errorf("insufficient input length %d for tr header", len(p))
-	}
-	return TrHeader{
-		ConnectionID: binary.BigEndian.Uint16(p[:2]),
-		Sequence:     binary.BigEndian.Uint16(p[2:4]),
-	}, p[4:], nil
-}
-
 // Header represents an AURP packet header. It includes the AURP-Tr header,
 // which includes the domain header.
 type Header struct {
@@ -86,16 +58,19 @@ const (
 type RoutingFlag uint16
 
 const (
-	// Open-Req and RI-Req
+	// Open-Req and RI-Req (SUI flags)
 	RoutingFlagSUINA      RoutingFlag = 0x4000
 	RoutingFlagSUINDOrNRC RoutingFlag = 0x2000
 	RoutingFlagSUINDC     RoutingFlag = 0x1000
 	RoutingFlagSUIZC      RoutingFlag = 0x0800
 
+	// The combination of the above four flags (the SUI flags).
+	RoutingFlagAllSUI RoutingFlag = 0x7800
+
 	// RI-Rsp and GDZL-Rsp
 	RoutingFlagLast RoutingFlag = 0x8000
 
-	// Open-Rsp
+	// Open-Rsp (environment flags)
 	RoutingFlagRemappingActive   RoutingFlag = 0x4000
 	RoutingFlagHopCountReduction RoutingFlag = 0x2000
 	RoutingFlagReservedEnv       RoutingFlag = 0x1800
@@ -108,20 +83,6 @@ const (
 // including the domain header and higher layers.
 type Packet interface {
 	io.WriterTo
-}
-
-// AppleTalkPacket is for encapsulated AppleTalk traffic.
-type AppleTalkPacket struct {
-	DomainHeader // where PacketTypeAppleTalk
-
-	Data []byte
-}
-
-func (p *AppleTalkPacket) WriteTo(w io.Writer) (int64, error) {
-	a := acc(w)
-	a.writeTo(&p.DomainHeader)
-	a.write(p.Data)
-	return a.ret()
 }
 
 // ParsePacket parses the body of a UDP packet for a domain header, and then

@@ -32,11 +32,6 @@ type ZIReqPacket struct {
 }
 
 func (p *ZIReqPacket) WriteTo(w io.Writer) (int64, error) {
-	p.Sequence = 0
-	p.CommandCode = CmdCodeZoneReq
-	p.Flags = 0
-	p.Subcode = SubcodeZoneInfoReq
-
 	a := acc(w)
 	a.writeTo(&p.Header)
 	a.write16(uint16(p.Subcode))
@@ -79,11 +74,6 @@ type ZIRspPacket struct {
 }
 
 func (p *ZIRspPacket) WriteTo(w io.Writer) (int64, error) {
-	p.Sequence = 0
-	p.CommandCode = CmdCodeZoneRsp
-	p.Flags = 0
-	// Subcode can vary for this packet type: it's either 1 or 2
-
 	a := acc(w)
 	a.writeTo(&p.Header)
 	a.write16(uint16(p.Subcode))
@@ -109,11 +99,6 @@ type GDZLReqPacket struct {
 }
 
 func (p *GDZLReqPacket) WriteTo(w io.Writer) (int64, error) {
-	p.Sequence = 0
-	p.CommandCode = CmdCodeZoneReq
-	p.Flags = 0
-	p.Subcode = SubcodeGetDomainZoneList
-
 	a := acc(w)
 	a.writeTo(&p.Header)
 	a.write16(uint16(p.Subcode))
@@ -144,11 +129,6 @@ func (p *GDZLRspPacket) WriteTo(w io.Writer) (int64, error) {
 			return 0, fmt.Errorf("zone name %q too long", zn)
 		}
 	}
-
-	p.Sequence = 0
-	p.CommandCode = CmdCodeZoneRsp
-	// Flags is used to distinguish the final response packet, so leave alone
-	p.Subcode = SubcodeGetDomainZoneList
 
 	a := acc(w)
 	a.writeTo(&p.Header)
@@ -206,11 +186,6 @@ func (p *GZNReqPacket) WriteTo(w io.Writer) (int64, error) {
 	if len(p.ZoneName) > 127 {
 		return 0, fmt.Errorf("zone name %q too long", p.ZoneName)
 	}
-
-	p.Sequence = 0
-	p.CommandCode = CmdCodeZoneReq
-	p.Flags = 0
-	p.Subcode = SubcodeGetZonesNet
 
 	a := acc(w)
 	a.writeTo(&p.Header)

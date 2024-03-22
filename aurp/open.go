@@ -15,9 +15,6 @@ type OpenReqPacket struct {
 }
 
 func (p *OpenReqPacket) WriteTo(w io.Writer) (int64, error) {
-	p.Sequence = 0
-	p.CommandCode = CmdCodeOpenReq
-
 	a := acc(w)
 	a.writeTo(&p.Header)
 	a.write16(p.Version)
@@ -48,9 +45,6 @@ type OpenRspPacket struct {
 }
 
 func (p *OpenRspPacket) WriteTo(w io.Writer) (int64, error) {
-	p.Sequence = 0
-	p.CommandCode = CmdCodeOpenRsp
-
 	a := acc(w)
 	a.writeTo(&p.Header)
 	a.write16(uint16(p.RateOrErrCode))
