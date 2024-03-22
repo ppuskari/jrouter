@@ -91,7 +91,7 @@ type Packet interface {
 //
 // (This function contains the big switch statement.)
 func ParsePacket(p []byte) (Packet, error) {
-	dh, p, err := parseDomainHeader(p)
+	dh, p, err := ParseDomainHeader(p)
 	if err != nil {
 		return nil, err
 	}

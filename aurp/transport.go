@@ -34,66 +34,79 @@ func parseTrHeader(p []byte) (TrHeader, []byte, error) {
 	}, p[4:], nil
 }
 
-// incSequence increments the sequence number.
-// Note that 0 is special and 65535+1 = 1, according to AURP.
-func (tr *TrHeader) incSequence() {
-	tr.Sequence++
-	if tr.Sequence == 0 {
-		tr.Sequence = 1
+type Transport struct {
+	// LocalDI and RemoteDI are used for producing packets.
+	// When sending a packet, we use LocalDI as SourceDI and RemoteDI as
+	// DestinationDI.
+	// (When receiving a packet, we expect to see LocalDI as DestinationDI
+	// - but it might not be - and we expect to see RemoteDI as SourceDI.)
+	LocalDI, RemoteDI DomainIdentifier
+
+	// LocalConnID is used for packets sent in the role of data receiver.
+	// RemoteConnID is used for packets sent in the role of data sender.
+	LocalConnID, RemoteConnID uint16
+
+	// LocalSeq is used for packets sent (as data sender)
+	// RemoteSeq is used to check packets received (remote is the data sender).
+	LocalSeq, RemoteSeq uint16
+}
+
+// domainHeader returns a new domain header suitable for sending a packet.
+func (tr *Transport) domainHeader(pt PacketType) DomainHeader {
+	return DomainHeader{
+		DestinationDI: tr.RemoteDI,
+		SourceDI:      tr.LocalDI,
+		Version:       1,
+		Reserved:      0,
+		PacketType:    pt,
 	}
 }
 
-// transaction returns a new TrHeader based on this one, usable for transaction
-// requests or responses.
-func (tr *TrHeader) transaction() TrHeader {
+// transaction returns a new TrHeader, usable for transaction requests or
+// responses. Both data senders and data receivers can send transactions.
+// It should be given one of tr.LocalConnID (as data receiver) or
+// tr.RemoteConnID (as data sender).
+func (tr *Transport) transaction(connID uint16) TrHeader {
 	return TrHeader{
-		DomainHeader: DomainHeader{
-			DestinationDI: tr.DestinationDI,
-			SourceDI:      tr.SourceDI,
-			Version:       1,
-			Reserved:      0,
-			PacketType:    PacketTypeRouting,
-		},
-		ConnectionID: tr.ConnectionID,
+		DomainHeader: tr.domainHeader(PacketTypeRouting),
+		ConnectionID: connID,
 		Sequence:     0, // Transaction packets all use sequence number 0.
 	}
 }
 
-// DataSender is used to track sender state in a one-way AURP connection.
-// Note that both data senders and data recievers can send packets.
-type DataSender struct {
-	TrHeader
-}
-
-// NewOpenRspPacket returns a new Open-Rsp packet structure.
-func (ds *DataSender) NewOpenRspPacket(envFlags RoutingFlag, rateOrErr int16, opts Options) *OpenRspPacket {
-	return &OpenRspPacket{
-		Header: Header{
-			TrHeader:    ds.transaction(),
-			CommandCode: CmdCodeOpenRsp,
-			Flags:       envFlags,
-		},
-		RateOrErrCode: rateOrErr,
-		Options:       opts,
+// sequenced returns a new TrHeader usable for sending a sequenced data packet.
+// Only data senders send sequenced data.
+func (tr *Transport) sequenced(connID, seq uint16) TrHeader {
+	return TrHeader{
+		DomainHeader: tr.domainHeader(PacketTypeRouting),
+		ConnectionID: connID,
+		Sequence:     seq,
 	}
-}
-
-// DataReceiver is used to track reciever state in a one-way AURP connection.
-// Note that both data senders and data recievers can send packets.
-type DataReceiver struct {
-	TrHeader
 }
 
 // NewOpenReqPacket returns a new Open-Req packet structure. By default it sets
 // all SUI flags and uses version 1.
-func (dr *DataReceiver) NewOpenReqPacket(opts Options) *OpenReqPacket {
+func (tr *Transport) NewOpenReqPacket(opts Options) *OpenReqPacket {
 	return &OpenReqPacket{
 		Header: Header{
-			TrHeader:    dr.transaction(),
+			TrHeader:    tr.transaction(tr.LocalConnID),
 			CommandCode: CmdCodeOpenReq,
 			Flags:       RoutingFlagAllSUI,
 		},
 		Version: 1,
 		Options: opts,
+	}
+}
+
+// NewOpenRspPacket returns a new Open-Rsp packet structure.
+func (tr *Transport) NewOpenRspPacket(envFlags RoutingFlag, rateOrErr int16, opts Options) *OpenRspPacket {
+	return &OpenRspPacket{
+		Header: Header{
+			TrHeader:    tr.transaction(tr.RemoteConnID),
+			CommandCode: CmdCodeOpenRsp,
+			Flags:       envFlags,
+		},
+		RateOrErrCode: rateOrErr,
+		Options:       opts,
 	}
 }
