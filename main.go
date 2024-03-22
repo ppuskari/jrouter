@@ -57,8 +57,8 @@ func main() {
 		// net.PacketConn.ReadFrom: "Callers should always process
 		// the n > 0 bytes returned before considering the error err."
 
-		dh, _, err := aurp.ParseDomainHeader(pb[:pktlen])
-		if err != nil {
+		dh, _, parseErr := aurp.ParseDomainHeader(pb[:pktlen])
+		if parseErr != nil {
 			log.Printf("Failed to parse domain header: %v", err)
 		}
 
@@ -79,7 +79,7 @@ func main() {
 			// New peer!
 			tr = &aurp.Transport{
 				LocalDI:     aurp.IPDomainIdentifier(localIP),
-				RemoteDI:    dh.SourceDI,
+				RemoteDI:    dh.SourceDI, // platinum rule
 				LocalConnID: nextConnID,
 			}
 			nextConnID++
@@ -106,11 +106,17 @@ func main() {
 
 			// Formulate a response.
 			var rp *aurp.OpenRspPacket
-			if p.Version != 1 {
+			switch {
+			case p.Version != 1:
 				// Respond with Open-Rsp with unknown version error.
 				rp = tr.NewOpenRspPacket(0, aurp.ErrCodeInvalidVersion, nil)
-			} else {
-				// Accept the connection, I guess?
+
+			case len(p.Options) > 0:
+				// Options? OPTIONS? We don't accept no stinkin' _options_
+				rp = tr.NewOpenRspPacket(0, aurp.ErrCodeOptionNegotiation, nil)
+
+			default:
+				// Accept it I guess.
 				rp = tr.NewOpenRspPacket(0, 1, nil)
 			}
 
