@@ -215,7 +215,37 @@ func (p *peer) handle() {
 				// Close the connection
 			}
 
-			// TODO
+			// TODO: Make other requests
+
+		case *aurp.RIReqPacket:
+			// TODO: Respond with RI-Rsp
+
+		case *aurp.RIRspPacket:
+			// TODO: Repsond with RI-Ack
+			// TODO: Integrate info into route table
+
+		case *aurp.RIAckPacket:
+			// TODO: Continue sending next RI-Rsp (streamed)
+			// TODO: If SZI flag is set, send ZI-Rsp (transaction)
+
+		case *aurp.RIUpdPacket:
+			// TODO: Integrate info into route table
+
+		case *aurp.RDPacket:
+			// TODO: Remove router from tables
+			// TODO: Close connection
+
+		case *aurp.ZIReqPacket:
+			// TODO: Respond with ZI-Rsp
+
+		case *aurp.ZIRspPacket:
+			// TODO: Integrate info into zone table
+
+		case *aurp.TicklePacket:
+			// TODO: Respond with TickleAck
+
+		case *aurp.TickleAckPacket:
+			// TODO: Reset LHFT
 		}
 	}
 }
