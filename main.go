@@ -14,29 +14,6 @@ var hasPortRE = regexp.MustCompile(`:\d+$`)
 
 var configFilePath = flag.String("config", "jrouter.yaml", "Path to configuration file to use")
 
-type peer struct {
-	tr    *aurp.Transport
-	conn  *net.UDPConn
-	raddr *net.UDPAddr
-}
-
-func (p *peer) dataReceiver() {
-	// Write an Open-Req packet
-	oreq := p.tr.NewOpenReqPacket(nil)
-	var b bytes.Buffer
-	if _, err := oreq.WriteTo(&b); err != nil {
-		log.Printf("Couldn't write Open-Req packet to buffer: %v", err)
-		return
-	}
-	n, err := p.conn.WriteToUDP(b.Bytes(), p.raddr)
-	if err != nil {
-		log.Printf("Couldn't write packet to peer: %v", err)
-		return
-	}
-	log.Printf("Sent Open-Req (len %d) to peer %v", n, p.raddr)
-
-}
-
 func main() {
 	flag.Parse()
 	log.Println("jrouter")
@@ -69,6 +46,7 @@ func main() {
 			log.Fatalf("No global unicast IPv4 addresses on any network interfaces, and no valid local_ip address in configuration")
 		}
 	}
+	localDI := aurp.IPDomainIdentifier(localIP)
 
 	log.Printf("Using %v as local domain identifier", localIP)
 
@@ -94,25 +72,19 @@ func main() {
 		log.Printf("resolved %q to %v", peerStr, raddr)
 
 		tr := &aurp.Transport{
-			LocalDI:     aurp.IPDomainIdentifier(localIP),
+			LocalDI:     localDI,
 			RemoteDI:    aurp.IPDomainIdentifier(raddr.IP),
 			LocalConnID: nextConnID,
 		}
 		nextConnID++
 
-		// conn, err := net.DialUDP("udp4", nil, raddr)
-		// if err != nil {
-		// 	log.Printf("Couldn't dial %v->%v: %v", nil, raddr, err)
-		// 	continue
-		// }
-		// log.Printf("conn.LocalAddr = %v", conn.LocalAddr())
-
 		peer := &peer{
 			tr:    tr,
 			conn:  ln,
 			raddr: raddr,
+			recv:  make(chan aurp.Packet, 1024),
 		}
-		go peer.dataReceiver()
+		go peer.handle()
 
 		peers[udpAddrFromNet(raddr)] = peer
 	}
@@ -129,11 +101,13 @@ func main() {
 		dh, _, parseErr := aurp.ParseDomainHeader(pb[:pktlen])
 		if parseErr != nil {
 			log.Printf("Failed to parse domain header: %v", err)
+			continue
 		}
 
 		pkt, parseErr := aurp.ParsePacket(pb[:pktlen])
 		if parseErr != nil {
 			log.Printf("Failed to parse packet: %v", parseErr)
+			continue
 		}
 
 		log.Printf("The packet parsed succesfully as a %T", pkt)
@@ -151,17 +125,50 @@ func main() {
 			nextConnID++
 			pr = &peer{
 				tr: &aurp.Transport{
-					LocalDI:     aurp.IPDomainIdentifier(localIP),
+					LocalDI:     localDI,
 					RemoteDI:    dh.SourceDI, // platinum rule
 					LocalConnID: nextConnID,
 				},
 				conn:  ln,
 				raddr: raddr,
+				recv:  make(chan aurp.Packet, 1024),
 			}
 			peers[ra] = pr
+			go pr.handle()
 		}
 
-		switch p := pkt.(type) {
+		// Pass the packet to the goroutine in charge of this peer.
+		pr.recv <- pkt
+	}
+}
+
+type peer struct {
+	tr    *aurp.Transport
+	conn  *net.UDPConn
+	raddr *net.UDPAddr
+	recv  chan aurp.Packet
+}
+
+// send encodes and sends pkt to the remote host.
+func (p *peer) send(pkt aurp.Packet) (int, error) {
+	var b bytes.Buffer
+	if _, err := pkt.WriteTo(&b); err != nil {
+		return 0, err
+	}
+	return p.conn.WriteToUDP(b.Bytes(), p.raddr)
+}
+
+func (p *peer) handle() {
+	// Write an Open-Req packet
+	n, err := p.send(p.tr.NewOpenReqPacket(nil))
+	if err != nil {
+		log.Printf("Couldn't send Open-Req packet: %v", err)
+		return
+	}
+	log.Printf("Sent Open-Req (len %d) to peer %v", n, p.raddr)
+
+	for pkt := range p.recv {
+		switch pkt := pkt.(type) {
 		case *aurp.AppleTalkPacket:
 			// Probably something like:
 			//
@@ -177,44 +184,38 @@ func main() {
 
 		case *aurp.OpenReqPacket:
 			// The peer tells us their connection ID in Open-Req.
-			pr.tr.RemoteConnID = p.ConnectionID
+			p.tr.RemoteConnID = pkt.ConnectionID
 
 			// Formulate a response.
-			var rp *aurp.OpenRspPacket
+			var orsp *aurp.OpenRspPacket
 			switch {
-			case p.Version != 1:
+			case pkt.Version != 1:
 				// Respond with Open-Rsp with unknown version error.
-				rp = pr.tr.NewOpenRspPacket(0, aurp.ErrCodeInvalidVersion, nil)
+				orsp = p.tr.NewOpenRspPacket(0, aurp.ErrCodeInvalidVersion, nil)
 
-			case len(p.Options) > 0:
+			case len(pkt.Options) > 0:
 				// Options? OPTIONS? We don't accept no stinkin' _options_
-				rp = pr.tr.NewOpenRspPacket(0, aurp.ErrCodeOptionNegotiation, nil)
+				orsp = p.tr.NewOpenRspPacket(0, aurp.ErrCodeOptionNegotiation, nil)
 
 			default:
 				// Accept it I guess.
-				rp = pr.tr.NewOpenRspPacket(0, 1, nil)
+				orsp = p.tr.NewOpenRspPacket(0, 1, nil)
 			}
 
-			log.Printf("Responding with %T", rp)
+			log.Printf("Responding with %T", orsp)
 
-			// Write an Open-Rsp packet
-			var b bytes.Buffer
-			if _, err := rp.WriteTo(&b); err != nil {
-				log.Printf("Couldn't create response packet: %v", err)
-				break
-			}
-			if _, err := ln.WriteToUDP(b.Bytes(), raddr); err != nil {
-				log.Printf("Couldn't write response packet to UDP peer %v: %v", raddr, err)
+			if _, err := p.send(orsp); err != nil {
+				log.Printf("Couldn't send Open-Rsp: %v", err)
 			}
 
 		case *aurp.OpenRspPacket:
-			if p.RateOrErrCode < 0 {
+			if pkt.RateOrErrCode < 0 {
 				// It's an error code.
-				log.Printf("Open-Rsp error code from peer %v: %d", raddr.IP, p.RateOrErrCode)
+				log.Printf("Open-Rsp error code from peer %v: %d", p.raddr.IP, pkt.RateOrErrCode)
+				// Close the connection
 			}
 
 			// TODO
-
 		}
 	}
 }
