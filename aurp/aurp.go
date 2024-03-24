@@ -90,17 +90,17 @@ type Packet interface {
 // then a particular packet type.
 //
 // (This function contains the big switch statement.)
-func ParsePacket(p []byte) (Packet, error) {
+func ParsePacket(p []byte) (DomainHeader, Packet, error) {
 	dh, p, err := ParseDomainHeader(p)
 	if err != nil {
-		return nil, err
+		return dh, nil, err
 	}
 	if dh.Version != 1 {
-		return nil, fmt.Errorf("unsupported domain header version %d", dh.Version)
+		return dh, nil, fmt.Errorf("unsupported domain header version %d", dh.Version)
 	}
 	switch dh.PacketType {
 	case PacketTypeAppleTalk:
-		return &AppleTalkPacket{
+		return dh, &AppleTalkPacket{
 			DomainHeader: dh,
 			Data:         p,
 		}, nil
@@ -108,12 +108,12 @@ func ParsePacket(p []byte) (Packet, error) {
 	case PacketTypeRouting:
 		tr, p, err := parseTrHeader(p)
 		if err != nil {
-			return nil, err
+			return dh, nil, err
 		}
 		tr.DomainHeader = dh
 		h, p, err := parseHeader(p)
 		if err != nil {
-			return nil, err
+			return dh, nil, err
 		}
 		h.TrHeader = tr
 
@@ -121,137 +121,137 @@ func ParsePacket(p []byte) (Packet, error) {
 		case CmdCodeOpenReq:
 			oreq, err := parseOpenReq(p)
 			if err != nil {
-				return nil, err
+				return dh, nil, err
 			}
 			oreq.Header = h
-			return oreq, nil
+			return dh, oreq, nil
 
 		case CmdCodeOpenRsp:
 			orsp, err := parseOpenRsp(p)
 			if err != nil {
-				return nil, err
+				return dh, nil, err
 			}
 			orsp.Header = h
-			return orsp, nil
+			return dh, orsp, nil
 
 		case CmdCodeRIReq:
-			return &RIReqPacket{
+			return dh, &RIReqPacket{
 				Header: h,
 			}, nil
 
 		case CmdCodeRIRsp:
 			rir, err := parseRIRsp(p)
 			if err != nil {
-				return nil, err
+				return dh, nil, err
 			}
 			rir.Header = h
-			return rir, nil
+			return dh, rir, nil
 
 		case CmdCodeRIAck:
-			return &RIAckPacket{
+			return dh, &RIAckPacket{
 				Header: h,
 			}, nil
 
 		case CmdCodeRIUpd:
 			riu, err := parseRIUpd(p)
 			if err != nil {
-				return nil, err
+				return dh, nil, err
 			}
 			riu.Header = h
-			return riu, nil
+			return dh, riu, nil
 
 		case CmdCodeRD:
 			rd, err := parseRD(p)
 			if err != nil {
-				return nil, err
+				return dh, nil, err
 			}
 			rd.Header = h
-			return rd, nil
+			return dh, rd, nil
 
 		case CmdCodeZoneReq:
 			sc, p, err := parseSubcode(p)
 			if err != nil {
-				return nil, err
+				return dh, nil, err
 			}
 			switch sc {
 			case SubcodeZoneInfoReq:
 				zir, err := parseZIReqPacket(p)
 				if err != nil {
-					return nil, err
+					return dh, nil, err
 				}
 				zir.Header = h
-				return zir, nil
+				return dh, zir, nil
 
 			case SubcodeGetDomainZoneList:
 				gdzl, err := parseGDZLReqPacket(p)
 				if err != nil {
-					return nil, err
+					return dh, nil, err
 				}
 				gdzl.Header = h
-				return gdzl, nil
+				return dh, gdzl, nil
 
 			case SubcodeGetZonesNet:
 				gzn, err := parseGZNReqPacket(p)
 				if err != nil {
-					return nil, err
+					return dh, nil, err
 				}
 				gzn.Header = h
-				return gzn, nil
+				return dh, gzn, nil
 
 			default:
-				return nil, fmt.Errorf("unknown subcode %d", sc)
+				return dh, nil, fmt.Errorf("unknown subcode %d", sc)
 			}
 
 		case CmdCodeZoneRsp:
 			sc, p, err := parseSubcode(p)
 			if err != nil {
-				return nil, err
+				return dh, nil, err
 			}
 			switch sc {
 			case SubcodeZoneInfoNonExt, SubcodeZoneInfoExt:
 				zir, err := parseZIRspPacket(p)
 				if err != nil {
-					return nil, err
+					return dh, nil, err
 				}
 				zir.Header = h
 				zir.Subcode = sc // 1 or 2, only known at this layer
-				return zir, nil
+				return dh, zir, nil
 
 			case SubcodeGetDomainZoneList:
 				gdzl, err := parseGDZLRspPacket(p)
 				if err != nil {
-					return nil, err
+					return dh, nil, err
 				}
 				gdzl.Header = h
-				return gdzl, nil
+				return dh, gdzl, nil
 
 			case SubcodeGetZonesNet:
 				gzn, err := parseGZNRspPacket(p)
 				if err != nil {
-					return nil, err
+					return dh, nil, err
 				}
 				gzn.Header = h
-				return gzn, nil
+				return dh, gzn, nil
 
 			default:
-				return nil, fmt.Errorf("unknown subcode %d", sc)
+				return dh, nil, fmt.Errorf("unknown subcode %d", sc)
 			}
 
 		case CmdCodeTickle:
-			return &TicklePacket{
+			return dh, &TicklePacket{
 				Header: h,
 			}, nil
 
 		case CmdCodeTickleAck:
-			return &TickleAckPacket{
+			return dh, &TickleAckPacket{
 				Header: h,
 			}, nil
 
 		default:
-			return nil, fmt.Errorf("unknown routing packet command code %d", h.CommandCode)
+			return dh, nil, fmt.Errorf("unknown routing packet command code %d", h.CommandCode)
 		}
 
 	default:
-		return nil, fmt.Errorf("unsupported domain header packet type %d", dh.PacketType)
+		return dh, nil, fmt.Errorf("unsupported domain header packet type %d", dh.PacketType)
 	}
 }

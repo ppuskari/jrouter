@@ -98,13 +98,7 @@ func main() {
 
 		log.Printf("Received packet of length %d from %v", pktlen, raddr)
 
-		dh, _, parseErr := aurp.ParseDomainHeader(pb[:pktlen])
-		if parseErr != nil {
-			log.Printf("Failed to parse domain header: %v", err)
-			continue
-		}
-
-		pkt, parseErr := aurp.ParsePacket(pb[:pktlen])
+		dh, pkt, parseErr := aurp.ParsePacket(pb[:pktlen])
 		if parseErr != nil {
 			log.Printf("Failed to parse packet: %v", parseErr)
 			continue
