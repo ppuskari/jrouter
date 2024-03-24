@@ -1,0 +1,8 @@
+ethertalk:
+    zone: The Twilight Zone
+    net_start: 100
+    net_end: 109
+
+open_peering: true
+peers:
+- 192.168.86.21

@@ -2,21 +2,51 @@ package main
 
 import (
 	"bytes"
-	"encoding/binary"
 	"flag"
 	"log"
 	"net"
+	"regexp"
 
 	"gitea.drjosh.dev/josh/jrouter/aurp"
 )
 
-var localIPAddr = flag.String("local-ip", "", "IPv4 address to use as the Source Domain Identifier")
+var hasPortRE = regexp.MustCompile(`:\d+$`)
+
+var configFilePath = flag.String("config", "jrouter.yaml", "Path to configuration file to use")
+
+type peer struct {
+	tr    *aurp.Transport
+	conn  *net.UDPConn
+	raddr *net.UDPAddr
+}
+
+func (p *peer) dataReceiver() {
+	// Write an Open-Req packet
+	oreq := p.tr.NewOpenReqPacket(nil)
+	var b bytes.Buffer
+	if _, err := oreq.WriteTo(&b); err != nil {
+		log.Printf("Couldn't write Open-Req packet to buffer: %v", err)
+		return
+	}
+	n, err := p.conn.WriteToUDP(b.Bytes(), p.raddr)
+	if err != nil {
+		log.Printf("Couldn't write packet to peer: %v", err)
+		return
+	}
+	log.Printf("Sent Open-Req (len %d) to peer %v", n, p.raddr)
+
+}
 
 func main() {
 	flag.Parse()
 	log.Println("jrouter")
 
-	localIP := net.ParseIP(*localIPAddr).To4()
+	cfg, err := loadConfig(*configFilePath)
+	if err != nil {
+		log.Fatalf("Couldn't load configuration file: %v", err)
+	}
+
+	localIP := net.ParseIP(cfg.LocalIP).To4()
 	if localIP == nil {
 		iaddrs, err := net.InterfaceAddrs()
 		if err != nil {
@@ -36,18 +66,55 @@ func main() {
 			}
 		}
 		if localIP == nil {
-			log.Fatalf("No global unicast IPv4 addresses on any network interfaces, and no valid address passed with --local-ip")
+			log.Fatalf("No global unicast IPv4 addresses on any network interfaces, and no valid local_ip address in configuration")
 		}
 	}
 
 	log.Printf("Using %v as local domain identifier", localIP)
 
-	peers := make(map[uint32]*aurp.Transport)
+	peers := make(map[udpAddr]*peer)
 	var nextConnID uint16
 
-	ln, err := net.ListenUDP("udp4", &net.UDPAddr{Port: 387})
+	ln, err := net.ListenUDP("udp4", &net.UDPAddr{Port: int(cfg.ListenPort)})
 	if err != nil {
 		log.Fatalf("Couldn't listen on udp4:387: %v", err)
+	}
+	defer ln.Close()
+	log.Printf("Listening on %v", ln.LocalAddr())
+
+	for _, peerStr := range cfg.Peers {
+		if !hasPortRE.MatchString(peerStr) {
+			peerStr += ":387"
+		}
+
+		raddr, err := net.ResolveUDPAddr("udp4", peerStr)
+		if err != nil {
+			log.Fatalf("Invalid UDP address: %v", err)
+		}
+		log.Printf("resolved %q to %v", peerStr, raddr)
+
+		tr := &aurp.Transport{
+			LocalDI:     aurp.IPDomainIdentifier(localIP),
+			RemoteDI:    aurp.IPDomainIdentifier(raddr.IP),
+			LocalConnID: nextConnID,
+		}
+		nextConnID++
+
+		// conn, err := net.DialUDP("udp4", nil, raddr)
+		// if err != nil {
+		// 	log.Printf("Couldn't dial %v->%v: %v", nil, raddr, err)
+		// 	continue
+		// }
+		// log.Printf("conn.LocalAddr = %v", conn.LocalAddr())
+
+		peer := &peer{
+			tr:    tr,
+			conn:  ln,
+			raddr: raddr,
+		}
+		go peer.dataReceiver()
+
+		peers[udpAddrFromNet(raddr)] = peer
 	}
 
 	// Incoming packet loop
@@ -56,6 +123,8 @@ func main() {
 		pktlen, raddr, readErr := ln.ReadFromUDP(pb)
 		// net.PacketConn.ReadFrom: "Callers should always process
 		// the n > 0 bytes returned before considering the error err."
+
+		log.Printf("Received packet of length %d from %v", pktlen, raddr)
 
 		dh, _, parseErr := aurp.ParseDomainHeader(pb[:pktlen])
 		if parseErr != nil {
@@ -67,23 +136,29 @@ func main() {
 			log.Printf("Failed to parse packet: %v", parseErr)
 		}
 
+		log.Printf("The packet parsed succesfully as a %T", pkt)
+
 		if readErr != nil {
 			log.Printf("Failed to read packet: %v", readErr)
 			continue
 		}
 
 		// Existing peer?
-		rip := binary.BigEndian.Uint32(raddr.IP)
-		tr := peers[rip]
-		if tr == nil {
+		ra := udpAddrFromNet(raddr)
+		pr := peers[ra]
+		if pr == nil {
 			// New peer!
-			tr = &aurp.Transport{
-				LocalDI:     aurp.IPDomainIdentifier(localIP),
-				RemoteDI:    dh.SourceDI, // platinum rule
-				LocalConnID: nextConnID,
-			}
 			nextConnID++
-			peers[rip] = tr
+			pr = &peer{
+				tr: &aurp.Transport{
+					LocalDI:     aurp.IPDomainIdentifier(localIP),
+					RemoteDI:    dh.SourceDI, // platinum rule
+					LocalConnID: nextConnID,
+				},
+				conn:  ln,
+				raddr: raddr,
+			}
+			peers[ra] = pr
 		}
 
 		switch p := pkt.(type) {
@@ -102,23 +177,25 @@ func main() {
 
 		case *aurp.OpenReqPacket:
 			// The peer tells us their connection ID in Open-Req.
-			tr.RemoteConnID = p.ConnectionID
+			pr.tr.RemoteConnID = p.ConnectionID
 
 			// Formulate a response.
 			var rp *aurp.OpenRspPacket
 			switch {
 			case p.Version != 1:
 				// Respond with Open-Rsp with unknown version error.
-				rp = tr.NewOpenRspPacket(0, aurp.ErrCodeInvalidVersion, nil)
+				rp = pr.tr.NewOpenRspPacket(0, aurp.ErrCodeInvalidVersion, nil)
 
 			case len(p.Options) > 0:
 				// Options? OPTIONS? We don't accept no stinkin' _options_
-				rp = tr.NewOpenRspPacket(0, aurp.ErrCodeOptionNegotiation, nil)
+				rp = pr.tr.NewOpenRspPacket(0, aurp.ErrCodeOptionNegotiation, nil)
 
 			default:
 				// Accept it I guess.
-				rp = tr.NewOpenRspPacket(0, 1, nil)
+				rp = pr.tr.NewOpenRspPacket(0, 1, nil)
 			}
+
+			log.Printf("Responding with %T", rp)
 
 			// Write an Open-Rsp packet
 			var b bytes.Buffer
@@ -136,6 +213,28 @@ func main() {
 				log.Printf("Open-Rsp error code from peer %v: %d", raddr.IP, p.RateOrErrCode)
 			}
 
+			// TODO
+
 		}
+	}
+}
+
+// Hashable net.UDPAddr
+type udpAddr struct {
+	ipv4 [4]byte
+	port uint16
+}
+
+func udpAddrFromNet(a *net.UDPAddr) udpAddr {
+	return udpAddr{
+		ipv4: [4]byte(a.IP.To4()),
+		port: uint16(a.Port),
+	}
+}
+
+func (u udpAddr) toNet() *net.UDPAddr {
+	return &net.UDPAddr{
+		IP:   u.ipv4[:],
+		Port: int(u.port),
 	}
 }
