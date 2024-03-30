@@ -1,5 +1,5 @@
 ethertalk:
-    zone: The Twilight Zone
+    zone_name: The Twilight Zone
     net_start: 100
     net_end: 100
 
