@@ -70,6 +70,7 @@ func main() {
 	// Wait until all peer handlers have finished before closing the port
 	var handlersWG sync.WaitGroup
 	defer func() {
+		log.Print("Waiting for handlers to return...")
 		handlersWG.Wait()
 		ln.Close()
 	}()
