@@ -15,8 +15,6 @@ type peer struct {
 	conn  *net.UDPConn
 	raddr *net.UDPAddr
 	recv  chan aurp.Packet
-
-	lastHeardFrom time.Time
 }
 
 // send encodes and sends pkt to the remote host.
@@ -32,7 +30,7 @@ func (p *peer) handle(ctx context.Context) error {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	p.lastHeardFrom = time.Now()
+	lastHeardFrom := time.Now()
 
 	// Write an Open-Req packet
 	n, err := p.send(p.tr.NewOpenReqPacket(nil))
@@ -54,13 +52,15 @@ func (p *peer) handle(ctx context.Context) error {
 		case <-ticker.C:
 			// TODO: time-based state changes
 			// Check LHFT, send tickle?
-			if time.Since(p.lastHeardFrom) > 10*time.Second {
+			if time.Since(lastHeardFrom) > 10*time.Second {
 				if _, err := p.send(p.tr.NewTicklePacket()); err != nil {
 					log.Printf("Couldn't send Tickle: %v", err)
 				}
 			}
 
 		case pkt := <-p.recv:
+			lastHeardFrom = time.Now()
+
 			switch pkt := pkt.(type) {
 			case *aurp.AppleTalkPacket:
 				// Probably something like:
@@ -136,12 +136,13 @@ func (p *peer) handle(ctx context.Context) error {
 				// TODO: Integrate info into zone table
 
 			case *aurp.TicklePacket:
+				// Immediately respond with Tickle-Ack
 				if _, err := p.send(p.tr.NewTickleAckPacket()); err != nil {
 					log.Printf("Couldn't send Tickle-Ack: %v", err)
 				}
 
 			case *aurp.TickleAckPacket:
-				p.lastHeardFrom = time.Now()
+				// No need to do anything
 			}
 		}
 	}
