@@ -137,7 +137,6 @@ func (p *peer) handle(ctx context.Context) error {
 					log.Printf("Open-Rsp error code from peer %v: %d", p.raddr.IP, pkt.RateOrErrCode)
 					// Close the connection
 					rstate = receiverStateUnconnected
-					return nil
 				}
 
 				// TODO: Make other requests
@@ -157,13 +156,14 @@ func (p *peer) handle(ctx context.Context) error {
 				// TODO: Integrate info into route table
 
 			case *aurp.RDPacket:
-				// TODO: Remove router from tables
-				// TODO: Close connection
+				// TODO: Remove router from route tables
+
 				log.Printf("Router Down: error code %d %s", pkt.ErrorCode, pkt.ErrorCode)
 				// Respond with RI-Ack
 				if _, err := p.send(p.tr.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, 0)); err != nil {
 					log.Printf("Couldn't send RI-Ack: %v", err)
 				}
+				// Connection closed
 				rstate = receiverStateUnconnected
 
 			case *aurp.ZIReqPacket:
