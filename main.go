@@ -59,11 +59,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("Couldn't listen on udp4:387: %v", err)
 	}
-	defer ln.Close()
 	log.Printf("Listening on %v", ln.LocalAddr())
 
 	log.Println("Press ^C or send SIGINT to stop the router gracefully")
 	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt)
+	go func() {
+		// net.UDPConn is not context-aware? Hmmm.
+		<-ctx.Done()
+		ln.Close()
+	}()
 
 	for _, peerStr := range cfg.Peers {
 		if !hasPortRE.MatchString(peerStr) {
@@ -113,7 +117,7 @@ func main() {
 
 		if readErr != nil {
 			log.Printf("Failed to read packet: %v", readErr)
-			continue
+			return
 		}
 
 		// Existing peer?
@@ -137,7 +141,13 @@ func main() {
 		}
 
 		// Pass the packet to the goroutine in charge of this peer.
-		pr.recv <- pkt
+		select {
+		case pr.recv <- pkt:
+			// That's it for us.
+
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 
