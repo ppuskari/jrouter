@@ -51,6 +51,20 @@ type Transport struct {
 	LocalSeq, RemoteSeq uint16
 }
 
+func (tr *Transport) IncLocalSeq() {
+	tr.LocalSeq++
+	if tr.LocalSeq == 0 {
+		tr.LocalSeq = 1
+	}
+}
+
+func (tr *Transport) IncRemoteSeq() {
+	tr.RemoteSeq++
+	if tr.RemoteSeq == 0 {
+		tr.RemoteSeq = 1
+	}
+}
+
 // domainHeader returns a new domain header suitable for sending a packet.
 func (tr *Transport) domainHeader(pt PacketType) DomainHeader {
 	return DomainHeader{
@@ -111,10 +125,10 @@ func (tr *Transport) NewOpenRspPacket(envFlags RoutingFlag, rateOrErr int16, opt
 	}
 }
 
-func (tr *Transport) NewRIRspPacket(connID, seq uint16, last RoutingFlag, nets NetworkTuples) *RIRspPacket {
+func (tr *Transport) NewRIRspPacket(last RoutingFlag, nets NetworkTuples) *RIRspPacket {
 	return &RIRspPacket{
 		Header: Header{
-			TrHeader:    tr.sequenced(connID, seq),
+			TrHeader:    tr.sequenced(tr.RemoteConnID, tr.LocalSeq),
 			CommandCode: CmdCodeRIRsp,
 			Flags:       last,
 		},

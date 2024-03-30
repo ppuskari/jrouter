@@ -233,7 +233,8 @@ func (p *peer) handle(ctx context.Context) error {
 						Distance:   1,
 					},
 				}
-				if _, err := p.send(p.tr.NewRIRspPacket(pkt.ConnectionID, p.tr.LocalSeq, aurp.RoutingFlagLast, nets)); err != nil {
+				p.tr.LocalSeq = 1
+				if _, err := p.send(p.tr.NewRIRspPacket(aurp.RoutingFlagLast, nets)); err != nil {
 					log.Printf("Couldn't send RI-Rsp packet: %v", err)
 				}
 				sstate = ssWaitForRIAck1
