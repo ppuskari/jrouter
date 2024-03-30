@@ -95,19 +95,18 @@ func main() {
 		}
 		log.Printf("resolved %q to %v", peerStr, raddr)
 
-		tr := &aurp.Transport{
-			LocalDI:     localDI,
-			RemoteDI:    aurp.IPDomainIdentifier(raddr.IP),
-			LocalConnID: nextConnID,
-		}
-		nextConnID++
-
 		peer := &peer{
-			tr:    tr,
+			cfg: cfg,
+			tr: &aurp.Transport{
+				LocalDI:     localDI,
+				RemoteDI:    aurp.IPDomainIdentifier(raddr.IP),
+				LocalConnID: nextConnID,
+			},
 			conn:  ln,
 			raddr: raddr,
 			recv:  make(chan aurp.Packet, 1024),
 		}
+		nextConnID++
 		goHandler(peer)
 		peers[udpAddrFromNet(raddr)] = peer
 	}
@@ -161,6 +160,7 @@ func main() {
 			// New peer!
 			nextConnID++
 			pr = &peer{
+				cfg: cfg,
 				tr: &aurp.Transport{
 					LocalDI:     localDI,
 					RemoteDI:    dh.SourceDI, // platinum rule

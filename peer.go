@@ -59,6 +59,7 @@ func (ss senderState) String() string {
 }
 
 type peer struct {
+	cfg   *config
 	tr    *aurp.Transport
 	conn  *net.UDPConn
 	raddr *net.UDPAddr
@@ -225,7 +226,17 @@ func (p *peer) handle(ctx context.Context) error {
 					log.Printf("Received RI-Req but was not expecting one (sender state was %v)", sstate)
 				}
 
-				// TODO: Respond with RI-Rsp
+				nets := aurp.NetworkTuples{
+					{
+						RangeStart: p.cfg.EtherTalk.NetStart,
+						RangeEnd:   p.cfg.EtherTalk.NetEnd,
+						Distance:   1,
+					},
+				}
+				if _, err := p.send(p.tr.NewRIRspPacket(pkt.ConnectionID, p.tr.LocalSeq, aurp.RoutingFlagLast, nets)); err != nil {
+					log.Printf("Couldn't send RI-Rsp packet: %v", err)
+				}
+				sstate = ssWaitForRIAck1
 
 			case *aurp.RIRspPacket:
 				if rstate != rsWaitForRIRsp {
@@ -235,8 +246,37 @@ func (p *peer) handle(ctx context.Context) error {
 				// TODO: Integrate info into route table
 
 			case *aurp.RIAckPacket:
-				// TODO: Continue sending next RI-Rsp (streamed)
-				// TODO: If SZI flag is set, send ZI-Rsp (transaction)
+				switch sstate {
+				case ssWaitForRIAck1:
+					// We sent an RI-Rsp, this is the RI-Ack we expected.
+
+				case ssWaitForRIAck2:
+					// We sent an RI-Upd, this is the RI-Ack we expected.
+
+				case ssWaitForRIAck3:
+					// We sent an RD... Why are we here?
+					continue
+
+				default:
+					log.Printf("Received RI-Ack but was not waiting for one (sender state was %v)", sstate)
+				}
+
+				sstate = ssConnected
+
+				// If SZI flag is set, send ZI-Rsp (transaction)
+				if pkt.Flags&aurp.RoutingFlagSendZoneInfo != 0 {
+					zones := aurp.ZoneTuples{
+						{
+							Network: p.cfg.EtherTalk.NetStart,
+							Name:    p.cfg.EtherTalk.ZoneName,
+						},
+					}
+					if _, err := p.send(p.tr.NewZIRspPacket(zones)); err != nil {
+						log.Printf("Couldn't send ZI-Rsp packet: %v", err)
+					}
+				}
+
+				// TODO: Continue sending next RI-Rsp (streamed)?
 
 			case *aurp.RIUpdPacket:
 				// TODO: Integrate info into route table

@@ -111,6 +111,17 @@ func (tr *Transport) NewOpenRspPacket(envFlags RoutingFlag, rateOrErr int16, opt
 	}
 }
 
+func (tr *Transport) NewRIRspPacket(connID, seq uint16, last RoutingFlag, nets NetworkTuples) *RIRspPacket {
+	return &RIRspPacket{
+		Header: Header{
+			TrHeader:    tr.sequenced(connID, seq),
+			CommandCode: CmdCodeRIRsp,
+			Flags:       last,
+		},
+		Networks: nets,
+	}
+}
+
 func (tr *Transport) NewRIAckPacket(connID, seq uint16, szi RoutingFlag) *RIAckPacket {
 	return &RIAckPacket{
 		Header: Header{
@@ -118,6 +129,29 @@ func (tr *Transport) NewRIAckPacket(connID, seq uint16, szi RoutingFlag) *RIAckP
 			CommandCode: CmdCodeRIAck,
 			Flags:       szi,
 		},
+	}
+}
+
+func (tr *Transport) NewZIRspPacket(zones ZoneTuples) *ZIRspPacket {
+	nns := make(map[uint16]struct{})
+	for _, z := range zones {
+		nns[z.Network] = struct{}{}
+	}
+	// Only one network: use extended
+	// More than one network: use non-extended
+	subcode := SubcodeZoneInfoExt
+	if len(nns) != 1 {
+		subcode = SubcodeZoneInfoNonExt
+	}
+
+	return &ZIRspPacket{
+		Header: Header{
+			TrHeader:    tr.transaction(tr.RemoteConnID),
+			CommandCode: CmdCodeZoneRsp,
+			Flags:       0,
+		},
+		Subcode: subcode,
+		Zones:   zones,
 	}
 }
 
