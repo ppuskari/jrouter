@@ -12,30 +12,30 @@ import (
 
 const (
 	// TODO: check these parameters
-	lastHeardFromTimer      = 10 * time.Second
-	lastHeardFromRetryLimit = 10
-	sendRetryTimer          = 10 * time.Second
-	sendRetryLimit          = 5
+	lastHeardFromTimer = 10 * time.Second
+	tickleRetryLimit   = 10
+	sendRetryTimer     = 10 * time.Second
+	sendRetryLimit     = 5
 )
 
 type receiverState int
 
 const (
-	receiverStateUnconnected receiverState = iota
-	receiverStateConnected
-	receiverStateWaitForOpenRsp
-	receiverStateWaitForRIRsp
-	receiverStateWaitForTickleAck
+	rsUnconnected receiverState = iota
+	rsConnected
+	rsWaitForOpenRsp
+	rsWaitForRIRsp
+	rsWaitForTickleAck
 )
 
 type senderState int
 
 const (
-	senderStateUnconnected senderState = iota
-	senderStateConnected
-	senderStateWaitForRIAck1
-	senderStateWaitForRIAck2
-	senderStateWaitForRIAck3
+	ssUnconnected senderState = iota
+	ssConnected
+	ssWaitForRIAck1
+	ssWaitForRIAck2
+	ssWaitForRIAck3
 )
 
 type peer struct {
@@ -63,8 +63,8 @@ func (p *peer) handle(ctx context.Context) error {
 	lastSend := time.Now()
 	sendRetries := 0
 
-	rstate := receiverStateUnconnected
-	sstate := senderStateUnconnected
+	rstate := rsUnconnected
+	sstate := ssUnconnected
 
 	// Write an Open-Req packet
 	if _, err := p.send(p.tr.NewOpenReqPacket(nil)); err != nil {
@@ -72,12 +72,13 @@ func (p *peer) handle(ctx context.Context) error {
 		return err
 	}
 
-	rstate = receiverStateWaitForOpenRsp
+	rstate = rsWaitForOpenRsp
 
 	for {
 		select {
 		case <-ctx.Done():
-			if rstate == receiverStateUnconnected {
+			if sstate == ssUnconnected {
+				// Return immediately
 				return ctx.Err()
 			}
 			// Send a best-effort Router Down before returning
@@ -88,31 +89,53 @@ func (p *peer) handle(ctx context.Context) error {
 
 		case <-ticker.C:
 			switch rstate {
-			case receiverStateWaitForOpenRsp:
+			case rsWaitForOpenRsp:
 				if time.Since(lastSend) <= sendRetryTimer {
 					break
 				}
 				if sendRetries >= sendRetryLimit {
 					log.Printf("Send retry limit reached while waiting for Open-Rsp, closing connection")
-					rstate = receiverStateUnconnected
+					rstate = rsUnconnected
 					break
 				}
 
 				// Send another Open-Req
 				sendRetries++
+				lastSend = time.Now()
 				if _, err := p.send(p.tr.NewOpenReqPacket(nil)); err != nil {
 					log.Printf("Couldn't send Open-Req packet: %v", err)
 					return err
 				}
 
-			case receiverStateConnected:
+			case rsConnected:
 				// Check LHFT, send tickle?
-				if time.Since(lastHeardFrom) > lastHeardFromTimer {
-					if _, err := p.send(p.tr.NewTicklePacket()); err != nil {
-						log.Printf("Couldn't send Tickle: %v", err)
-					}
+				if time.Since(lastHeardFrom) <= lastHeardFromTimer {
+					break
 				}
-				rstate = receiverStateWaitForTickleAck
+				if _, err := p.send(p.tr.NewTicklePacket()); err != nil {
+					log.Printf("Couldn't send Tickle: %v", err)
+					return err
+				}
+				rstate = rsWaitForTickleAck
+				sendRetries = 0
+				lastSend = time.Now()
+
+			case rsWaitForTickleAck:
+				if time.Since(lastSend) <= sendRetryTimer {
+					break
+				}
+				if sendRetries >= tickleRetryLimit {
+					log.Printf("Send retry limit reached while waiting for Tickle-Ack, closing connection")
+					rstate = rsUnconnected
+					break
+				}
+
+				sendRetries++
+				lastSend = time.Now()
+				if _, err := p.send(p.tr.NewTicklePacket()); err != nil {
+					log.Printf("Couldn't send Tickle: %v", err)
+					return err
+				}
 			}
 
 		case pkt := <-p.recv:
@@ -120,7 +143,7 @@ func (p *peer) handle(ctx context.Context) error {
 
 			switch pkt := pkt.(type) {
 			case *aurp.OpenReqPacket:
-				if sstate != senderStateUnconnected {
+				if sstate != ssUnconnected {
 					log.Printf("Open-Req received but sender state is not Unconnected (was %d); ignoring packet", sstate)
 					break
 				}
@@ -144,26 +167,23 @@ func (p *peer) handle(ctx context.Context) error {
 					orsp = p.tr.NewOpenRspPacket(0, 1, nil)
 				}
 
-				log.Printf("Responding with %T", orsp)
-
 				if _, err := p.send(orsp); err != nil {
 					log.Printf("Couldn't send Open-Rsp: %v", err)
+					return err
 				}
 				if orsp.RateOrErrCode >= 0 {
-					sstate = senderStateConnected
-				} else {
-					sstate = senderStateUnconnected
+					sstate = ssConnected
 				}
 
 			case *aurp.OpenRspPacket:
-				if rstate != receiverStateWaitForOpenRsp {
+				if rstate != rsWaitForOpenRsp {
 					log.Printf("Received Open-Rsp but was not waiting for one (receiver state was %d)", rstate)
 				}
 				if pkt.RateOrErrCode < 0 {
 					// It's an error code.
 					log.Printf("Open-Rsp error code from peer %v: %d", p.raddr.IP, pkt.RateOrErrCode)
 					// Close the connection
-					rstate = receiverStateUnconnected
+					rstate = rsUnconnected
 				}
 
 				// TODO: Make other requests
@@ -189,9 +209,10 @@ func (p *peer) handle(ctx context.Context) error {
 				// Respond with RI-Ack
 				if _, err := p.send(p.tr.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, 0)); err != nil {
 					log.Printf("Couldn't send RI-Ack: %v", err)
+					return err
 				}
 				// Connection closed
-				rstate = receiverStateUnconnected
+				rstate = rsUnconnected
 
 			case *aurp.ZIReqPacket:
 				// TODO: Respond with ZI-Rsp
@@ -203,13 +224,14 @@ func (p *peer) handle(ctx context.Context) error {
 				// Immediately respond with Tickle-Ack
 				if _, err := p.send(p.tr.NewTickleAckPacket()); err != nil {
 					log.Printf("Couldn't send Tickle-Ack: %v", err)
+					return err
 				}
 
 			case *aurp.TickleAckPacket:
-				if rstate != receiverStateWaitForTickleAck {
-					log.Printf("Received Tickle-Ack but was not waiting for one (receever state was %d)", rstate)
+				if rstate != rsWaitForTickleAck {
+					log.Printf("Received Tickle-Ack but was not waiting for one (receiver state was %d)", rstate)
 				}
-				rstate = receiverStateConnected
+				rstate = rsConnected
 
 			}
 		}
