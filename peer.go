@@ -194,6 +194,17 @@ func (p *peer) handle(ctx context.Context) error {
 					sstate = ssConnected
 				}
 
+				// If receiver is unconnected, commence connecting
+				if rstate == rsUnconnected {
+					lastSend = time.Now()
+					sendRetries = 0
+					if _, err := p.send(p.tr.NewOpenReqPacket(nil)); err != nil {
+						log.Printf("Couldn't send Open-Req packet: %v", err)
+						return err
+					}
+					rstate = rsWaitForOpenRsp
+				}
+
 			case *aurp.OpenRspPacket:
 				if rstate != rsWaitForOpenRsp {
 					log.Printf("Received Open-Rsp but was not waiting for one (receiver state was %v)", rstate)
@@ -213,6 +224,7 @@ func (p *peer) handle(ctx context.Context) error {
 				if sstate != ssConnected {
 					log.Printf("Received RI-Req but was not expecting one (sender state was %v)", sstate)
 				}
+
 				// TODO: Respond with RI-Rsp
 
 			case *aurp.RIRspPacket:
