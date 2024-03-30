@@ -55,6 +55,8 @@ func main() {
 
 	log.Printf("Using %v as local domain identifier", localIP)
 
+	log.Printf("EtherTalk configuration: %+v", cfg.EtherTalk)
+
 	peers := make(map[udpAddr]*peer)
 	var nextConnID uint16
 

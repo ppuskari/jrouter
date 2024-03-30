@@ -1,7 +1,7 @@
 ethertalk:
     zone: The Twilight Zone
     net_start: 100
-    net_end: 109
+    net_end: 100
 
 open_peering: true
 peers:
