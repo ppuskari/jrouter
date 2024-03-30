@@ -111,6 +111,10 @@ func main() {
 
 	// Incoming packet loop
 	for {
+		if ctx.Err() != nil {
+			return
+		}
+
 		pktbuf := make([]byte, 65536)
 		pktlen, raddr, readErr := ln.ReadFromUDP(pktbuf)
 		// net.PacketConn.ReadFrom: "Callers should always process
