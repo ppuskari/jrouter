@@ -62,7 +62,9 @@ func main() {
 	log.Printf("Listening on %v", ln.LocalAddr())
 
 	log.Println("Press ^C or send SIGINT to stop the router gracefully")
-	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt)
+	cctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx, _ := signal.NotifyContext(cctx, os.Interrupt)
 	go func() {
 		// net.UDPConn is not context-aware? Hmmm.
 		<-ctx.Done()
@@ -104,24 +106,23 @@ func main() {
 		pktlen, raddr, readErr := ln.ReadFromUDP(pktbuf)
 		// net.PacketConn.ReadFrom: "Callers should always process
 		// the n > 0 bytes returned before considering the error err."
-		if ctx.Err() != nil {
-			return
-		}
 
 		log.Printf("Received packet of length %d from %v", pktlen, raddr)
 
 		dh, pkt, parseErr := aurp.ParsePacket(pktbuf[:pktlen])
 		if parseErr != nil {
+			if readErr != nil {
+				log.Printf("Failed to read packet: %v", readErr)
+				return
+			}
 			log.Printf("Failed to parse packet: %v", parseErr)
-			continue
 		}
-
-		log.Printf("The packet parsed succesfully as a %T", pkt)
-
 		if readErr != nil {
 			log.Printf("Failed to read packet: %v", readErr)
 			return
 		}
+
+		log.Printf("The packet parsed succesfully as a %T", pkt)
 
 		// Existing peer?
 		ra := udpAddrFromNet(raddr)
