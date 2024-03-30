@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"net"
@@ -9,6 +10,7 @@ import (
 	"os/signal"
 	"regexp"
 	"sync"
+	"time"
 
 	"gitea.drjosh.dev/josh/jrouter/aurp"
 )
@@ -115,11 +117,14 @@ func main() {
 		if ctx.Err() != nil {
 			return
 		}
-
+		ln.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 		pktbuf := make([]byte, 65536)
 		pktlen, raddr, readErr := ln.ReadFromUDP(pktbuf)
-		// net.PacketConn.ReadFrom: "Callers should always process
-		// the n > 0 bytes returned before considering the error err."
+
+		var operr *net.OpError
+		if errors.As(readErr, &operr) && operr.Timeout() {
+			continue
+		}
 
 		log.Printf("Received packet of length %d from %v", pktlen, raddr)
 
