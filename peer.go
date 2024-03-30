@@ -10,6 +10,14 @@ import (
 	"gitea.drjosh.dev/josh/jrouter/aurp"
 )
 
+const (
+	// TODO: check these parameters
+	lastHeardFromTimer      = 10 * time.Second
+	lastHeardFromRetryLimit = 10
+	sendRetryTimer          = 10 * time.Second
+	sendRetryLimit          = 5
+)
+
 type receiverState int
 
 const (
@@ -43,6 +51,7 @@ func (p *peer) send(pkt aurp.Packet) (int, error) {
 	if _, err := pkt.WriteTo(&b); err != nil {
 		return 0, err
 	}
+	log.Printf("Sending %T (len %d) to %v", pkt, b.Len(), p.raddr)
 	return p.conn.WriteToUDP(b.Bytes(), p.raddr)
 }
 
@@ -51,17 +60,17 @@ func (p *peer) handle(ctx context.Context) error {
 	defer ticker.Stop()
 
 	lastHeardFrom := time.Now()
+	lastSend := time.Now()
+	sendRetries := 0
 
 	rstate := receiverStateUnconnected
 	sstate := senderStateUnconnected
 
 	// Write an Open-Req packet
-	n, err := p.send(p.tr.NewOpenReqPacket(nil))
-	if err != nil {
+	if _, err := p.send(p.tr.NewOpenReqPacket(nil)); err != nil {
 		log.Printf("Couldn't send Open-Req packet: %v", err)
 		return err
 	}
-	log.Printf("Sent Open-Req (len %d) to peer %v", n, p.raddr)
 
 	rstate = receiverStateWaitForOpenRsp
 
@@ -78,9 +87,27 @@ func (p *peer) handle(ctx context.Context) error {
 			return ctx.Err()
 
 		case <-ticker.C:
-			if rstate == receiverStateConnected {
+			switch rstate {
+			case receiverStateWaitForOpenRsp:
+				if time.Since(lastSend) <= sendRetryTimer {
+					break
+				}
+				if sendRetries >= sendRetryLimit {
+					log.Printf("Send retry limit reached while waiting for Open-Rsp, closing connection")
+					rstate = receiverStateUnconnected
+					break
+				}
+
+				// Send another Open-Req
+				sendRetries++
+				if _, err := p.send(p.tr.NewOpenReqPacket(nil)); err != nil {
+					log.Printf("Couldn't send Open-Req packet: %v", err)
+					return err
+				}
+
+			case receiverStateConnected:
 				// Check LHFT, send tickle?
-				if time.Since(lastHeardFrom) > 10*time.Second {
+				if time.Since(lastHeardFrom) > lastHeardFromTimer {
 					if _, err := p.send(p.tr.NewTicklePacket()); err != nil {
 						log.Printf("Couldn't send Tickle: %v", err)
 					}
