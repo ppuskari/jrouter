@@ -104,6 +104,9 @@ func main() {
 		pktlen, raddr, readErr := ln.ReadFromUDP(pktbuf)
 		// net.PacketConn.ReadFrom: "Callers should always process
 		// the n > 0 bytes returned before considering the error err."
+		if ctx.Err() != nil {
+			return
+		}
 
 		log.Printf("Received packet of length %d from %v", pktlen, raddr)
 
