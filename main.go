@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"sync"
 
 	"gitea.drjosh.dev/josh/jrouter/aurp"
 )
@@ -65,11 +66,20 @@ func main() {
 	cctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ctx, _ := signal.NotifyContext(cctx, os.Interrupt)
-	go func() {
-		// net.UDPConn is not context-aware? Hmmm.
-		<-ctx.Done()
+
+	// Wait until all peer handlers have finished before closing the port
+	var handlersWG sync.WaitGroup
+	defer func() {
+		handlersWG.Wait()
 		ln.Close()
 	}()
+	goHandler := func(p *peer) {
+		handlersWG.Add(1)
+		go func() {
+			defer handlersWG.Done()
+			p.handle(ctx)
+		}()
+	}
 
 	for _, peerStr := range cfg.Peers {
 		if !hasPortRE.MatchString(peerStr) {
@@ -95,8 +105,7 @@ func main() {
 			raddr: raddr,
 			recv:  make(chan aurp.Packet, 1024),
 		}
-		go peer.handle(ctx)
-
+		goHandler(peer)
 		peers[udpAddrFromNet(raddr)] = peer
 	}
 
@@ -111,10 +120,6 @@ func main() {
 
 		dh, pkt, parseErr := aurp.ParsePacket(pktbuf[:pktlen])
 		if parseErr != nil {
-			if readErr != nil {
-				log.Printf("Failed to read packet: %v", readErr)
-				return
-			}
 			log.Printf("Failed to parse packet: %v", parseErr)
 		}
 		if readErr != nil {
@@ -141,7 +146,7 @@ func main() {
 				recv:  make(chan aurp.Packet, 1024),
 			}
 			peers[ra] = pr
-			go pr.handle(ctx)
+			goHandler(pr)
 		}
 
 		// Pass the packet to the goroutine in charge of this peer.
