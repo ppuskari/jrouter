@@ -111,6 +111,17 @@ func (tr *Transport) NewOpenRspPacket(envFlags RoutingFlag, rateOrErr int16, opt
 	}
 }
 
+func (tr *Transport) NewRDPacket(errCode ErrorCode) *RDPacket {
+	return &RDPacket{
+		Header: Header{
+			TrHeader:    tr.transaction(tr.LocalConnID),
+			CommandCode: CmdCodeRD,
+			Flags:       0,
+		},
+		ErrorCode: errCode,
+	}
+}
+
 func (tr *Transport) NewTicklePacket() *TicklePacket {
 	return &TicklePacket{
 		Header: Header{

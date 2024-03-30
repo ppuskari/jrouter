@@ -5,6 +5,8 @@ import (
 	"flag"
 	"log"
 	"net"
+	"os"
+	"os/signal"
 	"regexp"
 
 	"gitea.drjosh.dev/josh/jrouter/aurp"
@@ -17,8 +19,6 @@ var configFilePath = flag.String("config", "jrouter.yaml", "Path to configuratio
 func main() {
 	flag.Parse()
 	log.Println("jrouter")
-
-	ctx := context.Background()
 
 	cfg, err := loadConfig(*configFilePath)
 	if err != nil {
@@ -62,6 +62,9 @@ func main() {
 	defer ln.Close()
 	log.Printf("Listening on %v", ln.LocalAddr())
 
+	log.Println("Press ^C or send SIGINT to stop the router gracefully")
+	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt)
+
 	for _, peerStr := range cfg.Peers {
 		if !hasPortRE.MatchString(peerStr) {
 			peerStr += ":387"
@@ -92,15 +95,15 @@ func main() {
 	}
 
 	// Incoming packet loop
-	pb := make([]byte, 65536)
 	for {
-		pktlen, raddr, readErr := ln.ReadFromUDP(pb)
+		pktbuf := make([]byte, 65536)
+		pktlen, raddr, readErr := ln.ReadFromUDP(pktbuf)
 		// net.PacketConn.ReadFrom: "Callers should always process
 		// the n > 0 bytes returned before considering the error err."
 
 		log.Printf("Received packet of length %d from %v", pktlen, raddr)
 
-		dh, pkt, parseErr := aurp.ParsePacket(pb[:pktlen])
+		dh, pkt, parseErr := aurp.ParsePacket(pktbuf[:pktlen])
 		if parseErr != nil {
 			log.Printf("Failed to parse packet: %v", parseErr)
 			continue

@@ -32,6 +32,8 @@ func (p *peer) handle(ctx context.Context) error {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
+	p.lastHeardFrom = time.Now()
+
 	// Write an Open-Req packet
 	n, err := p.send(p.tr.NewOpenReqPacket(nil))
 	if err != nil {
@@ -43,6 +45,10 @@ func (p *peer) handle(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
+			// Send a best-effort Router Down before returning
+			if _, err := p.send(p.tr.NewRDPacket(aurp.ErrCodeNormalClose)); err != nil {
+				log.Printf("Couldn't send RD packet: %v", err)
+			}
 			return ctx.Err()
 
 		case <-ticker.C:
