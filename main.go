@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"net"
@@ -16,6 +17,8 @@ var configFilePath = flag.String("config", "jrouter.yaml", "Path to configuratio
 func main() {
 	flag.Parse()
 	log.Println("jrouter")
+
+	ctx := context.Background()
 
 	cfg, err := loadConfig(*configFilePath)
 	if err != nil {
@@ -83,7 +86,7 @@ func main() {
 			raddr: raddr,
 			recv:  make(chan aurp.Packet, 1024),
 		}
-		go peer.handle()
+		go peer.handle(ctx)
 
 		peers[udpAddrFromNet(raddr)] = peer
 	}
@@ -127,7 +130,7 @@ func main() {
 				recv:  make(chan aurp.Packet, 1024),
 			}
 			peers[ra] = pr
-			go pr.handle()
+			go pr.handle(ctx)
 		}
 
 		// Pass the packet to the goroutine in charge of this peer.

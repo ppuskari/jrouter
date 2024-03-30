@@ -110,3 +110,23 @@ func (tr *Transport) NewOpenRspPacket(envFlags RoutingFlag, rateOrErr int16, opt
 		Options:       opts,
 	}
 }
+
+func (tr *Transport) NewTicklePacket() *TicklePacket {
+	return &TicklePacket{
+		Header: Header{
+			TrHeader:    tr.transaction(tr.LocalConnID),
+			CommandCode: CmdCodeTickle,
+			Flags:       0,
+		},
+	}
+}
+
+func (tr *Transport) NewTickleAckPacket() *TickleAckPacket {
+	return &TickleAckPacket{
+		Header: Header{
+			TrHeader:    tr.transaction(tr.RemoteConnID),
+			CommandCode: CmdCodeTickleAck,
+			Flags:       0,
+		},
+	}
+}
