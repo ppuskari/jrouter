@@ -133,6 +133,21 @@ func main() {
 
 		log.Printf("The packet parsed succesfully as a %T", pkt)
 
+		if _, ok := pkt.(*aurp.AppleTalkPacket); ok {
+			// Probably something like:
+			//
+			// * parse the DDP header
+			// * check that this is headed for our local network
+			// * write the packet out in an EtherTalk frame
+			//
+			// or maybe if we were implementing a "central hub"
+			//
+			// * parse the DDP header
+			// * see if we know the network
+			// * forward to the peer with that network and lowest metric
+			log.Print("TODO: handle AppleTalk packets")
+		}
+
 		// Existing peer?
 		ra := udpAddrFromNet(raddr)
 		pr := peers[ra]

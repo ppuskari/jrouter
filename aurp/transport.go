@@ -111,6 +111,16 @@ func (tr *Transport) NewOpenRspPacket(envFlags RoutingFlag, rateOrErr int16, opt
 	}
 }
 
+func (tr *Transport) NewRIAckPacket(connID, seq uint16, szi RoutingFlag) *RIAckPacket {
+	return &RIAckPacket{
+		Header: Header{
+			TrHeader:    tr.sequenced(connID, seq),
+			CommandCode: CmdCodeRIAck,
+			Flags:       szi,
+		},
+	}
+}
+
 func (tr *Transport) NewRDPacket(errCode ErrorCode) *RDPacket {
 	return &RDPacket{
 		Header: Header{

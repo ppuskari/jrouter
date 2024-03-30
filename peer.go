@@ -10,6 +10,26 @@ import (
 	"gitea.drjosh.dev/josh/jrouter/aurp"
 )
 
+type receiverState int
+
+const (
+	receiverStateUnconnected receiverState = iota
+	receiverStateConnected
+	receiverStateWaitForOpenRsp
+	receiverStateWaitForRIRsp
+	receiverStateWaitForTickleAck
+)
+
+type senderState int
+
+const (
+	senderStateUnconnected senderState = iota
+	senderStateConnected
+	senderStateWaitForRIAck1
+	senderStateWaitForRIAck2
+	senderStateWaitForRIAck3
+)
+
 type peer struct {
 	tr    *aurp.Transport
 	conn  *net.UDPConn
@@ -32,6 +52,9 @@ func (p *peer) handle(ctx context.Context) error {
 
 	lastHeardFrom := time.Now()
 
+	rstate := receiverStateUnconnected
+	sstate := senderStateUnconnected
+
 	// Write an Open-Req packet
 	n, err := p.send(p.tr.NewOpenReqPacket(nil))
 	if err != nil {
@@ -40,9 +63,14 @@ func (p *peer) handle(ctx context.Context) error {
 	}
 	log.Printf("Sent Open-Req (len %d) to peer %v", n, p.raddr)
 
+	rstate = receiverStateWaitForOpenRsp
+
 	for {
 		select {
 		case <-ctx.Done():
+			if rstate == receiverStateUnconnected {
+				return ctx.Err()
+			}
 			// Send a best-effort Router Down before returning
 			if _, err := p.send(p.tr.NewRDPacket(aurp.ErrCodeNormalClose)); err != nil {
 				log.Printf("Couldn't send RD packet: %v", err)
@@ -50,32 +78,26 @@ func (p *peer) handle(ctx context.Context) error {
 			return ctx.Err()
 
 		case <-ticker.C:
-			// TODO: time-based state changes
-			// Check LHFT, send tickle?
-			if time.Since(lastHeardFrom) > 10*time.Second {
-				if _, err := p.send(p.tr.NewTicklePacket()); err != nil {
-					log.Printf("Couldn't send Tickle: %v", err)
+			if rstate == receiverStateConnected {
+				// Check LHFT, send tickle?
+				if time.Since(lastHeardFrom) > 10*time.Second {
+					if _, err := p.send(p.tr.NewTicklePacket()); err != nil {
+						log.Printf("Couldn't send Tickle: %v", err)
+					}
 				}
+				rstate = receiverStateWaitForTickleAck
 			}
 
 		case pkt := <-p.recv:
 			lastHeardFrom = time.Now()
 
 			switch pkt := pkt.(type) {
-			case *aurp.AppleTalkPacket:
-				// Probably something like:
-				//
-				// * parse the DDP header
-				// * check that this is headed for our local network
-				// * write the packet out in an EtherTalk frame
-				//
-				// or maybe if we were implementing a "central hub"
-				//
-				// * parse the DDP header
-				// * see if we know the network
-				// * forward to the peer with that network and lowest metric
-
 			case *aurp.OpenReqPacket:
+				if sstate != senderStateUnconnected {
+					log.Printf("Open-Req received but sender state is not Unconnected (was %d); ignoring packet", sstate)
+					break
+				}
+
 				// The peer tells us their connection ID in Open-Req.
 				p.tr.RemoteConnID = pkt.ConnectionID
 
@@ -100,12 +122,22 @@ func (p *peer) handle(ctx context.Context) error {
 				if _, err := p.send(orsp); err != nil {
 					log.Printf("Couldn't send Open-Rsp: %v", err)
 				}
+				if orsp.RateOrErrCode >= 0 {
+					sstate = senderStateConnected
+				} else {
+					sstate = senderStateUnconnected
+				}
 
 			case *aurp.OpenRspPacket:
+				if rstate != receiverStateWaitForOpenRsp {
+					log.Printf("Received Open-Rsp but was not waiting for one (receiver state was %d)", rstate)
+				}
 				if pkt.RateOrErrCode < 0 {
 					// It's an error code.
 					log.Printf("Open-Rsp error code from peer %v: %d", p.raddr.IP, pkt.RateOrErrCode)
 					// Close the connection
+					rstate = receiverStateUnconnected
+					return nil
 				}
 
 				// TODO: Make other requests
@@ -128,6 +160,11 @@ func (p *peer) handle(ctx context.Context) error {
 				// TODO: Remove router from tables
 				// TODO: Close connection
 				log.Printf("Router Down: error code %d %s", pkt.ErrorCode, pkt.ErrorCode)
+				// Respond with RI-Ack
+				if _, err := p.send(p.tr.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, 0)); err != nil {
+					log.Printf("Couldn't send RI-Ack: %v", err)
+				}
+				rstate = receiverStateUnconnected
 
 			case *aurp.ZIReqPacket:
 				// TODO: Respond with ZI-Rsp
@@ -142,7 +179,11 @@ func (p *peer) handle(ctx context.Context) error {
 				}
 
 			case *aurp.TickleAckPacket:
-				// No need to do anything
+				if rstate != receiverStateWaitForTickleAck {
+					log.Printf("Received Tickle-Ack but was not waiting for one (receever state was %d)", rstate)
+				}
+				rstate = receiverStateConnected
+
 			}
 		}
 	}
