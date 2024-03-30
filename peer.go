@@ -28,6 +28,16 @@ const (
 	rsWaitForTickleAck
 )
 
+func (rs receiverState) String() string {
+	return map[receiverState]string{
+		rsUnconnected:      "unconnected",
+		rsConnected:        "connected",
+		rsWaitForOpenRsp:   "waiting for Open-Rsp",
+		rsWaitForRIRsp:     "waiting for RI-Rsp",
+		rsWaitForTickleAck: "waiting for Tickle-Ack",
+	}[rs]
+}
+
 type senderState int
 
 const (
@@ -37,6 +47,16 @@ const (
 	ssWaitForRIAck2
 	ssWaitForRIAck3
 )
+
+func (ss senderState) String() string {
+	return map[senderState]string{
+		ssUnconnected:   "unconnected",
+		ssConnected:     "connected",
+		ssWaitForRIAck1: "waiting for RI-Ack (1)",
+		ssWaitForRIAck2: "waiting for RI-Ack (2)",
+		ssWaitForRIAck3: "waiting for RI-Ack (3)",
+	}[ss]
+}
 
 type peer struct {
 	tr    *aurp.Transport
@@ -144,8 +164,7 @@ func (p *peer) handle(ctx context.Context) error {
 			switch pkt := pkt.(type) {
 			case *aurp.OpenReqPacket:
 				if sstate != ssUnconnected {
-					log.Printf("Open-Req received but sender state is not Unconnected (was %d); ignoring packet", sstate)
-					break
+					log.Printf("Open-Req received but sender state is not unconnected (was %v)", sstate)
 				}
 
 				// The peer tells us their connection ID in Open-Req.
@@ -177,21 +196,29 @@ func (p *peer) handle(ctx context.Context) error {
 
 			case *aurp.OpenRspPacket:
 				if rstate != rsWaitForOpenRsp {
-					log.Printf("Received Open-Rsp but was not waiting for one (receiver state was %d)", rstate)
+					log.Printf("Received Open-Rsp but was not waiting for one (receiver state was %v)", rstate)
 				}
 				if pkt.RateOrErrCode < 0 {
 					// It's an error code.
 					log.Printf("Open-Rsp error code from peer %v: %d", p.raddr.IP, pkt.RateOrErrCode)
-					// Close the connection
 					rstate = rsUnconnected
+					break
 				}
+				log.Printf("Data receiver is connected!")
+				rstate = rsConnected
 
 				// TODO: Make other requests
 
 			case *aurp.RIReqPacket:
+				if sstate != ssConnected {
+					log.Printf("Received RI-Req but was not expecting one (sender state was %v)", sstate)
+				}
 				// TODO: Respond with RI-Rsp
 
 			case *aurp.RIRspPacket:
+				if rstate != rsWaitForRIRsp {
+					log.Printf("Received RI-Rsp but was not waiting for one (receiver state was %v)", rstate)
+				}
 				// TODO: Repsond with RI-Ack
 				// TODO: Integrate info into route table
 
@@ -203,6 +230,9 @@ func (p *peer) handle(ctx context.Context) error {
 				// TODO: Integrate info into route table
 
 			case *aurp.RDPacket:
+				if rstate == rsUnconnected || rstate == rsWaitForOpenRsp {
+					log.Printf("Received RD but was not expecting one (receiver state was %v)", rstate)
+				}
 				// TODO: Remove router from route tables
 
 				log.Printf("Router Down: error code %d %s", pkt.ErrorCode, pkt.ErrorCode)
@@ -229,10 +259,9 @@ func (p *peer) handle(ctx context.Context) error {
 
 			case *aurp.TickleAckPacket:
 				if rstate != rsWaitForTickleAck {
-					log.Printf("Received Tickle-Ack but was not waiting for one (receiver state was %d)", rstate)
+					log.Printf("Received Tickle-Ack but was not waiting for one (receiver state was %v)", rstate)
 				}
 				rstate = rsConnected
-
 			}
 		}
 	}
