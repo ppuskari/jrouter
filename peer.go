@@ -230,7 +230,7 @@ func (p *peer) handle(ctx context.Context) error {
 					{
 						RangeStart: p.cfg.EtherTalk.NetStart,
 						RangeEnd:   p.cfg.EtherTalk.NetEnd,
-						Distance:   1,
+						Distance:   0,
 					},
 				}
 				p.tr.LocalSeq = 1
