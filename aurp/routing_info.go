@@ -20,6 +20,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"strings"
 )
 
 type RIReqPacket struct {
@@ -77,6 +78,17 @@ func parseRIUpd(p []byte) (*RIUpdPacket, error) {
 }
 
 type NetworkTuples []NetworkTuple
+
+func (n NetworkTuples) String() string {
+	var sb strings.Builder
+	for i, nt := range n {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		fmt.Fprintf(&sb, "%d-%d dist %d", nt.RangeStart, nt.RangeEnd, nt.Distance)
+	}
+	return sb.String()
+}
 
 func (n NetworkTuples) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)

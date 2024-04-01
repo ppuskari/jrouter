@@ -20,6 +20,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // Subcode is used to distinguish types of zone request/response.
@@ -284,6 +285,17 @@ func parseGZNRspPacket(p []byte) (*GZNRspPacket, error) {
 }
 
 type ZoneTuples []ZoneTuple
+
+func (zs ZoneTuples) String() string {
+	var sb strings.Builder
+	for i, zt := range zs {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		fmt.Fprintf(&sb, "%d %q", zt.Network, zt.Name)
+	}
+	return sb.String()
+}
 
 type ZoneTuple struct {
 	Network uint16

@@ -240,6 +240,7 @@ func (p *peer) handle(ctx context.Context) error {
 					log.Printf("Couldn't send RI-Req packet: %v", err)
 					return err
 				}
+				rstate = rsWaitForRIRsp
 
 			case *aurp.RIReqPacket:
 				if sstate != ssConnected {
@@ -256,6 +257,7 @@ func (p *peer) handle(ctx context.Context) error {
 				p.tr.LocalSeq = 1
 				if _, err := p.send(p.tr.NewRIRspPacket(aurp.RoutingFlagLast, nets)); err != nil {
 					log.Printf("Couldn't send RI-Rsp packet: %v", err)
+					return err
 				}
 				sstate = ssWaitForRIAck1
 
@@ -263,8 +265,17 @@ func (p *peer) handle(ctx context.Context) error {
 				if rstate != rsWaitForRIRsp {
 					log.Printf("Received RI-Rsp but was not waiting for one (receiver state was %v)", rstate)
 				}
-				// TODO: Repsond with RI-Ack
+
+				log.Printf("Learned about these networks: %v", pkt.Networks)
+
 				// TODO: Integrate info into route table
+
+				// TODO: track which networks we don't have zone info for, and
+				// only set SZI for those ?
+				if _, err := p.send(p.tr.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, aurp.RoutingFlagSendZoneInfo)); err != nil {
+					log.Printf("Couldn't send RI-Ack packet: %v", err)
+					return err
+				}
 
 			case *aurp.RIAckPacket:
 				switch sstate {
@@ -285,6 +296,8 @@ func (p *peer) handle(ctx context.Context) error {
 				sstate = ssConnected
 
 				// If SZI flag is set, send ZI-Rsp (transaction)
+				// TODO: only respond with zones for networks that were in the
+				// RI-Rsp that corresponded to this RI-Ack
 				if pkt.Flags&aurp.RoutingFlagSendZoneInfo != 0 {
 					zones := aurp.ZoneTuples{
 						{
@@ -318,10 +331,21 @@ func (p *peer) handle(ctx context.Context) error {
 				rstate = rsUnconnected
 
 			case *aurp.ZIReqPacket:
-				// TODO: Respond with ZI-Rsp
+				// TODO: only respond with zones for networks specified by the
+				// ZI-Req
+				zones := aurp.ZoneTuples{
+					{
+						Network: p.cfg.EtherTalk.NetStart,
+						Name:    p.cfg.EtherTalk.ZoneName,
+					},
+				}
+				if _, err := p.send(p.tr.NewZIRspPacket(zones)); err != nil {
+					log.Printf("Couldn't send ZI-Rsp packet: %v", err)
+				}
 
 			case *aurp.ZIRspPacket:
 				// TODO: Integrate info into zone table
+				log.Printf("Learned about these zones: %v", pkt.Zones)
 
 			case *aurp.TicklePacket:
 				// Immediately respond with Tickle-Ack
