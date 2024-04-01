@@ -173,6 +173,12 @@ func (p *peer) handle(ctx context.Context) error {
 					log.Printf("Couldn't send Tickle: %v", err)
 					return err
 				}
+
+			case rsWaitForRIRsp:
+				// TODO
+
+			case rsUnconnected:
+				// TODO
 			}
 
 		case pkt := <-p.recv:
