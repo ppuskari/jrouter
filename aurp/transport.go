@@ -182,15 +182,20 @@ func (tr *Transport) NewRIAckPacket(connID, seq uint16, szi RoutingFlag) *RIAckP
 // zone information. It automatically chooses between subcodes 1 or 2 depending
 // on whether there is one network ID or more than one network ID.
 func (tr *Transport) NewZIRspPacket(zones ZoneTuples) *ZIRspPacket {
-	nns := make(map[uint16]struct{})
-	for _, z := range zones {
-		nns[z.Network] = struct{}{}
-	}
-	// Only one network: use extended
-	// More than one network: use non-extended
-	subcode := SubcodeZoneInfoExt
-	if len(nns) != 1 {
-		subcode = SubcodeZoneInfoNonExt
+	// Only one zone: use non-extended
+	subcode := SubcodeZoneInfoNonExt
+	if len(zones) > 1 {
+		// Count distinct networks
+		nns := make(map[uint16]struct{})
+		for _, z := range zones {
+			nns[z.Network] = struct{}{}
+		}
+
+		// Only one network: use extended format
+		// More than one network: use non-extended
+		if len(nns) == 1 {
+			subcode = SubcodeZoneInfoExt
+		}
 	}
 
 	return &ZIRspPacket{
