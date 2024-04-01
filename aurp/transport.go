@@ -50,6 +50,8 @@ func parseTrHeader(p []byte) (TrHeader, []byte, error) {
 	}, p[4:], nil
 }
 
+// Transport tracks local and remote domain identifiers, connection IDs, and
+// sequence numbers for use in a pair of one-way connections.
 type Transport struct {
 	// LocalDI and RemoteDI are used for producing packets.
 	// When sending a packet, we use LocalDI as SourceDI and RemoteDI as
@@ -141,6 +143,19 @@ func (tr *Transport) NewOpenRspPacket(envFlags RoutingFlag, rateOrErr int16, opt
 	}
 }
 
+// NewRIReqPacket returns a new RI-Req packet structure. By default it sets all
+// SUI flags.
+func (tr *Transport) NewRIReqPacket() *RIReqPacket {
+	return &RIReqPacket{
+		Header: Header{
+			TrHeader:    tr.transaction(tr.LocalConnID),
+			CommandCode: CmdCodeRIReq,
+			Flags:       RoutingFlagAllSUI,
+		},
+	}
+}
+
+// NewRIRspPacket returs a new RI-Rsp packet structure.
 func (tr *Transport) NewRIRspPacket(last RoutingFlag, nets NetworkTuples) *RIRspPacket {
 	return &RIRspPacket{
 		Header: Header{
@@ -152,6 +167,7 @@ func (tr *Transport) NewRIRspPacket(last RoutingFlag, nets NetworkTuples) *RIRsp
 	}
 }
 
+// NewRIAckPacket returns a new RI-Ack packet structure.
 func (tr *Transport) NewRIAckPacket(connID, seq uint16, szi RoutingFlag) *RIAckPacket {
 	return &RIAckPacket{
 		Header: Header{
@@ -162,6 +178,9 @@ func (tr *Transport) NewRIAckPacket(connID, seq uint16, szi RoutingFlag) *RIAckP
 	}
 }
 
+// NewZIRspPacket returns a new ZI-Rsp packet structure containing the given
+// zone information. It automatically chooses between subcodes 1 or 2 depending
+// on whether there is one network ID or more than one network ID.
 func (tr *Transport) NewZIRspPacket(zones ZoneTuples) *ZIRspPacket {
 	nns := make(map[uint16]struct{})
 	for _, z := range zones {
@@ -185,6 +204,7 @@ func (tr *Transport) NewZIRspPacket(zones ZoneTuples) *ZIRspPacket {
 	}
 }
 
+// NewRDPacket returns a new RD packet structure.
 func (tr *Transport) NewRDPacket(errCode ErrorCode) *RDPacket {
 	return &RDPacket{
 		Header: Header{
@@ -196,6 +216,7 @@ func (tr *Transport) NewRDPacket(errCode ErrorCode) *RDPacket {
 	}
 }
 
+// NewTicklePacket returns a new Tickle packet structure.
 func (tr *Transport) NewTicklePacket() *TicklePacket {
 	return &TicklePacket{
 		Header: Header{
@@ -206,6 +227,7 @@ func (tr *Transport) NewTicklePacket() *TicklePacket {
 	}
 }
 
+// NewTickleAckPacket returns a new Tickle-Ack packet.
 func (tr *Transport) NewTickleAckPacket() *TickleAckPacket {
 	return &TickleAckPacket{
 		Header: Header{

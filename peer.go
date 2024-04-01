@@ -235,7 +235,11 @@ func (p *peer) handle(ctx context.Context) error {
 				log.Printf("Data receiver is connected!")
 				rstate = rsConnected
 
-				// TODO: Make other requests
+				// Send an RI-Req
+				if _, err := p.send(p.tr.NewRIReqPacket()); err != nil {
+					log.Printf("Couldn't send RI-Req packet: %v", err)
+					return err
+				}
 
 			case *aurp.RIReqPacket:
 				if sstate != ssConnected {
