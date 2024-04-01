@@ -28,7 +28,7 @@ import (
 
 const (
 	// TODO: check these parameters
-	lastHeardFromTimer = 10 * time.Second
+	lastHeardFromTimer = 90 * time.Second
 	tickleRetryLimit   = 10
 	sendRetryTimer     = 10 * time.Second
 	sendRetryLimit     = 5
