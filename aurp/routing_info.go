@@ -239,3 +239,14 @@ const (
 	EventCodeNDC  EventCode = 4
 	EventCodeZC   EventCode = 5
 )
+
+func (ec EventCode) String() string {
+	return map[EventCode]string{
+		EventCodeNull: "null",
+		EventCodeNA:   "network added",
+		EventCodeND:   "network deleted",
+		EventCodeNRC:  "network route change",
+		EventCodeNDC:  "network distance change",
+		EventCodeZC:   "zone name change",
+	}[ec]
+}

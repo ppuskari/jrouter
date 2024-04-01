@@ -345,11 +345,30 @@ func (p *peer) handle(ctx context.Context) error {
 				}
 				if _, err := p.send(p.tr.NewZIRspPacket(zones)); err != nil {
 					log.Printf("Couldn't send ZI-Rsp packet: %v", err)
+					return err
 				}
 
 			case *aurp.ZIRspPacket:
 				// TODO: Integrate info into zone table
 				log.Printf("Learned about these zones: %v", pkt.Zones)
+
+			case *aurp.GDZLReqPacket:
+				if _, err := p.send(p.tr.NewGDZLRspPacket(-1, nil)); err != nil {
+					log.Printf("Couldn't send GDZL-Rsp packet: %v", err)
+					return err
+				}
+
+			case *aurp.GDZLRspPacket:
+				log.Printf("Received a GDZL-Rsp, but I wouldn't have sent a GDZL-Req - that's weird")
+
+			case *aurp.GZNReqPacket:
+				if _, err := p.send(p.tr.NewGZNRspPacket(pkt.ZoneName, false, nil)); err != nil {
+					log.Printf("Couldn't send GZN-Rsp packet: %v", err)
+					return err
+				}
+
+			case *aurp.GZNRspPacket:
+				log.Printf("Received a GZN-Rsp, but I wouldn't have sent a GZN-Req - that's weird")
 
 			case *aurp.TicklePacket:
 				// Immediately respond with Tickle-Ack

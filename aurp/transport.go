@@ -209,6 +209,63 @@ func (tr *Transport) NewZIRspPacket(zones ZoneTuples) *ZIRspPacket {
 	}
 }
 
+// NewGDZLReqPacket returns a new GDZL-Req packet structure.
+func (tr *Transport) NewGDZLReqPacket(startIdx uint16) *GDZLReqPacket {
+	return &GDZLReqPacket{
+		Header: Header{
+			TrHeader:    tr.transaction(tr.LocalConnID),
+			CommandCode: CmdCodeZoneReq,
+			Flags:       0,
+		},
+		Subcode:    SubcodeGetDomainZoneList,
+		StartIndex: startIdx,
+	}
+}
+
+// NewGZNRspPacket returns a new GDZL-Rsp packet structure. If GDZL function is
+// not supported, startIdx should be set to -1.
+func (tr *Transport) NewGDZLRspPacket(startIdx int16, zoneNames []string) *GDZLRspPacket {
+	return &GDZLRspPacket{
+		Header: Header{
+			TrHeader:    tr.transaction(tr.RemoteConnID),
+			CommandCode: CmdCodeZoneReq,
+			Flags:       0,
+		},
+		Subcode:    SubcodeGetDomainZoneList,
+		StartIndex: startIdx,
+		ZoneNames:  zoneNames,
+	}
+}
+
+// NewGZNReqPacket returns a new GZN-Req packet structure requesting nets for a
+// given zone name.
+func (tr *Transport) NewGZNReqPacket(zoneName string) *GZNReqPacket {
+	return &GZNReqPacket{
+		Header: Header{
+			TrHeader:    tr.transaction(tr.LocalConnID),
+			CommandCode: CmdCodeZoneReq,
+			Flags:       0,
+		},
+		Subcode:  SubcodeGetZonesNet,
+		ZoneName: zoneName,
+	}
+}
+
+// NewGZNRspPacket returns a new GZN-Rsp packet structure.
+func (tr *Transport) NewGZNRspPacket(zoneName string, notSupported bool, nets NetworkTuples) *GZNRspPacket {
+	return &GZNRspPacket{
+		Header: Header{
+			TrHeader:    tr.transaction(tr.RemoteConnID),
+			CommandCode: CmdCodeZoneReq,
+			Flags:       0,
+		},
+		Subcode:      SubcodeGetZonesNet,
+		ZoneName:     zoneName,
+		NotSupported: notSupported,
+		Networks:     nets,
+	}
+}
+
 // NewRDPacket returns a new RD packet structure.
 func (tr *Transport) NewRDPacket(errCode ErrorCode) *RDPacket {
 	return &RDPacket{
