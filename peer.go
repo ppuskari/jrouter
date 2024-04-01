@@ -276,6 +276,10 @@ func (p *peer) handle(ctx context.Context) error {
 					log.Printf("Couldn't send RI-Ack packet: %v", err)
 					return err
 				}
+				if pkt.Flags&aurp.RoutingFlagLast != 0 {
+					// No longer waiting for an RI-Rsp
+					rstate = rsConnected
+				}
 
 			case *aurp.RIAckPacket:
 				switch sstate {
