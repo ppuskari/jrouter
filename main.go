@@ -74,7 +74,7 @@ func main() {
 	log.Printf("EtherTalk configuration: %+v", cfg.EtherTalk)
 
 	peers := make(map[udpAddr]*peer)
-	var nextConnID uint16
+	nextConnID := uint16(1)
 
 	ln, err := net.ListenUDP("udp4", &net.UDPAddr{Port: int(cfg.ListenPort)})
 	if err != nil {
