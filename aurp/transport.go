@@ -69,20 +69,6 @@ type Transport struct {
 	LocalSeq, RemoteSeq uint16
 }
 
-func (tr *Transport) IncLocalSeq() {
-	tr.LocalSeq++
-	if tr.LocalSeq == 0 {
-		tr.LocalSeq = 1
-	}
-}
-
-func (tr *Transport) IncRemoteSeq() {
-	tr.RemoteSeq++
-	if tr.RemoteSeq == 0 {
-		tr.RemoteSeq = 1
-	}
-}
-
 // domainHeader returns a new domain header suitable for sending a packet.
 func (tr *Transport) domainHeader(pt PacketType) DomainHeader {
 	return DomainHeader{

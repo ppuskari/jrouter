@@ -21,6 +21,7 @@ import (
 	"errors"
 	"flag"
 	"log"
+	"math/rand/v2"
 	"net"
 	"os"
 	"os/signal"
@@ -74,7 +75,10 @@ func main() {
 	log.Printf("EtherTalk configuration: %+v", cfg.EtherTalk)
 
 	peers := make(map[udpAddr]*peer)
-	nextConnID := uint16(1)
+	var nextConnID uint16
+	for nextConnID == 0 {
+		nextConnID = uint16(rand.IntN(0x10000))
+	}
 
 	ln, err := net.ListenUDP("udp4", &net.UDPAddr{Port: int(cfg.ListenPort)})
 	if err != nil {
@@ -124,9 +128,9 @@ func main() {
 			raddr: raddr,
 			recv:  make(chan aurp.Packet, 1024),
 		}
-		nextConnID++
-		goHandler(peer)
+		aurp.Inc(&nextConnID)
 		peers[udpAddrFromNet(raddr)] = peer
+		goHandler(peer)
 	}
 
 	// Incoming packet loop
@@ -176,7 +180,6 @@ func main() {
 		pr := peers[ra]
 		if pr == nil {
 			// New peer!
-			nextConnID++
 			pr = &peer{
 				cfg: cfg,
 				tr: &aurp.Transport{
@@ -188,6 +191,7 @@ func main() {
 				raddr: raddr,
 				recv:  make(chan aurp.Packet, 1024),
 			}
+			aurp.Inc(&nextConnID)
 			peers[ra] = pr
 			goHandler(pr)
 		}

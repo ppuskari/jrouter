@@ -101,6 +101,14 @@ type Packet interface {
 	io.WriterTo
 }
 
+// Inc increments a uint16. It avoids 0 (65535 + 1 = 1).
+func Inc(p *uint16) {
+	*p++
+	if *p == 0 {
+		*p++
+	}
+}
+
 // ParsePacket parses the body of a UDP packet for a domain header, and then
 // based on the packet type, an AURP-Tr header, an AURP routing header, and
 // then a particular packet type.
