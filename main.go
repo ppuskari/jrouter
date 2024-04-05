@@ -32,6 +32,8 @@ import (
 
 	"gitea.drjosh.dev/josh/jrouter/atalk"
 	"gitea.drjosh.dev/josh/jrouter/aurp"
+	"github.com/sfiera/multitalk/pkg/aarp"
+	"github.com/sfiera/multitalk/pkg/ddp"
 	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
 
@@ -166,7 +168,24 @@ func main() {
 				continue
 			}
 
-			log.Printf("Read packet %s -> %s payload %x", pkt.Src, pkt.Dst, pkt.Payload)
+			switch pkt.SNAPProto {
+			case ethertalk.AARPProto:
+				var aapkt aarp.Packet
+				if err := aarp.Unmarshal(pkt.Payload, &aapkt); err != nil {
+					log.Printf("Couldn't unmarshal AARP packet: %v", err)
+					continue
+				}
+				log.Printf("Read AARP packet %v", aapkt)
+
+			case ethertalk.AppleTalkProto:
+				var ddpkt ddp.ExtPacket
+				if err := ddp.ExtUnmarshal(pkt.Payload, &ddpkt); err != nil {
+					log.Printf("Couldn't unmarshal DDP packet: %v", err)
+					continue
+				}
+				log.Printf("Read AppleTalk packet %v", ddpkt)
+
+			}
 		}
 	}()
 
