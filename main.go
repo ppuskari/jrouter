@@ -164,20 +164,20 @@ func main() {
 				log.Fatalf("Couldn't read AppleTalk / AARP packet data: %v", err)
 			}
 
-			var pkt ethertalk.Packet
-			if err := ethertalk.Unmarshal(rawPkt, &pkt); err != nil {
+			var ethFrame ethertalk.Packet
+			if err := ethertalk.Unmarshal(rawPkt, &ethFrame); err != nil {
 				log.Printf("Couldn't unmarshal EtherTalk frame: %v", err)
 				continue
 			}
 
-			if bytes.Equal(pkt.Src[:], localMAC) {
+			if bytes.Equal(ethFrame.Src[:], localMAC) {
 				continue
 			}
 
-			switch pkt.SNAPProto {
+			switch ethFrame.SNAPProto {
 			case ethertalk.AARPProto:
 				var aapkt aarp.Packet
-				if err := aarp.Unmarshal(pkt.Payload, &aapkt); err != nil {
+				if err := aarp.Unmarshal(ethFrame.Payload, &aapkt); err != nil {
 					log.Printf("Couldn't unmarshal AARP packet: %v", err)
 					continue
 				}
@@ -206,14 +206,21 @@ func main() {
 
 			case ethertalk.AppleTalkProto:
 				var ddpkt ddp.ExtPacket
-				if err := ddp.ExtUnmarshal(pkt.Payload, &ddpkt); err != nil {
+				if err := ddp.ExtUnmarshal(ethFrame.Payload, &ddpkt); err != nil {
 					log.Printf("Couldn't unmarshal DDP packet: %v", err)
 					continue
 				}
 				log.Printf("Read AppleTalk packet with src (net %d node %d socket %d) dst (net %d node %d socket %d) data len %d", ddpkt.SrcNet, ddpkt.SrcNode, ddpkt.SrcSocket, ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket, len(ddpkt.Data))
+				// Glean address info for AMT
+				srcAddr := ddp.Addr{Network: ddpkt.SrcNet, Node: ddpkt.SrcNode}
+				amt[srcAddr] = amtEntry{
+					hwAddr: ethFrame.Src,
+					last:   time.Now(),
+				}
+				log.Printf("DDP: Gleaned that %v -> %v", srcAddr, ethFrame.Src)
 
 			default:
-				log.Printf("Read unknown packet %s -> %s with payload %x", pkt.Src, pkt.Dst, pkt.Payload)
+				log.Printf("Read unknown packet %s -> %s with payload %x", ethFrame.Src, ethFrame.Dst, ethFrame.Payload)
 
 			}
 		}
