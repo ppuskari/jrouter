@@ -175,7 +175,7 @@ func main() {
 					log.Printf("Couldn't unmarshal AARP packet: %v", err)
 					continue
 				}
-				log.Printf("Read AARP packet %v", aapkt)
+				log.Printf("Read AARP packet with opcode %d src %+v dst %+v", aapkt.Opcode, aapkt.Src, aapkt.Dst)
 
 			case ethertalk.AppleTalkProto:
 				var ddpkt ddp.ExtPacket
@@ -183,7 +183,10 @@ func main() {
 					log.Printf("Couldn't unmarshal DDP packet: %v", err)
 					continue
 				}
-				log.Printf("Read AppleTalk packet %v", ddpkt)
+				log.Printf("Read AppleTalk packet with src net %d node %d socket %d dst net %d node %d socket %d data len %d", ddpkt.SrcNet, ddpkt.SrcNode, ddpkt.SrcSocket, ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket, len(ddpkt.Data))
+
+			default:
+				log.Printf("Read unknown packet %s -> %s with payload %x", pkt.Src, pkt.Dst, pkt.Payload)
 
 			}
 		}
