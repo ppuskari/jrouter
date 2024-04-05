@@ -8,7 +8,7 @@ import (
 
 // StartPcap opens an AppleTalk and AARP listening session on a network device.
 func StartPcap(device string) (*pcap.Handle, error) {
-	handle, err := pcap.OpenLive(device, 4096, false, pcap.BlockForever)
+	handle, err := pcap.OpenLive(device, 4096, true, pcap.BlockForever)
 	if err != nil {
 		return nil, fmt.Errorf("opening device %q: %w", device, err)
 	}
