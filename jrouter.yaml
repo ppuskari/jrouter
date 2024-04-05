@@ -1,4 +1,5 @@
 ethertalk:
+    device: enp1s0
     zone_name: The Twilight Zone
     net_start: 100
     net_end: 100

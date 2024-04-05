@@ -29,6 +29,7 @@ import (
 	"sync"
 	"time"
 
+	"gitea.drjosh.dev/josh/jrouter/atalk"
 	"gitea.drjosh.dev/josh/jrouter/aurp"
 )
 
@@ -132,6 +133,23 @@ func main() {
 		peers[udpAddrFromNet(raddr)] = peer
 		goHandler(peer)
 	}
+
+	// AppleTalk packet loop
+	go func() {
+		handle, err := atalk.StartPcap(cfg.EtherTalk.Device)
+		if err != nil {
+			log.Fatalf("Couldn't open network device for AppleTalk: %v", err)
+		}
+		defer handle.Close()
+
+		for {
+			packet, _, err := handle.ReadPacketData()
+			if err != nil {
+				log.Fatalf("Couldn't read packet data: %v", err)
+			}
+			log.Printf("%x", packet)
+		}
+	}()
 
 	// Incoming packet loop
 	for {
