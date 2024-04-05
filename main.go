@@ -256,19 +256,17 @@ func main() {
 
 		log.Printf("The packet parsed succesfully as a %T", pkt)
 
-		if _, ok := pkt.(*aurp.AppleTalkPacket); ok {
-			// Probably something like:
-			//
-			// * parse the DDP header
-			// * check that this is headed for our local network
-			// * write the packet out in an EtherTalk frame
-			//
-			// or maybe if we were implementing a "central hub"
-			//
-			// * parse the DDP header
-			// * see if we know the network
-			// * forward to the peer with that network and lowest metric
-			log.Print("TODO: handle AppleTalk packets")
+		if apkt, ok := pkt.(*aurp.AppleTalkPacket); ok {
+			var ddpkt ddp.ExtPacket
+			if err := ddp.ExtUnmarshal(apkt.Data, &ddpkt); err != nil {
+				log.Printf("AURP: Couldn't unmarshal encapsulated DDP packet: %v", err)
+				continue
+			}
+			log.Printf("AURP encapsulated DDP: src (%d.%d s %d) dst (%d.%d s %d) proto %d data len %d",
+				ddpkt.SrcNet, ddpkt.SrcNode, ddpkt.SrcSocket,
+				ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket,
+				ddpkt.Proto, len(ddpkt.Data))
+			continue
 		}
 
 		// Existing peer?
