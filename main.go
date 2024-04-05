@@ -34,6 +34,7 @@ import (
 	"gitea.drjosh.dev/josh/jrouter/aurp"
 	"github.com/sfiera/multitalk/pkg/aarp"
 	"github.com/sfiera/multitalk/pkg/ddp"
+	"github.com/sfiera/multitalk/pkg/ethernet"
 	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
 
@@ -139,6 +140,11 @@ func main() {
 	}
 
 	// AppleTalk packet loop
+	type amtEntry struct {
+		hwAddr ethernet.Addr
+		last   time.Time
+	}
+	amt := make(map[ddp.Addr]amtEntry)
 	go func() {
 		iface, err := net.InterfaceByName(cfg.EtherTalk.Device)
 		if err != nil {
@@ -175,7 +181,28 @@ func main() {
 					log.Printf("Couldn't unmarshal AARP packet: %v", err)
 					continue
 				}
-				log.Printf("Read AARP packet with opcode %d src %+v dst %+v", aapkt.Opcode, aapkt.Src, aapkt.Dst)
+
+				switch aapkt.Opcode {
+				case aarp.RequestOp:
+					log.Printf("AARP: Who has %v? Tell %v", aapkt.Dst.Proto, aapkt.Src.Proto)
+					// Glean that aapkt.Src.Proto -> aapkt.Src.Hardware
+					amt[aapkt.Src.Proto] = amtEntry{
+						hwAddr: aapkt.Src.Hardware,
+						last:   time.Now(),
+					}
+					log.Printf("AARP: Gleaned that %v -> %v", aapkt.Src.Proto, aapkt.Src.Hardware)
+
+				case aarp.ResponseOp:
+					log.Printf("AARP: %v is at %v", aapkt.Dst.Proto, aapkt.Dst.Hardware)
+					amt[aapkt.Dst.Proto] = amtEntry{
+						hwAddr: aapkt.Dst.Hardware,
+						last:   time.Now(),
+					}
+
+				case aarp.ProbeOp:
+					log.Printf("AARP: %v probing to see if %v is available", aapkt.Src.Hardware, aapkt.Src.Proto)
+					// AMT should not be updated, because the address is tentative
+				}
 
 			case ethertalk.AppleTalkProto:
 				var ddpkt ddp.ExtPacket
@@ -183,7 +210,7 @@ func main() {
 					log.Printf("Couldn't unmarshal DDP packet: %v", err)
 					continue
 				}
-				log.Printf("Read AppleTalk packet with src net %d node %d socket %d dst net %d node %d socket %d data len %d", ddpkt.SrcNet, ddpkt.SrcNode, ddpkt.SrcSocket, ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket, len(ddpkt.Data))
+				log.Printf("Read AppleTalk packet with src (net %d node %d socket %d) dst (net %d node %d socket %d) data len %d", ddpkt.SrcNet, ddpkt.SrcNode, ddpkt.SrcSocket, ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket, len(ddpkt.Data))
 
 			default:
 				log.Printf("Read unknown packet %s -> %s with payload %x", pkt.Src, pkt.Dst, pkt.Payload)
