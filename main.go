@@ -17,6 +17,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -31,6 +32,7 @@ import (
 
 	"gitea.drjosh.dev/josh/jrouter/atalk"
 	"gitea.drjosh.dev/josh/jrouter/aurp"
+	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
 
 var hasPortRE = regexp.MustCompile(`:\d+$`)
@@ -136,6 +138,12 @@ func main() {
 
 	// AppleTalk packet loop
 	go func() {
+		iface, err := net.InterfaceByName(cfg.EtherTalk.Device)
+		if err != nil {
+			log.Fatalf("Couldn't find interface named %q: %v", cfg.EtherTalk.Device, err)
+		}
+		localMAC := iface.HardwareAddr
+
 		handle, err := atalk.StartPcap(cfg.EtherTalk.Device)
 		if err != nil {
 			log.Fatalf("Couldn't open network device for AppleTalk: %v", err)
@@ -143,11 +151,22 @@ func main() {
 		defer handle.Close()
 
 		for {
-			packet, _, err := handle.ReadPacketData()
+			rawPkt, _, err := handle.ReadPacketData()
 			if err != nil {
-				log.Fatalf("Couldn't read packet data: %v", err)
+				log.Fatalf("Couldn't read AppleTalk / AARP packet data: %v", err)
 			}
-			log.Printf("%x", packet)
+
+			var pkt ethertalk.Packet
+			if err := ethertalk.Unmarshal(rawPkt, &pkt); err != nil {
+				log.Printf("Couldn't unmarshal EtherTalk frame: %v", err)
+				continue
+			}
+
+			if bytes.Equal(pkt.Src[:], localMAC) {
+				continue
+			}
+
+			log.Printf("Read packet %s -> %s payload %x", pkt.Src, pkt.Dst, pkt.Payload)
 		}
 	}()
 
@@ -157,7 +176,7 @@ func main() {
 			return
 		}
 		ln.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-		pktbuf := make([]byte, 65536)
+		pktbuf := make([]byte, 4096)
 		pktlen, raddr, readErr := ln.ReadFromUDP(pktbuf)
 
 		var operr *net.OpError
