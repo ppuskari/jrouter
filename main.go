@@ -210,7 +210,10 @@ func main() {
 					log.Printf("Couldn't unmarshal DDP packet: %v", err)
 					continue
 				}
-				log.Printf("Read AppleTalk packet with src (net %d node %d socket %d) dst (net %d node %d socket %d) data len %d", ddpkt.SrcNet, ddpkt.SrcNode, ddpkt.SrcSocket, ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket, len(ddpkt.Data))
+				log.Printf("DDP: src (%d.%d s %d) dst (%d.%d s %d) proto %d data len %d",
+					ddpkt.SrcNet, ddpkt.SrcNode, ddpkt.SrcSocket,
+					ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket,
+					ddpkt.Proto, len(ddpkt.Data))
 				// Glean address info for AMT
 				srcAddr := ddp.Addr{Network: ddpkt.SrcNet, Node: ddpkt.SrcNode}
 				amt[srcAddr] = amtEntry{
