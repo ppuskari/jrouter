@@ -202,6 +202,29 @@ func main() {
 					amt.Learn(aapkt.Src.Proto, aapkt.Src.Hardware)
 					log.Printf("AARP: Gleaned that %v -> %v", aapkt.Src.Proto, aapkt.Src.Hardware)
 
+					if aapkt.Dst.Proto != localDDPAddr {
+						continue
+					}
+					// Respond!
+					respFrame, err := ethertalk.AARP(localMAC, aarp.Response(aapkt.Src, aarp.AddrPair{
+						Proto:    localDDPAddr,
+						Hardware: localMAC,
+					}))
+					if err != nil {
+						log.Printf("Couldn't construct AARP Response: %v", err)
+						continue
+					}
+					respFrame.Dst = ethFrame.Src
+					respFrameRaw, err := ethertalk.Marshal(*respFrame)
+					if err != nil {
+						log.Printf("Couldn't marshal AARP Response: %v", err)
+						continue
+					}
+					if err := handle.WritePacketData(respFrameRaw); err != nil {
+						log.Printf("Couldn't write packet data: %v", err)
+						continue
+					}
+
 				case aarp.ResponseOp:
 					log.Printf("AARP: %v is at %v", aapkt.Dst.Proto, aapkt.Dst.Hardware)
 					amt.Learn(aapkt.Dst.Proto, aapkt.Dst.Hardware)
