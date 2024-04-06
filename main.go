@@ -34,7 +34,6 @@ import (
 	"gitea.drjosh.dev/josh/jrouter/aurp"
 	"github.com/sfiera/multitalk/pkg/aarp"
 	"github.com/sfiera/multitalk/pkg/ddp"
-	"github.com/sfiera/multitalk/pkg/ethernet"
 	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
 
@@ -140,11 +139,7 @@ func main() {
 	}
 
 	// AppleTalk packet loop
-	type amtEntry struct {
-		hwAddr ethernet.Addr
-		last   time.Time
-	}
-	amt := make(map[ddp.Addr]amtEntry)
+	var amt AMT
 	go func() {
 		iface, err := net.InterfaceByName(cfg.EtherTalk.Device)
 		if err != nil {
@@ -186,18 +181,12 @@ func main() {
 				case aarp.RequestOp:
 					log.Printf("AARP: Who has %v? Tell %v", aapkt.Dst.Proto, aapkt.Src.Proto)
 					// Glean that aapkt.Src.Proto -> aapkt.Src.Hardware
-					amt[aapkt.Src.Proto] = amtEntry{
-						hwAddr: aapkt.Src.Hardware,
-						last:   time.Now(),
-					}
+					amt.Learn(aapkt.Src.Proto, aapkt.Src.Hardware)
 					log.Printf("AARP: Gleaned that %v -> %v", aapkt.Src.Proto, aapkt.Src.Hardware)
 
 				case aarp.ResponseOp:
 					log.Printf("AARP: %v is at %v", aapkt.Dst.Proto, aapkt.Dst.Hardware)
-					amt[aapkt.Dst.Proto] = amtEntry{
-						hwAddr: aapkt.Dst.Hardware,
-						last:   time.Now(),
-					}
+					amt.Learn(aapkt.Dst.Proto, aapkt.Dst.Hardware)
 
 				case aarp.ProbeOp:
 					log.Printf("AARP: %v probing to see if %v is available", aapkt.Src.Hardware, aapkt.Src.Proto)
@@ -216,10 +205,7 @@ func main() {
 					ddpkt.Proto, len(ddpkt.Data))
 				// Glean address info for AMT
 				srcAddr := ddp.Addr{Network: ddpkt.SrcNet, Node: ddpkt.SrcNode}
-				amt[srcAddr] = amtEntry{
-					hwAddr: ethFrame.Src,
-					last:   time.Now(),
-				}
+				amt.Learn(srcAddr, ethFrame.Src)
 				log.Printf("DDP: Gleaned that %v -> %v", srcAddr, ethFrame.Src)
 
 			default:
