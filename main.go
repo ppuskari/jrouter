@@ -17,7 +17,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -34,6 +33,7 @@ import (
 	"gitea.drjosh.dev/josh/jrouter/aurp"
 	"github.com/sfiera/multitalk/pkg/aarp"
 	"github.com/sfiera/multitalk/pkg/ddp"
+	"github.com/sfiera/multitalk/pkg/ethernet"
 	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
 
@@ -145,13 +145,31 @@ func main() {
 		if err != nil {
 			log.Fatalf("Couldn't find interface named %q: %v", cfg.EtherTalk.Device, err)
 		}
-		localMAC := iface.HardwareAddr
+		localMAC := ethernet.Addr(iface.HardwareAddr)
 
 		handle, err := atalk.StartPcap(cfg.EtherTalk.Device)
 		if err != nil {
 			log.Fatalf("Couldn't open network device for AppleTalk: %v", err)
 		}
 		defer handle.Close()
+
+		// AARP probe for our preferred address (first network.1)
+		localDDPAddr := ddp.Addr{
+			Network: ddp.Network(cfg.EtherTalk.NetStart),
+			Node:    1,
+		}
+
+		probeFrame, err := ethertalk.AARP(localMAC, aarp.Probe(localMAC, localDDPAddr))
+		if err != nil {
+			log.Fatalf("Couldn't construct AARP Probe: %v", err)
+		}
+		probeFrameRaw, err := ethertalk.Marshal(*probeFrame)
+		if err != nil {
+			log.Fatalf("Couldn't marshal AARP Probe: %v", err)
+		}
+		if err := handle.WritePacketData(probeFrameRaw); err != nil {
+			log.Fatalf("Couldn't write packet data: %v", err)
+		}
 
 		for {
 			rawPkt, _, err := handle.ReadPacketData()
@@ -165,7 +183,7 @@ func main() {
 				continue
 			}
 
-			if bytes.Equal(ethFrame.Src[:], localMAC) {
+			if ethFrame.Src == localMAC {
 				continue
 			}
 
@@ -215,7 +233,7 @@ func main() {
 		}
 	}()
 
-	// Incoming packet loop
+	// AURP packet loop
 	for {
 		if ctx.Err() != nil {
 			return
@@ -229,18 +247,18 @@ func main() {
 			continue
 		}
 
-		log.Printf("Received packet of length %d from %v", pktlen, raddr)
+		log.Printf("AURP: Received packet of length %d from %v", pktlen, raddr)
 
 		dh, pkt, parseErr := aurp.ParsePacket(pktbuf[:pktlen])
 		if parseErr != nil {
-			log.Printf("Failed to parse packet: %v", parseErr)
+			log.Printf("AURP: Failed to parse packet: %v", parseErr)
 		}
 		if readErr != nil {
-			log.Printf("Failed to read packet: %v", readErr)
+			log.Printf("AURP: Failed to read packet: %v", readErr)
 			return
 		}
 
-		log.Printf("The packet parsed succesfully as a %T", pkt)
+		log.Printf("AURP: The packet parsed succesfully as a %T", pkt)
 
 		if apkt, ok := pkt.(*aurp.AppleTalkPacket); ok {
 			var ddpkt ddp.ExtPacket
