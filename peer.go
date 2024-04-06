@@ -256,8 +256,8 @@ func (p *peer) handle(ctx context.Context) error {
 				nets := aurp.NetworkTuples{
 					{
 						Extended:   true,
-						RangeStart: p.cfg.EtherTalk.NetStart,
-						RangeEnd:   p.cfg.EtherTalk.NetEnd,
+						RangeStart: uint16(p.cfg.EtherTalk.NetStart),
+						RangeEnd:   uint16(p.cfg.EtherTalk.NetEnd),
 						Distance:   0,
 					},
 				}
@@ -312,7 +312,7 @@ func (p *peer) handle(ctx context.Context) error {
 				if pkt.Flags&aurp.RoutingFlagSendZoneInfo != 0 {
 					zones := aurp.ZoneTuples{
 						{
-							Network: p.cfg.EtherTalk.NetStart,
+							Network: uint16(p.cfg.EtherTalk.NetStart),
 							Name:    p.cfg.EtherTalk.ZoneName,
 						},
 					}
@@ -346,7 +346,7 @@ func (p *peer) handle(ctx context.Context) error {
 				// ZI-Req
 				zones := aurp.ZoneTuples{
 					{
-						Network: p.cfg.EtherTalk.NetStart,
+						Network: uint16(p.cfg.EtherTalk.NetStart),
 						Name:    p.cfg.EtherTalk.ZoneName,
 					},
 				}

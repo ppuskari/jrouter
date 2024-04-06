@@ -31,6 +31,7 @@ import (
 
 	"gitea.drjosh.dev/josh/jrouter/atalk"
 	"gitea.drjosh.dev/josh/jrouter/aurp"
+	"github.com/sfiera/multitalk/pkg/aarp"
 	"github.com/sfiera/multitalk/pkg/ddp"
 	"github.com/sfiera/multitalk/pkg/ethernet"
 	"github.com/sfiera/multitalk/pkg/ethertalk"
@@ -154,7 +155,9 @@ func main() {
 		AMT:        new(AMT),
 		cfg:        cfg,
 		pcapHandle: pcapHandle,
-		myHWAddr:   myHWAddr,
+		myAddr: aarp.AddrPair{
+			Hardware: myHWAddr,
+		},
 	}
 	aarpCh := make(chan *ethertalk.Packet, 1024)
 	go aarpMachine.Run(ctx, aarpCh)
