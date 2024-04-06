@@ -255,6 +255,7 @@ func (p *peer) handle(ctx context.Context) error {
 
 				nets := aurp.NetworkTuples{
 					{
+						Extended:   true,
 						RangeStart: p.cfg.EtherTalk.NetStart,
 						RangeEnd:   p.cfg.EtherTalk.NetEnd,
 						Distance:   0,

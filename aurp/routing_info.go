@@ -114,6 +114,7 @@ func parseNetworkTuples(p []byte) (NetworkTuples, error) {
 }
 
 type NetworkTuple struct {
+	Extended   bool
 	RangeStart uint16
 	Distance   uint8
 	RangeEnd   uint16
@@ -123,7 +124,7 @@ type NetworkTuple struct {
 func (nt *NetworkTuple) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
 	a.write16(nt.RangeStart)
-	if nt.RangeStart == nt.RangeEnd {
+	if !nt.Extended {
 		// non-extended tuple
 		a.write8(nt.Distance)
 		return a.ret()
@@ -144,8 +145,9 @@ func parseNetworkTuple(p []byte) (NetworkTuple, []byte, error) {
 	nt.RangeStart = binary.BigEndian.Uint16(p[:2])
 	nt.RangeEnd = nt.RangeStart
 	nt.Distance = p[2]
+	nt.Extended = nt.Distance&0x80 != 0
 
-	if nt.Distance&0x80 == 0 {
+	if !nt.Extended {
 		return nt, p[3:], nil
 	}
 
@@ -185,6 +187,7 @@ func parseEventTuples(p []byte) (EventTuples, error) {
 
 type EventTuple struct {
 	EventCode  EventCode
+	Extended   bool
 	RangeStart uint16
 	Distance   uint8
 	RangeEnd   uint16
@@ -194,7 +197,7 @@ func (et *EventTuple) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
 	a.write8(uint8(et.EventCode))
 	a.write16(et.RangeStart)
-	if et.RangeStart == et.RangeEnd {
+	if !et.Extended {
 		// non-extended tuple
 		a.write8(et.Distance)
 		return a.ret()
@@ -215,8 +218,9 @@ func parseEventTuple(p []byte) (EventTuple, []byte, error) {
 	et.RangeStart = binary.BigEndian.Uint16(p[1:3])
 	et.RangeEnd = et.RangeStart
 	et.Distance = p[3]
+	et.Extended = et.Distance&0x80 != 0
 
-	if et.Distance&0x80 == 0 {
+	if !et.Extended {
 		return et, p[4:], nil
 	}
 
