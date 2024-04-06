@@ -21,6 +21,13 @@ const (
 	aarpRequestTimeout    = 10 * time.Second
 )
 
+type aarpState int
+
+const (
+	aarpStateProbing aarpState = iota
+	aarpStateAssigned
+)
+
 // AARPMachine maintains both an Address Mapping Table and handles AARP packets
 // (sending and receiving requests, responses, and probes). This process assumes
 // a particular network range rather than using the startup range, since this
@@ -37,12 +44,16 @@ type AARPMachine struct {
 	myAddr aarp.AddrPair
 }
 
-type aarpState int
-
-const (
-	aarpStateProbing aarpState = iota
-	aarpStateAssigned
-)
+func NewAARPMachine(cfg *config, pcapHandle *pcap.Handle, myHWAddr ethernet.Addr) *AARPMachine {
+	return &AARPMachine{
+		AMT:        new(AMT),
+		cfg:        cfg,
+		pcapHandle: pcapHandle,
+		myAddr: aarp.AddrPair{
+			Hardware: myHWAddr,
+		},
+	}
+}
 
 func (a *AARPMachine) Run(ctx context.Context, incomingCh <-chan *ethertalk.Packet) error {
 	ticker := time.NewTicker(200 * time.Millisecond) // 200ms is the AARP probe retransmit
