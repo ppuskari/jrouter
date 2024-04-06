@@ -19,6 +19,7 @@ package main
 import (
 	"os"
 
+	"github.com/sfiera/multitalk/pkg/ddp"
 	"gopkg.in/yaml.v3"
 )
 
@@ -35,10 +36,10 @@ type config struct {
 
 	// Required for routing a local EtherTalk network.
 	EtherTalk struct {
-		Device   string `yaml:"device"`
-		ZoneName string `yaml:"zone_name"`
-		NetStart uint16 `yaml:"net_start"`
-		NetEnd   uint16 `yaml:"net_end"`
+		Device   string      `yaml:"device"`
+		ZoneName string      `yaml:"zone_name"`
+		NetStart ddp.Network `yaml:"net_start"`
+		NetEnd   ddp.Network `yaml:"net_end"`
 	} `yaml:"ethertalk"`
 
 	// LocalTalk struct {

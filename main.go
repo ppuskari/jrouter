@@ -31,7 +31,6 @@ import (
 
 	"gitea.drjosh.dev/josh/jrouter/atalk"
 	"gitea.drjosh.dev/josh/jrouter/aurp"
-	"github.com/sfiera/multitalk/pkg/aarp"
 	"github.com/sfiera/multitalk/pkg/ddp"
 	"github.com/sfiera/multitalk/pkg/ethernet"
 	"github.com/sfiera/multitalk/pkg/ethertalk"
@@ -138,101 +137,49 @@ func main() {
 		goHandler(peer)
 	}
 
-	// AppleTalk packet loop
-	var amt AMT
+	// AppleTalk packet loops
+	iface, err := net.InterfaceByName(cfg.EtherTalk.Device)
+	if err != nil {
+		log.Fatalf("Couldn't find interface named %q: %v", cfg.EtherTalk.Device, err)
+	}
+	myHWAddr := ethernet.Addr(iface.HardwareAddr)
+
+	pcapHandle, err := atalk.StartPcap(cfg.EtherTalk.Device)
+	if err != nil {
+		log.Fatalf("Couldn't open network device for AppleTalk: %v", err)
+	}
+	defer pcapHandle.Close()
+
+	aarpMachine := &AARPMachine{
+		AMT:        new(AMT),
+		cfg:        cfg,
+		pcapHandle: pcapHandle,
+		myHWAddr:   myHWAddr,
+	}
+	aarpCh := make(chan *ethertalk.Packet, 1024)
+	go aarpMachine.Run(ctx, aarpCh)
+
 	go func() {
-		iface, err := net.InterfaceByName(cfg.EtherTalk.Device)
-		if err != nil {
-			log.Fatalf("Couldn't find interface named %q: %v", cfg.EtherTalk.Device, err)
-		}
-		localMAC := ethernet.Addr(iface.HardwareAddr)
-
-		handle, err := atalk.StartPcap(cfg.EtherTalk.Device)
-		if err != nil {
-			log.Fatalf("Couldn't open network device for AppleTalk: %v", err)
-		}
-		defer handle.Close()
-
-		// AARP probe for our preferred address (first network.1)
-		localDDPAddr := ddp.Addr{
-			Network: ddp.Network(cfg.EtherTalk.NetStart),
-			Node:    1,
-		}
-
-		probeFrame, err := ethertalk.AARP(localMAC, aarp.Probe(localMAC, localDDPAddr))
-		if err != nil {
-			log.Fatalf("Couldn't construct AARP Probe: %v", err)
-		}
-		probeFrameRaw, err := ethertalk.Marshal(*probeFrame)
-		if err != nil {
-			log.Fatalf("Couldn't marshal AARP Probe: %v", err)
-		}
-		if err := handle.WritePacketData(probeFrameRaw); err != nil {
-			log.Fatalf("Couldn't write packet data: %v", err)
-		}
-
 		for {
-			rawPkt, _, err := handle.ReadPacketData()
+			rawPkt, _, err := pcapHandle.ReadPacketData()
 			if err != nil {
 				log.Fatalf("Couldn't read AppleTalk / AARP packet data: %v", err)
 			}
 
-			var ethFrame ethertalk.Packet
-			if err := ethertalk.Unmarshal(rawPkt, &ethFrame); err != nil {
+			ethFrame := new(ethertalk.Packet)
+			if err := ethertalk.Unmarshal(rawPkt, ethFrame); err != nil {
 				log.Printf("Couldn't unmarshal EtherTalk frame: %v", err)
 				continue
 			}
 
-			if ethFrame.Src == localMAC {
+			// Ignore if sent by me
+			if ethFrame.Src == myHWAddr {
 				continue
 			}
 
 			switch ethFrame.SNAPProto {
 			case ethertalk.AARPProto:
-				var aapkt aarp.Packet
-				if err := aarp.Unmarshal(ethFrame.Payload, &aapkt); err != nil {
-					log.Printf("Couldn't unmarshal AARP packet: %v", err)
-					continue
-				}
-
-				switch aapkt.Opcode {
-				case aarp.RequestOp:
-					log.Printf("AARP: Who has %v? Tell %v", aapkt.Dst.Proto, aapkt.Src.Proto)
-					// Glean that aapkt.Src.Proto -> aapkt.Src.Hardware
-					amt.Learn(aapkt.Src.Proto, aapkt.Src.Hardware)
-					log.Printf("AARP: Gleaned that %v -> %v", aapkt.Src.Proto, aapkt.Src.Hardware)
-
-					if aapkt.Dst.Proto != localDDPAddr {
-						continue
-					}
-					// Respond!
-					respFrame, err := ethertalk.AARP(localMAC, aarp.Response(aapkt.Src, aarp.AddrPair{
-						Proto:    localDDPAddr,
-						Hardware: localMAC,
-					}))
-					if err != nil {
-						log.Printf("Couldn't construct AARP Response: %v", err)
-						continue
-					}
-					respFrame.Dst = ethFrame.Src
-					respFrameRaw, err := ethertalk.Marshal(*respFrame)
-					if err != nil {
-						log.Printf("Couldn't marshal AARP Response: %v", err)
-						continue
-					}
-					if err := handle.WritePacketData(respFrameRaw); err != nil {
-						log.Printf("Couldn't write packet data: %v", err)
-						continue
-					}
-
-				case aarp.ResponseOp:
-					log.Printf("AARP: %v is at %v", aapkt.Dst.Proto, aapkt.Dst.Hardware)
-					amt.Learn(aapkt.Dst.Proto, aapkt.Dst.Hardware)
-
-				case aarp.ProbeOp:
-					log.Printf("AARP: %v probing to see if %v is available", aapkt.Src.Hardware, aapkt.Src.Proto)
-					// AMT should not be updated, because the address is tentative
-				}
+				aarpCh <- ethFrame
 
 			case ethertalk.AppleTalkProto:
 				var ddpkt ddp.ExtPacket
@@ -246,7 +193,7 @@ func main() {
 					ddpkt.Proto, len(ddpkt.Data))
 				// Glean address info for AMT
 				srcAddr := ddp.Addr{Network: ddpkt.SrcNet, Node: ddpkt.SrcNode}
-				amt.Learn(srcAddr, ethFrame.Src)
+				aarpMachine.Learn(srcAddr, ethFrame.Src)
 				log.Printf("DDP: Gleaned that %v -> %v", srcAddr, ethFrame.Src)
 
 			default:
