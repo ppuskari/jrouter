@@ -89,6 +89,7 @@ func UnmarshalDataPacket(data []byte) (*DataPacket, error) {
 		nt.Extended = nt.Distance&0x80 != 0
 		if !nt.Extended {
 			// ordinary non-extended tuple
+			nt.RangeEnd = nt.RangeStart
 			if first && nt.RangeStart != 0 {
 				return nil, fmt.Errorf("first RTMP network tuple is not version tuple")
 			}

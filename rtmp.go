@@ -8,6 +8,7 @@ import (
 	"gitea.drjosh.dev/josh/jrouter/atalk/rtmp"
 	"github.com/google/gopacket/pcap"
 	"github.com/sfiera/multitalk/pkg/ddp"
+	"github.com/sfiera/multitalk/pkg/ethernet"
 	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
 
@@ -34,22 +35,7 @@ func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket)
 				continue
 			}
 
-			dataPkt := &rtmp.DataPacket{
-				RouterAddr: myAddr.Proto,
-				Extended:   true,
-				NetworkTuples: []rtmp.NetworkTuple{
-					// "The first tuple in RTMP Data packets sent on extended
-					// networks ... indicates the network number range assigned
-					// to that network."
-					{
-						Extended:   true,
-						RangeStart: m.cfg.EtherTalk.NetStart,
-						RangeEnd:   m.cfg.EtherTalk.NetEnd,
-						Distance:   0,
-					},
-				},
-			}
-			// TODO: append more networks!
+			dataPkt := m.dataPacket(myAddr.Proto)
 
 			dataPktRaw, err := dataPkt.Marshal()
 			if err != nil {
@@ -57,34 +43,23 @@ func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket)
 				continue
 			}
 
-			ddpPkt := ddp.ExtPacket{
+			ddpPkt := &ddp.ExtPacket{
 				ExtHeader: ddp.ExtHeader{
 					Size:      uint16(len(dataPktRaw)),
 					Cksum:     0,
 					DstNet:    0,    // this network
 					DstNode:   0xff, // broadcast packet
-					DstSocket: 1,    // the special RTMP socket
+					DstSocket: 1,    // the RTMP socket
 					SrcNet:    myAddr.Proto.Network,
 					SrcNode:   myAddr.Proto.Node,
-					SrcSocket: 1, // the special RTMP socket
+					SrcSocket: 1, // the RTMP socket
 					Proto:     ddp.ProtoRTMPResp,
 				},
 				Data: dataPktRaw,
 			}
 
-			ethFrame, err := ethertalk.AppleTalk(myAddr.Hardware, ddpPkt)
-			if err != nil {
-				log.Printf("RTMP: Couldn't create EtherTalk frame: %v", err)
-			}
-			ethFrame.Dst = ethertalk.AppleTalkBroadcast
-
-			ethFrameRaw, err := ethertalk.Marshal(*ethFrame)
-			if err != nil {
-				log.Printf("RTMP: Couldn't marshal EtherTalk frame: %v", err)
-			}
-
-			if err := m.pcapHandle.WritePacketData(ethFrameRaw); err != nil {
-				log.Printf("RTMP: Couldn't write frame: %v", err)
+			if err := m.send(myAddr.Hardware, ethertalk.AppleTalkBroadcast, ddpPkt); err != nil {
+				log.Printf("RTMP: Couldn't send Data broadcast: %v", err)
 			}
 
 		case pkt := <-incomingCh:
@@ -95,28 +70,122 @@ func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket)
 				if err != nil {
 					log.Printf("RTMP: Couldn't unmarshal Request packet: %v", err)
 				}
+
+				myAddr, ok := m.aarp.Address()
+				if !ok {
+					continue
+				}
+				// should be in the cache...
+				theirHWAddr, err := m.aarp.Resolve(ctx, ddp.Addr{Network: pkt.SrcNet, Node: pkt.SrcNode})
+				if err != nil {
+					log.Printf("RTMP: Couldn't resolve %d.%d to a hardware address: %v", pkt.SrcNet, pkt.SrcNode, err)
+					continue
+				}
+
 				switch req.Function {
 				case 1: // RTMP Request
-					// TODO
-					log.Print("RTMP: Got Request")
+					// Respond with RTMP Response
+					respPkt := &rtmp.ResponsePacket{
+						SenderAddr: myAddr.Proto,
+						Extended:   true,
+						RangeStart: m.cfg.EtherTalk.NetStart,
+						RangeEnd:   m.cfg.EtherTalk.NetEnd,
+					}
+					respPktRaw, err := respPkt.Marshal()
+					if err != nil {
+						log.Printf("RTMP: Couldn't marshal RTMP Response packet: %v", err)
+						continue
+					}
+					ddpPkt := &ddp.ExtPacket{
+						ExtHeader: ddp.ExtHeader{
+							Size:      uint16(len(respPktRaw)),
+							Cksum:     0,
+							DstNet:    pkt.SrcNet,
+							DstNode:   pkt.SrcNode,
+							DstSocket: 1, // the RTMP socket
+							SrcNet:    myAddr.Proto.Network,
+							SrcNode:   myAddr.Proto.Node,
+							SrcSocket: 1, // the RTMP socket
+							Proto:     ddp.ProtoRTMPResp,
+						},
+						Data: respPktRaw,
+					}
 
-				case 2: // RTMP RDR with split-horizon processing
-					// TODO
-					log.Print("RTMP: Got RDR with split-horizon")
+					if err := m.send(myAddr.Hardware, theirHWAddr, ddpPkt); err != nil {
+						log.Printf("RTMP: Couldn't send Data broadcast: %v", err)
+					}
 
-				case 3: // RTMP RDR for whole table
-					// TODO
-					log.Print("RTMP: Got RDR without split-horizon")
+				case 2, 3:
+					// Like the Data broadcast, but solicited by a request (RDR).
+					// TODO: handle split-horizon processing
+					dataPkt := m.dataPacket(myAddr.Proto)
 
+					dataPktRaw, err := dataPkt.Marshal()
+					if err != nil {
+						log.Printf("RTMP: Couldn't marshal Data packet: %v", err)
+						continue
+					}
+
+					ddpPkt := &ddp.ExtPacket{
+						ExtHeader: ddp.ExtHeader{
+							Size:      uint16(len(dataPktRaw)),
+							Cksum:     0,
+							DstNet:    pkt.SrcNet,
+							DstNode:   pkt.SrcNode,
+							DstSocket: 1, // the RTMP socket
+							SrcNet:    myAddr.Proto.Network,
+							SrcNode:   myAddr.Proto.Node,
+							SrcSocket: 1, // the RTMP socket
+							Proto:     ddp.ProtoRTMPResp,
+						},
+						Data: dataPktRaw,
+					}
+
+					if err := m.send(myAddr.Hardware, theirHWAddr, ddpPkt); err != nil {
+						log.Printf("RTMP: Couldn't send Data response: %v", err)
+					}
 				}
 
 			case ddp.ProtoRTMPResp:
 				// It's a peer router on the AppleTalk network!
-				// TODO
-				log.Print("RTMP: Got Response or ")
+				// TODO: integrate this information with the routing table
+				log.Print("RTMP: Got Response or Data")
 
 			}
 
 		}
 	}
+}
+
+func (m *RTMPMachine) send(src, dst ethernet.Addr, ddpPkt *ddp.ExtPacket) error {
+	ethFrame, err := ethertalk.AppleTalk(src, *ddpPkt)
+	if err != nil {
+		return err
+	}
+	ethFrame.Dst = dst
+
+	ethFrameRaw, err := ethertalk.Marshal(*ethFrame)
+	if err != nil {
+		return err
+	}
+	return m.pcapHandle.WritePacketData(ethFrameRaw)
+}
+
+func (m *RTMPMachine) dataPacket(myAddr ddp.Addr) *rtmp.DataPacket {
+	return &rtmp.DataPacket{
+		RouterAddr: myAddr,
+		Extended:   true,
+		NetworkTuples: []rtmp.NetworkTuple{
+			// "The first tuple in RTMP Data packets sent on extended
+			// networks ... indicates the network number range assigned
+			// to that network."
+			{
+				Extended:   true,
+				RangeStart: m.cfg.EtherTalk.NetStart,
+				RangeEnd:   m.cfg.EtherTalk.NetEnd,
+				Distance:   0,
+			},
+		},
+	}
+	// TODO: append more networks!
 }
