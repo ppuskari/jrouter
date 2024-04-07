@@ -125,6 +125,7 @@ func main() {
 		}()
 	}
 
+	// --------------- Configured peer setup ---------------
 	for _, peerStr := range cfg.Peers {
 		if !hasPortRE.MatchString(peerStr) {
 			peerStr += ":387"
@@ -152,11 +153,20 @@ func main() {
 		goPeerHandler(peer)
 	}
 
-	// AppleTalk packet loops
+	// -------------------- AARP --------------------
 	aarpMachine := NewAARPMachine(cfg, pcapHandle, myHWAddr)
 	aarpCh := make(chan *ethertalk.Packet, 1024)
 	go aarpMachine.Run(ctx, aarpCh)
 
+	// -------------------- RTMP --------------------
+	rtmpMachine := &RTMPMachine{
+		aarp:       aarpMachine,
+		cfg:        cfg,
+		pcapHandle: pcapHandle,
+	}
+	go rtmpMachine.Run(ctx)
+
+	// ---------- Raw AppleTalk/AARP inbound ----------
 	go func() {
 		for {
 			if ctx.Err() != nil {
@@ -212,7 +222,7 @@ func main() {
 		}
 	}()
 
-	// AURP packet loop
+	// ---------- AURP inbound ----------
 	for {
 		if ctx.Err() != nil {
 			return
