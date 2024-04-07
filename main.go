@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"math/rand/v2"
@@ -31,6 +32,7 @@ import (
 	"time"
 
 	"gitea.drjosh.dev/josh/jrouter/atalk"
+	"gitea.drjosh.dev/josh/jrouter/atalk/aep"
 	"gitea.drjosh.dev/josh/jrouter/aurp"
 	"github.com/google/gopacket/pcap"
 	"github.com/sfiera/multitalk/pkg/ddp"
@@ -244,6 +246,12 @@ func main() {
 				switch ddpkt.DstSocket {
 				case 1: // The RTMP socket
 					rtmpCh <- &ddpkt
+
+				case 4: // The AEP socket
+					if err := handleAEP(pcapHandle, myHWAddr, ethFrame.Src, &ddpkt); err != nil {
+						log.Printf("AEP: Couldn't handle: %v", err)
+					}
+
 				default:
 					log.Printf("DDP: No handler for socket %d", ddpkt.DstSocket)
 				}
@@ -324,6 +332,45 @@ func main() {
 		case <-ctx.Done():
 			return
 		}
+	}
+}
+
+func handleAEP(pcapHandle *pcap.Handle, src, dst ethernet.Addr, ddpkt *ddp.ExtPacket) error {
+	if ddpkt.Proto != ddp.ProtoAEP {
+		return fmt.Errorf("invalid DDP type %d on socket 4", ddpkt.Proto)
+	}
+	ep, err := aep.Unmarshal(ddpkt.Data)
+	if err != nil {
+		return err
+	}
+	switch ep.Function {
+	case aep.EchoReply:
+		// we didn't send a request? I don't think?
+		// we shouldn't be sending them from this socket
+		return fmt.Errorf("echo reply received at socket 4 why?")
+
+	case aep.EchoRequest:
+		// Uno Reverso the packet
+		// "The client can send the Echo Request datagram through any socket
+		// the client has open, and the Echo Reply will come back to this socket."
+		ddpkt.DstNet, ddpkt.SrcNet = ddpkt.SrcNet, ddpkt.DstNet
+		ddpkt.DstNode, ddpkt.SrcNode = ddpkt.SrcNode, ddpkt.DstNode
+		ddpkt.DstSocket, ddpkt.SrcSocket = ddpkt.SrcSocket, ddpkt.DstSocket
+		ddpkt.Data[0] = byte(aep.EchoReply)
+
+		ethFrame, err := ethertalk.AppleTalk(src, *ddpkt)
+		if err != nil {
+			return err
+		}
+		ethFrame.Dst = dst
+		ethFrameRaw, err := ethertalk.Marshal(*ethFrame)
+		if err != nil {
+			return err
+		}
+		return pcapHandle.WritePacketData(ethFrameRaw)
+
+	default:
+		return fmt.Errorf("invalid AEP function %d", ep.Function)
 	}
 }
 

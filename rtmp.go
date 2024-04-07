@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -19,7 +20,15 @@ type RTMPMachine struct {
 	pcapHandle *pcap.Handle
 }
 
+// Run executes the machine.
 func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket) error {
+	// Await local address assignment before doing anything
+	<-m.aarp.Assigned()
+	myAddr, ok := m.aarp.Address()
+	if !ok {
+		return fmt.Errorf("AARP machine closed Assigned channel but Address is not valid")
+	}
+
 	bcastTicker := time.NewTicker(10 * time.Second)
 	defer bcastTicker.Stop()
 
@@ -30,10 +39,6 @@ func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket)
 
 		case <-bcastTicker.C:
 			// Broadcast an RTMP Data
-			myAddr, ok := m.aarp.Address()
-			if !ok {
-				continue
-			}
 
 			dataPkt := m.dataPacket(myAddr.Proto)
 
@@ -71,10 +76,6 @@ func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket)
 					log.Printf("RTMP: Couldn't unmarshal Request packet: %v", err)
 				}
 
-				myAddr, ok := m.aarp.Address()
-				if !ok {
-					continue
-				}
 				// should be in the cache...
 				theirHWAddr, err := m.aarp.Resolve(ctx, ddp.Addr{Network: pkt.SrcNet, Node: pkt.SrcNode})
 				if err != nil {
@@ -151,6 +152,8 @@ func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket)
 				// TODO: integrate this information with the routing table
 				log.Print("RTMP: Got Response or Data")
 
+			default:
+				log.Printf("RTMP: invalid DDP type %d on socket 1", pkt.Proto)
 			}
 
 		}
@@ -187,5 +190,5 @@ func (m *RTMPMachine) dataPacket(myAddr ddp.Addr) *rtmp.DataPacket {
 			},
 		},
 	}
-	// TODO: append more networks!
+	// TODO: append more networks! implement a route table!
 }

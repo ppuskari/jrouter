@@ -34,9 +34,10 @@ type AARPMachine struct {
 	// The Run goroutine is responsible for all writes to myAddr.Proto and
 	// probes, so this mutex is not used to enforce a single writer, only
 	// consistent reads
-	mu     sync.RWMutex
-	myAddr aarp.AddrPair
-	probes int
+	mu         sync.RWMutex
+	myAddr     aarp.AddrPair
+	probes     int
+	assignedCh chan struct{}
 }
 
 // NewAARPMachine creates a new AARPMachine.
@@ -48,6 +49,7 @@ func NewAARPMachine(cfg *config, pcapHandle *pcap.Handle, myHWAddr ethernet.Addr
 		myAddr: aarp.AddrPair{
 			Hardware: myHWAddr,
 		},
+		assignedCh: make(chan struct{}),
 	}
 }
 
@@ -57,6 +59,11 @@ func (a *AARPMachine) Address() (aarp.AddrPair, bool) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.myAddr, a.assigned()
+}
+
+// Assigned returns a channel that is closed when the local address is valid.
+func (a *AARPMachine) Assigned() <-chan struct{} {
+	return a.assignedCh
 }
 
 // Run executes the machine.
@@ -80,6 +87,7 @@ func (a *AARPMachine) Run(ctx context.Context, incomingCh <-chan *ethertalk.Pack
 
 		case <-ticker.C:
 			if a.assigned() {
+				close(a.assignedCh)
 				// No need to keep the ticker running if assigned
 				ticker.Stop()
 				continue
@@ -158,7 +166,7 @@ func (a *AARPMachine) Run(ctx context.Context, incomingCh <-chan *ethertalk.Pack
 // If the address is in the cache (AMT) and is still valid, that is used.
 // Otherwise, the address is resolved using AARP.
 func (a *AARPMachine) Resolve(ctx context.Context, ddpAddr ddp.Addr) (ethernet.Addr, error) {
-	result, waitCh := a.addressMappingTable.lookupOrWait(ddpAddr)
+	result, waitCh := a.lookupOrWait(ddpAddr)
 	if waitCh == nil {
 		return result, nil
 	}
@@ -179,7 +187,7 @@ func (a *AARPMachine) Resolve(ctx context.Context, ddpAddr ddp.Addr) (ethernet.A
 			return ethernet.Addr{}, ctx.Err()
 
 		case <-waitCh:
-			result, waitCh = a.addressMappingTable.lookupOrWait(ddpAddr)
+			result, waitCh = a.lookupOrWait(ddpAddr)
 			if waitCh == nil {
 				return result, nil
 			}
