@@ -1,12 +1,14 @@
 package rtmp
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
+// ResponsePacket represents an RTMP Response packet.
 type ResponsePacket struct {
 	SenderAddr ddp.Addr
 	Extended   bool
@@ -14,6 +16,24 @@ type ResponsePacket struct {
 	RangeEnd   ddp.Network
 }
 
+// Marshal marshals an RTMP Response packet.
+func (rp *ResponsePacket) Marshal() ([]byte, error) {
+	b := bytes.NewBuffer(nil)
+	b.Grow(10)
+	write16(b, rp.SenderAddr.Network)
+	b.WriteByte(8)
+	b.WriteByte(byte(rp.SenderAddr.Node))
+	if !rp.Extended {
+		return b.Bytes(), nil
+	}
+	write16(b, rp.RangeStart)
+	b.WriteByte(0x80)
+	write16(b, rp.RangeEnd)
+	b.WriteByte(0x82)
+	return b.Bytes(), nil
+}
+
+// UnmarshalResponsePacket unmarshals an RTMP Response packet.
 func UnmarshalResponsePacket(data []byte) (*ResponsePacket, error) {
 	if len(data) != 4 && len(data) != 10 {
 		return nil, fmt.Errorf("invalid input length %d for RTMP Response packet", len(data))

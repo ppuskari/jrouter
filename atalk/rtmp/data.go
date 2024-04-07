@@ -1,6 +1,7 @@
 package rtmp
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 
@@ -10,6 +11,7 @@ import (
 // DataPacket represents an RTMP Data packet.
 type DataPacket struct {
 	RouterAddr    ddp.Addr
+	Extended      bool
 	NetworkTuples []NetworkTuple
 }
 
@@ -19,6 +21,29 @@ type NetworkTuple struct {
 	RangeStart ddp.Network
 	RangeEnd   ddp.Network
 	Distance   uint8
+}
+
+// Marshal marshals an RTMP Data packet.
+func (dp *DataPacket) Marshal() ([]byte, error) {
+	b := bytes.NewBuffer(nil)
+	write16(b, dp.RouterAddr.Network)
+	b.WriteByte(8)
+	b.WriteByte(byte(dp.RouterAddr.Node))
+	if !dp.Extended {
+		write16(b, uint16(0))
+		b.WriteByte(0x82)
+	}
+	for _, nt := range dp.NetworkTuples {
+		write16(b, nt.RangeStart)
+		if !nt.Extended {
+			b.WriteByte(nt.Distance)
+			continue
+		}
+		b.WriteByte(nt.Distance | 0x80)
+		write16(b, nt.RangeEnd)
+		b.WriteByte(0x82)
+	}
+	return b.Bytes(), nil
 }
 
 // UnmarshalDataPacket unmarshals a DataPacket.
@@ -34,6 +59,7 @@ func UnmarshalDataPacket(data []byte) (*DataPacket, error) {
 			Network: ddp.Network(binary.BigEndian.Uint16(data[:2])),
 			Node:    ddp.Node(data[3]),
 		},
+		Extended: true,
 	}
 	data = data[4:]
 
@@ -56,6 +82,7 @@ func UnmarshalDataPacket(data []byte) (*DataPacket, error) {
 			if nt.Distance != 0x82 {
 				return nil, fmt.Errorf("unsupported RTMP version %x", nt.Distance)
 			}
+			dp.Extended = false
 			first = false
 			continue
 		}
