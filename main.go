@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"io"
 	"log"
 	"math/rand/v2"
 	"net"
@@ -166,9 +167,12 @@ func main() {
 			if errors.Is(err, pcap.NextErrorTimeoutExpired) {
 				continue
 			}
-
+			if errors.Is(err, io.EOF) || errors.Is(err, pcap.NextErrorNoMorePackets) {
+				return
+			}
 			if err != nil {
-				log.Fatalf("Couldn't read AppleTalk / AARP packet data: %v", err)
+				log.Printf("Couldn't read AppleTalk / AARP packet data: %v", err)
+				return
 			}
 
 			ethFrame := new(ethertalk.Packet)
