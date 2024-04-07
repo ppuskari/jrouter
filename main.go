@@ -31,6 +31,7 @@ import (
 
 	"gitea.drjosh.dev/josh/jrouter/atalk"
 	"gitea.drjosh.dev/josh/jrouter/aurp"
+	"github.com/google/gopacket/pcap"
 	"github.com/sfiera/multitalk/pkg/ddp"
 	"github.com/sfiera/multitalk/pkg/ethernet"
 	"github.com/sfiera/multitalk/pkg/ethertalk"
@@ -157,7 +158,15 @@ func main() {
 
 	go func() {
 		for {
+			if ctx.Err() != nil {
+				return
+			}
+
 			rawPkt, _, err := pcapHandle.ReadPacketData()
+			if errors.Is(err, pcap.NextErrorTimeoutExpired) {
+				continue
+			}
+
 			if err != nil {
 				log.Fatalf("Couldn't read AppleTalk / AARP packet data: %v", err)
 			}
