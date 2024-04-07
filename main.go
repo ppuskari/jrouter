@@ -95,6 +95,19 @@ func main() {
 	defer cancel()
 	ctx, _ := signal.NotifyContext(cctx, os.Interrupt)
 
+	// Open PCAP session
+	iface, err := net.InterfaceByName(cfg.EtherTalk.Device)
+	if err != nil {
+		log.Fatalf("Couldn't find interface named %q: %v", cfg.EtherTalk.Device, err)
+	}
+	myHWAddr := ethernet.Addr(iface.HardwareAddr)
+
+	pcapHandle, err := atalk.StartPcap(cfg.EtherTalk.Device)
+	if err != nil {
+		log.Fatalf("Couldn't open network device for AppleTalk: %v", err)
+	}
+	defer pcapHandle.Close()
+
 	// Wait until all peer handlers have finished before closing the port
 	var handlersWG sync.WaitGroup
 	defer func() {
@@ -102,7 +115,7 @@ func main() {
 		handlersWG.Wait()
 		ln.Close()
 	}()
-	goHandler := func(p *peer) {
+	goPeerHandler := func(p *peer) {
 		handlersWG.Add(1)
 		go func() {
 			defer handlersWG.Done()
@@ -134,22 +147,10 @@ func main() {
 		}
 		aurp.Inc(&nextConnID)
 		peers[udpAddrFromNet(raddr)] = peer
-		goHandler(peer)
+		goPeerHandler(peer)
 	}
 
 	// AppleTalk packet loops
-	iface, err := net.InterfaceByName(cfg.EtherTalk.Device)
-	if err != nil {
-		log.Fatalf("Couldn't find interface named %q: %v", cfg.EtherTalk.Device, err)
-	}
-	myHWAddr := ethernet.Addr(iface.HardwareAddr)
-
-	pcapHandle, err := atalk.StartPcap(cfg.EtherTalk.Device)
-	if err != nil {
-		log.Fatalf("Couldn't open network device for AppleTalk: %v", err)
-	}
-	defer pcapHandle.Close()
-
 	aarpMachine := NewAARPMachine(cfg, pcapHandle, myHWAddr)
 	aarpCh := make(chan *ethertalk.Packet, 1024)
 	go aarpMachine.Run(ctx, aarpCh)
@@ -256,7 +257,7 @@ func main() {
 			}
 			aurp.Inc(&nextConnID)
 			peers[ra] = pr
-			goHandler(pr)
+			goPeerHandler(pr)
 		}
 
 		// Pass the packet to the goroutine in charge of this peer.
