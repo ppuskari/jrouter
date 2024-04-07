@@ -8,6 +8,7 @@ import (
 
 	"gitea.drjosh.dev/josh/jrouter/atalk/rtmp"
 	"github.com/google/gopacket/pcap"
+	"github.com/sfiera/multitalk/pkg/aarp"
 	"github.com/sfiera/multitalk/pkg/ddp"
 	"github.com/sfiera/multitalk/pkg/ethernet"
 	"github.com/sfiera/multitalk/pkg/ethertalk"
@@ -29,6 +30,11 @@ func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket)
 		return fmt.Errorf("AARP machine closed Assigned channel but Address is not valid")
 	}
 
+	// Initial broadcast
+	if err := m.broadcastData(myAddr); err != nil {
+		log.Printf("RTMP: Couldn't broadcast Data: %v", err)
+	}
+
 	bcastTicker := time.NewTicker(10 * time.Second)
 	defer bcastTicker.Stop()
 
@@ -38,33 +44,8 @@ func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket)
 			return ctx.Err()
 
 		case <-bcastTicker.C:
-			// Broadcast an RTMP Data
-
-			dataPkt := m.dataPacket(myAddr.Proto)
-
-			dataPktRaw, err := dataPkt.Marshal()
-			if err != nil {
-				log.Printf("RTMP: Couldn't marshal Data packet: %v", err)
-				continue
-			}
-
-			ddpPkt := &ddp.ExtPacket{
-				ExtHeader: ddp.ExtHeader{
-					Size:      uint16(len(dataPktRaw)),
-					Cksum:     0,
-					DstNet:    0,    // this network
-					DstNode:   0xff, // broadcast packet
-					DstSocket: 1,    // the RTMP socket
-					SrcNet:    myAddr.Proto.Network,
-					SrcNode:   myAddr.Proto.Node,
-					SrcSocket: 1, // the RTMP socket
-					Proto:     ddp.ProtoRTMPResp,
-				},
-				Data: dataPktRaw,
-			}
-
-			if err := m.send(myAddr.Hardware, ethertalk.AppleTalkBroadcast, ddpPkt); err != nil {
-				log.Printf("RTMP: Couldn't send Data broadcast: %v", err)
+			if err := m.broadcastData(myAddr); err != nil {
+				log.Printf("RTMP: Couldn't broadcast Data: %v", err)
 			}
 
 		case pkt := <-incomingCh:
@@ -172,6 +153,32 @@ func (m *RTMPMachine) send(src, dst ethernet.Addr, ddpPkt *ddp.ExtPacket) error 
 		return err
 	}
 	return m.pcapHandle.WritePacketData(ethFrameRaw)
+}
+
+func (m *RTMPMachine) broadcastData(myAddr aarp.AddrPair) error {
+	dataPkt := m.dataPacket(myAddr.Proto)
+
+	dataPktRaw, err := dataPkt.Marshal()
+	if err != nil {
+		return fmt.Errorf("marshal Data packet: %v", err)
+	}
+
+	ddpPkt := &ddp.ExtPacket{
+		ExtHeader: ddp.ExtHeader{
+			Size:      uint16(len(dataPktRaw)),
+			Cksum:     0,
+			DstNet:    0,    // this network
+			DstNode:   0xff, // broadcast packet
+			DstSocket: 1,    // the RTMP socket
+			SrcNet:    myAddr.Proto.Network,
+			SrcNode:   myAddr.Proto.Node,
+			SrcSocket: 1, // the RTMP socket
+			Proto:     ddp.ProtoRTMPResp,
+		},
+		Data: dataPktRaw,
+	}
+
+	return m.send(myAddr.Hardware, ethertalk.AppleTalkBroadcast, ddpPkt)
 }
 
 func (m *RTMPMachine) dataPacket(myAddr ddp.Addr) *rtmp.DataPacket {
