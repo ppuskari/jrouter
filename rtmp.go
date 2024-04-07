@@ -60,7 +60,8 @@ func (m *RTMPMachine) Run(ctx context.Context) error {
 			ddpPkt := ddp.ExtPacket{
 				ExtHeader: ddp.ExtHeader{
 					Size:      uint16(len(dataPktRaw)),
-					DstNet:    0,
+					Cksum:     0,
+					DstNet:    0,    // this network
 					DstNode:   0xff, // broadcast packet
 					DstSocket: 1,    // the special RTMP socket
 					SrcNet:    myAddr.Proto.Network,
@@ -71,10 +72,11 @@ func (m *RTMPMachine) Run(ctx context.Context) error {
 				Data: dataPktRaw,
 			}
 
-			ethFrame, err := ethertalk.AppleTalk(ethertalk.AppleTalkBroadcast, ddpPkt)
+			ethFrame, err := ethertalk.AppleTalk(myAddr.Hardware, ddpPkt)
 			if err != nil {
 				log.Printf("RTMP: Couldn't create EtherTalk frame: %v", err)
 			}
+			ethFrame.Dst = ethertalk.AppleTalkBroadcast
 
 			ethFrameRaw, err := ethertalk.Marshal(*ethFrame)
 			if err != nil {
