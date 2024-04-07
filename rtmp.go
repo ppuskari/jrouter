@@ -18,7 +18,7 @@ type RTMPMachine struct {
 	pcapHandle *pcap.Handle
 }
 
-func (m *RTMPMachine) Run(ctx context.Context) error {
+func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket) error {
 	bcastTicker := time.NewTicker(10 * time.Second)
 	defer bcastTicker.Stop()
 
@@ -86,6 +86,37 @@ func (m *RTMPMachine) Run(ctx context.Context) error {
 			if err := m.pcapHandle.WritePacketData(ethFrameRaw); err != nil {
 				log.Printf("RTMP: Couldn't write frame: %v", err)
 			}
+
+		case pkt := <-incomingCh:
+			switch pkt.Proto {
+			case ddp.ProtoRTMPReq:
+				// I can answer RTMP requests!
+				req, err := rtmp.UnmarshalRequestPacket(pkt.Data)
+				if err != nil {
+					log.Printf("RTMP: Couldn't unmarshal Request packet: %v", err)
+				}
+				switch req.Function {
+				case 1: // RTMP Request
+					// TODO
+					log.Print("RTMP: Got Request")
+
+				case 2: // RTMP RDR with split-horizon processing
+					// TODO
+					log.Print("RTMP: Got RDR with split-horizon")
+
+				case 3: // RTMP RDR for whole table
+					// TODO
+					log.Print("RTMP: Got RDR without split-horizon")
+
+				}
+
+			case ddp.ProtoRTMPResp:
+				// It's a peer router on the AppleTalk network!
+				// TODO
+				log.Print("RTMP: Got Response or ")
+
+			}
+
 		}
 	}
 }

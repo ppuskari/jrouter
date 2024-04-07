@@ -164,7 +164,8 @@ func main() {
 		cfg:        cfg,
 		pcapHandle: pcapHandle,
 	}
-	go rtmpMachine.Run(ctx)
+	rtmpCh := make(chan *ddp.ExtPacket, 1024)
+	go rtmpMachine.Run(ctx, rtmpCh)
 
 	// ---------- Raw AppleTalk/AARP inbound ----------
 	go func() {
@@ -216,6 +217,36 @@ func main() {
 				srcAddr := ddp.Addr{Network: ddpkt.SrcNet, Node: ddpkt.SrcNode}
 				aarpMachine.Learn(srcAddr, ethFrame.Src)
 				log.Printf("DDP: Gleaned that %v -> %v", srcAddr, ethFrame.Src)
+
+				// Packet for us? First, who am I?
+				myAddr, ok := aarpMachine.Address()
+				if !ok {
+					continue
+				}
+
+				// Our network?
+				// "The network number 0 is reserved to mean unknown; by default
+				// it specifies the local network to which the node is
+				// connected. Packets whose destination network number is 0 are
+				// addressed to a node on the local network."
+				if ddpkt.DstNet != 0 && ddpkt.DstNet != myAddr.Proto.Network {
+					continue
+				}
+
+				// To me?
+				// "Node ID 0 indicates any router on the network"- I'm a router
+				// "node ID $FF indicates either a network-wide or zone-specific
+				// broadcast"- that's relevant
+				if ddpkt.DstNode != 0 && ddpkt.DstNode != 0xff && ddpkt.DstNode != myAddr.Proto.Node {
+					continue
+				}
+
+				switch ddpkt.DstSocket {
+				case 1: // The RTMP socket
+					rtmpCh <- &ddpkt
+				default:
+					log.Printf("DDP: No handler for socket %d", ddpkt.DstSocket)
+				}
 
 			default:
 				log.Printf("Read unknown packet %s -> %s with payload %x", ethFrame.Src, ethFrame.Dst, ethFrame.Payload)
