@@ -198,9 +198,12 @@ func main() {
 
 			switch ethFrame.SNAPProto {
 			case ethertalk.AARPProto:
+				log.Print("Got an AARP frame")
 				aarpCh <- ethFrame
 
 			case ethertalk.AppleTalkProto:
+				log.Print("Got an AppleTalk frame")
+
 				var ddpkt ddp.ExtPacket
 				if err := ddp.ExtUnmarshal(ethFrame.Payload, &ddpkt); err != nil {
 					log.Printf("Couldn't unmarshal DDP packet: %v", err)
