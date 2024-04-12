@@ -417,6 +417,12 @@ func handleNBPInAURP(pcapHandle *pcap.Handle, myHWAddr ethernet.Addr, ddpkt *ddp
 		return fmt.Errorf("can't handle %v", nbpkt.Function)
 	}
 
+	if len(nbpkt.Tuples) < 1 {
+		return fmt.Errorf("no tuples in NBP packet")
+	}
+
+	log.Printf("NBP/DDP/AURP: Converting FwdReq to LkUp (%v)", nbpkt.Tuples[0])
+
 	// Convert it to a LkUp and broadcast on EtherTalk
 	nbpkt.Function = nbp.FunctionLkUp
 	nbpRaw, err := nbpkt.Marshal()
