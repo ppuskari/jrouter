@@ -21,6 +21,10 @@ func (NBPMachine) Run(ctx context.Context, incoming <-chan *ddp.ExtPacket) error
 			return ctx.Err()
 
 		case ddpkt := <-incoming:
+			if ddpkt.Proto != ddp.ProtoNBP {
+				log.Printf("NBP: invalid DDP type %d on socket 2", ddpkt.Proto)
+			}
+
 			pkt, err := nbp.Unmarshal(ddpkt.Data)
 			if err != nil {
 				log.Printf("NBP: invalid packet: %v", err)

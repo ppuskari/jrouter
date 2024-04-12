@@ -33,6 +33,7 @@ import (
 
 	"gitea.drjosh.dev/josh/jrouter/atalk"
 	"gitea.drjosh.dev/josh/jrouter/atalk/aep"
+	"gitea.drjosh.dev/josh/jrouter/atalk/nbp"
 	"gitea.drjosh.dev/josh/jrouter/aurp"
 	"github.com/google/gopacket/pcap"
 	"github.com/sfiera/multitalk/pkg/ddp"
@@ -302,15 +303,72 @@ func main() {
 		log.Printf("AURP: The packet parsed succesfully as a %T", pkt)
 
 		if apkt, ok := pkt.(*aurp.AppleTalkPacket); ok {
-			var ddpkt ddp.ExtPacket
-			if err := ddp.ExtUnmarshal(apkt.Data, &ddpkt); err != nil {
+			ddpkt := new(ddp.ExtPacket)
+			if err := ddp.ExtUnmarshal(apkt.Data, ddpkt); err != nil {
 				log.Printf("AURP: Couldn't unmarshal encapsulated DDP packet: %v", err)
 				continue
 			}
-			log.Printf("AURP encapsulated DDP: src (%d.%d s %d) dst (%d.%d s %d) proto %d data len %d",
+			log.Printf("DDP/AURP: Got src (%d.%d s %d) dst (%d.%d s %d) proto %d data len %d",
 				ddpkt.SrcNet, ddpkt.SrcNode, ddpkt.SrcSocket,
 				ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket,
 				ddpkt.Proto, len(ddpkt.Data))
+
+			// "Route" the packet
+			// Since for now there's only one local network, the routing
+			// decision is pretty easy
+			// TODO: Fix this to support other AppleTalk routers
+			if ddpkt.DstNet < cfg.EtherTalk.NetStart || ddpkt.DstNet > cfg.EtherTalk.NetEnd {
+				log.Print("DDP/AURP: dropping packet not addressed to our EtherTalk range")
+				continue
+			}
+
+			// Check and adjust the Hop Count
+			// Note the ddp package doesn't make this simple
+			hopCount := (ddpkt.Size & 0x3C00) >> 10
+			if hopCount >= 15 {
+				log.Printf("DDP/AURP: hop count exceeded (%d >= 15)", hopCount)
+				continue
+			}
+			hopCount++
+			ddpkt.Size &^= 0x3C00
+			ddpkt.Size |= hopCount << 10
+
+			// Is it addressed to me? Is it NBP?
+			if ddpkt.DstNode == 0 { // Node 0 = the router for the network
+				if ddpkt.DstSocket != 2 {
+					// Something else?? TODO
+					log.Printf("DDP/AURP: I don't have anything 'listening' on socket %d", ddpkt.DstSocket)
+					continue
+				}
+				// It's NBP
+				if err := handleNBPInAURP(pcapHandle, myHWAddr, ddpkt); err != nil {
+					log.Printf("NBP/DDP/AURP: %v", err)
+				}
+				continue
+			}
+
+			// Note: resolving AARP can block
+			dstEth, err := aarpMachine.Resolve(ctx, ddp.Addr{Network: ddpkt.DstNet, Node: ddpkt.DstNode})
+			if err != nil {
+				log.Printf("DDP/AURP: couldn't resolve DDP dest %d.%d to an Ethernet address", ddpkt.DstNet, ddpkt.DstNode)
+				continue
+			}
+
+			outFrame, err := ethertalk.AppleTalk(myHWAddr, *ddpkt)
+			if err != nil {
+				log.Printf("DDP/AURP: couldn't create output frame: %v", err)
+				continue
+			}
+			outFrame.Dst = dstEth
+
+			outFrameRaw, err := ethertalk.Marshal(*outFrame)
+			if err != nil {
+				log.Printf("DDP/AURP: couldn't marshal output frame: %v", err)
+				continue
+			}
+			if err := pcapHandle.WritePacketData(outFrameRaw); err != nil {
+				log.Printf("DDP/AURP: couldn't write output frame to device: %v", err)
+			}
 			continue
 		}
 
@@ -344,6 +402,40 @@ func main() {
 			return
 		}
 	}
+}
+
+func handleNBPInAURP(pcapHandle *pcap.Handle, myHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) error {
+	if ddpkt.Proto != ddp.ProtoNBP {
+		return fmt.Errorf("invalid DDP type %d on socket 2", ddpkt.Proto)
+	}
+	nbpkt, err := nbp.Unmarshal(ddpkt.Data)
+	if err != nil {
+		return fmt.Errorf("invalid NBP packet: %v", err)
+	}
+	if nbpkt.Function != nbp.FunctionFwdReq {
+		// It's something else??
+		return fmt.Errorf("can't handle %v", nbpkt.Function)
+	}
+
+	// Convert it to a LkUp and broadcast on EtherTalk
+	nbpkt.Function = nbp.FunctionLkUp
+	nbpRaw, err := nbpkt.Marshal()
+	if err != nil {
+		return fmt.Errorf("couldn't marshal LkUp: %v", err)
+	}
+
+	ddpkt.DstNode = 0xFF // Broadcast node address within the dest network
+	ddpkt.Data = nbpRaw
+
+	outFrame, err := ethertalk.AppleTalk(myHWAddr, *ddpkt)
+	if err != nil {
+		return err
+	}
+	outFrameRaw, err := ethertalk.Marshal(*outFrame)
+	if err != nil {
+		return err
+	}
+	return pcapHandle.WritePacketData(outFrameRaw)
 }
 
 func handleAEP(pcapHandle *pcap.Handle, src, dst ethernet.Addr, ddpkt *ddp.ExtPacket) error {
