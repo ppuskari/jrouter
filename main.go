@@ -214,8 +214,8 @@ func main() {
 
 			case ethertalk.AppleTalkProto:
 				// log.Print("Got an AppleTalk frame")
-				var ddpkt ddp.ExtPacket
-				if err := ddp.ExtUnmarshal(ethFrame.Payload, &ddpkt); err != nil {
+				ddpkt := new(ddp.ExtPacket)
+				if err := ddp.ExtUnmarshal(ethFrame.Payload, ddpkt); err != nil {
 					log.Printf("Couldn't unmarshal DDP packet: %v", err)
 					continue
 				}
@@ -253,13 +253,13 @@ func main() {
 
 				switch ddpkt.DstSocket {
 				case 1: // The RTMP socket
-					rtmpCh <- &ddpkt
+					rtmpCh <- ddpkt
 
 				case 2: // The NIS (NBP socket)
-					nbpCh <- &ddpkt
+					nbpCh <- ddpkt
 
 				case 4: // The AEP socket
-					if err := handleAEP(pcapHandle, myHWAddr, ethFrame.Src, &ddpkt); err != nil {
+					if err := handleAEP(pcapHandle, myHWAddr, ethFrame.Src, ddpkt); err != nil {
 						log.Printf("AEP: Couldn't handle: %v", err)
 					}
 
