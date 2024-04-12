@@ -169,6 +169,14 @@ func main() {
 	rtmpCh := make(chan *ddp.ExtPacket, 1024)
 	go rtmpMachine.Run(ctx, rtmpCh)
 
+	// --------------------- NBP --------------------
+	nbpMachine := &NBPMachine{
+		aarp:       aarpMachine,
+		pcapHandle: pcapHandle,
+	}
+	nbpCh := make(chan *ddp.ExtPacket, 1024)
+	go nbpMachine.Run(ctx, nbpCh)
+
 	// ---------- Raw AppleTalk/AARP inbound ----------
 	go func() {
 		for {
@@ -246,6 +254,9 @@ func main() {
 				switch ddpkt.DstSocket {
 				case 1: // The RTMP socket
 					rtmpCh <- &ddpkt
+
+				case 2: // The NIS (NBP socket)
+					nbpCh <- &ddpkt
 
 				case 4: // The AEP socket
 					if err := handleAEP(pcapHandle, myHWAddr, ethFrame.Src, &ddpkt); err != nil {

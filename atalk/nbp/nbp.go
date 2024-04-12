@@ -35,6 +35,15 @@ const (
 	FunctionFwdReq    Function = 4
 )
 
+func (f Function) String() string {
+	return map[Function]string{
+		FunctionBrRq:      "BrRq",
+		FunctionLkUp:      "LkUp",
+		FunctionLkUpReply: "LkUp-Reply",
+		FunctionFwdReq:    "FwdReq",
+	}[f]
+}
+
 // Packet represents an NBP packet.
 type Packet struct {
 	Function Function // top 4 bits of first byte
