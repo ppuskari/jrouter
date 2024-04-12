@@ -128,7 +128,7 @@ func main() {
 		}()
 	}
 
-	// --------------- Configured peer setup ---------------
+	// ------------------------- Configured peer setup ------------------------
 	for _, peerStr := range cfg.Peers {
 		if !hasPortRE.MatchString(peerStr) {
 			peerStr += ":387"
@@ -156,12 +156,12 @@ func main() {
 		goPeerHandler(peer)
 	}
 
-	// -------------------- AARP --------------------
+	// --------------------------------- AARP ---------------------------------
 	aarpMachine := NewAARPMachine(cfg, pcapHandle, myHWAddr)
 	aarpCh := make(chan *ethertalk.Packet, 1024)
 	go aarpMachine.Run(ctx, aarpCh)
 
-	// -------------------- RTMP --------------------
+	// --------------------------------- RTMP ---------------------------------
 	rtmpMachine := &RTMPMachine{
 		aarp:       aarpMachine,
 		cfg:        cfg,
@@ -170,7 +170,7 @@ func main() {
 	rtmpCh := make(chan *ddp.ExtPacket, 1024)
 	go rtmpMachine.Run(ctx, rtmpCh)
 
-	// --------------------- NBP --------------------
+	// ---------------------------------- NBP ---------------------------------
 	nbpMachine := &NBPMachine{
 		aarp:       aarpMachine,
 		pcapHandle: pcapHandle,
@@ -178,7 +178,7 @@ func main() {
 	nbpCh := make(chan *ddp.ExtPacket, 1024)
 	go nbpMachine.Run(ctx, nbpCh)
 
-	// ---------- Raw AppleTalk/AARP inbound ----------
+	// ---------------------- Raw AppleTalk/AARP inbound ----------------------
 	go func() {
 		for {
 			if ctx.Err() != nil {
@@ -235,12 +235,28 @@ func main() {
 					continue
 				}
 
+				// TODO: If the packet is NBP BrRq and for a zone we have in
+				// our zone info table, convert it to a FwdReq and send that
+				// out to the peer
+				// TODO: implement the zone information table
+
 				// Our network?
 				// "The network number 0 is reserved to mean unknown; by default
 				// it specifies the local network to which the node is
 				// connected. Packets whose destination network number is 0 are
 				// addressed to a node on the local network."
-				if ddpkt.DstNet != 0 && ddpkt.DstNet != myAddr.Proto.Network {
+				if ddpkt.DstNet != 0 && (ddpkt.DstNet < cfg.EtherTalk.NetStart || ddpkt.DstNet > cfg.EtherTalk.NetEnd) {
+					// Is it for a network in the routing table?
+					rt := lookupRoute(ddpkt.DstNet)
+					if rt == nil {
+						continue
+					}
+
+					// Encap ethPacket.Payload into an AURP packet
+					if _, err := rt.peer.send(rt.peer.tr.NewAppleTalkPacket(ethFrame.Payload)); err != nil {
+						log.Printf("DDP: Couldn't forward packet to AURP peer: %v", err)
+					}
+
 					continue
 				}
 
@@ -275,7 +291,7 @@ func main() {
 		}
 	}()
 
-	// ---------- AURP inbound ----------
+	// ----------------------------- AURP inbound -----------------------------
 	for {
 		if ctx.Err() != nil {
 			return

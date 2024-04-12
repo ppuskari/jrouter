@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"gitea.drjosh.dev/josh/jrouter/aurp"
+	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
 const (
@@ -275,7 +276,9 @@ func (p *peer) handle(ctx context.Context) error {
 
 				log.Printf("Learned about these networks: %v", pkt.Networks)
 
-				// TODO: Integrate info into route table
+				for _, nt := range pkt.Networks {
+					upsertRoutes(ddp.Network(nt.RangeStart), ddp.Network(nt.RangeEnd), p, nt.Distance)
+				}
 
 				// TODO: track which networks we don't have zone info for, and
 				// only set SZI for those ?

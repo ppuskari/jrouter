@@ -102,6 +102,14 @@ func (tr *Transport) sequenced(connID, seq uint16) TrHeader {
 	}
 }
 
+// NewAppleTalkPacket returns a new AppleTalkPacket.
+func (tr *Transport) NewAppleTalkPacket(data []byte) *AppleTalkPacket {
+	return &AppleTalkPacket{
+		DomainHeader: tr.domainHeader(PacketTypeAppleTalk),
+		Data:         data,
+	}
+}
+
 // NewOpenReqPacket returns a new Open-Req packet structure. By default it sets
 // all SUI flags and uses version 1.
 func (tr *Transport) NewOpenReqPacket(opts Options) *OpenReqPacket {

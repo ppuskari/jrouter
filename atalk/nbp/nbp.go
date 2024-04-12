@@ -79,6 +79,14 @@ func Unmarshal(data []byte) (*Packet, error) {
 		NBPID:    data[1],
 	}
 	tupleCount := data[0] & 0x0F
+	if tupleCount == 0 {
+		return nil, fmt.Errorf("no tuples")
+	}
+	// Only LkUp-Reply can have more than 1 tuple
+	if tupleCount > 1 && p.Function != FunctionLkUpReply {
+		return nil, fmt.Errorf("wrong number of tuples %d for function %s", tupleCount, p.Function)
+	}
+
 	data = data[2:]
 	for range tupleCount {
 		if len(data) < 8 {
@@ -144,7 +152,7 @@ func (t *Tuple) writeTo(b *bytes.Buffer) error {
 	return nil
 }
 
-func (t *Tuple) String() string {
+func (t Tuple) String() string {
 	return fmt.Sprintf("%d.%d.%d (enum %d) <-> %s:%s@%s",
 		t.Network, t.Node, t.Socket, t.Enumerator, t.Object, t.Type, t.Zone,
 	)
