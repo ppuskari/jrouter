@@ -322,6 +322,7 @@ func main() {
 		dh, pkt, parseErr := aurp.ParsePacket(pktbuf[:pktlen])
 		if parseErr != nil {
 			log.Printf("AURP: Failed to parse packet: %v", parseErr)
+			continue
 		}
 		if readErr != nil {
 			log.Printf("AURP: Failed to read packet: %v", readErr)
