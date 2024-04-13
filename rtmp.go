@@ -198,7 +198,7 @@ func (m *RTMPMachine) broadcastData(myAddr aarp.AddrPair) error {
 }
 
 func (m *RTMPMachine) dataPacket(myAddr ddp.Addr) *rtmp.DataPacket {
-	return &rtmp.DataPacket{
+	p := &rtmp.DataPacket{
 		RouterAddr: myAddr,
 		Extended:   true,
 		NetworkTuples: []rtmp.NetworkTuple{
@@ -213,5 +213,18 @@ func (m *RTMPMachine) dataPacket(myAddr ddp.Addr) *rtmp.DataPacket {
 			},
 		},
 	}
-	// TODO: append more networks! implement a route table!
+	allRoutesMu.Lock()
+	defer allRoutesMu.Unlock()
+	for rt := range allRoutes {
+		if rt.peer == nil {
+			continue
+		}
+		p.NetworkTuples = append(p.NetworkTuples, rtmp.NetworkTuple{
+			Extended:   rt.extended,
+			RangeStart: rt.netStart,
+			RangeEnd:   rt.netEnd,
+			Distance:   rt.metric,
+		})
+	}
+	return p
 }

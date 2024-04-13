@@ -11,14 +11,20 @@ import (
 )
 
 type route struct {
-	peer   *peer
-	metric uint8
-	last   time.Time
+	extended bool
+	netStart ddp.Network
+	netEnd   ddp.Network
+	peer     *peer
+	metric   uint8
+	last     time.Time
 }
 
 var (
 	routingTableMu sync.Mutex
 	routingTable   = make(map[ddp.Network][]*route)
+
+	allRoutesMu sync.Mutex
+	allRoutes   = make(map[*route]struct{})
 )
 
 func lookupRoute(network ddp.Network) *route {
@@ -32,15 +38,22 @@ func lookupRoute(network ddp.Network) *route {
 	return rs[0]
 }
 
-func upsertRoutes(netStart, netEnd ddp.Network, peer *peer, metric uint8) error {
+func upsertRoutes(extended bool, netStart, netEnd ddp.Network, peer *peer, metric uint8) error {
 	if netStart > netEnd {
 		return fmt.Errorf("invalid network range [%d, %d]", netStart, netEnd)
 	}
 	r := &route{
-		peer:   peer,
-		metric: metric,
-		last:   time.Now(),
+		extended: extended,
+		netStart: netStart,
+		netEnd:   netEnd,
+		peer:     peer,
+		metric:   metric,
+		last:     time.Now(),
 	}
+
+	allRoutesMu.Lock()
+	allRoutes[r] = struct{}{}
+	allRoutesMu.Unlock()
 
 	routingTableMu.Lock()
 	defer routingTableMu.Unlock()

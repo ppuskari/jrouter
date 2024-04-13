@@ -277,7 +277,13 @@ func (p *peer) handle(ctx context.Context) error {
 				log.Printf("Learned about these networks: %v", pkt.Networks)
 
 				for _, nt := range pkt.Networks {
-					upsertRoutes(ddp.Network(nt.RangeStart), ddp.Network(nt.RangeEnd), p, nt.Distance)
+					upsertRoutes(
+						nt.Extended,
+						ddp.Network(nt.RangeStart),
+						ddp.Network(nt.RangeEnd),
+						p,
+						nt.Distance,
+					)
 				}
 
 				// TODO: track which networks we don't have zone info for, and
