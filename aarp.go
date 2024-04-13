@@ -190,44 +190,34 @@ func (a *AARPMachine) Resolve(ctx context.Context, ddpAddr ddp.Addr) (ethernet.A
 		return result, nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, aarpRequestTimeout)
-	defer cancel()
-
-	if !winner {
-		// some other goroutine is running the request
-		for {
-			select {
-			case <-ctx.Done():
-				return ethernet.Addr{}, ctx.Err()
-			case <-waitCh:
-				result, waitCh, _ = a.lookupOrWait(ddpAddr)
-				if waitCh == nil {
-					return result, nil
-				}
-			}
+	if winner {
+		if err := a.request(ddpAddr); err != nil {
+			return ethernet.Addr{}, err
 		}
-	}
-
-	// I am the winner! I get to send the request packets and run the ticker
-	if err := a.request(ddpAddr); err != nil {
-		return ethernet.Addr{}, err
 	}
 
 	ticker := time.NewTicker(aarpRequestRetransmit)
 	defer ticker.Stop()
 
+	ctx, cancel := context.WithTimeout(ctx, aarpRequestTimeout)
+	defer cancel()
+
 	for {
 		select {
 		case <-ctx.Done():
+			a.requestingStopped(ddpAddr)
 			return ethernet.Addr{}, ctx.Err()
 
 		case <-waitCh:
-			result, waitCh, _ = a.lookupOrWait(ddpAddr)
+			result, waitCh, winner = a.lookupOrWait(ddpAddr)
 			if waitCh == nil {
 				return result, nil
 			}
 
 		case <-ticker.C:
+			if !winner {
+				continue
+			}
 			if err := a.request(ddpAddr); err != nil {
 				return ethernet.Addr{}, err
 			}
@@ -361,4 +351,17 @@ func (t *addressMappingTable) lookupOrWait(ddpAddr ddp.Addr) (ethernet.Addr, <-c
 		return ent.hwAddr, ent.updated, true
 	}
 	return ent.hwAddr, nil, false
+}
+
+func (t *addressMappingTable) requestingStopped(ddpAddr ddp.Addr) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.table == nil {
+		return
+	}
+	ent := t.table[ddpAddr]
+	if ent == nil {
+		return
+	}
+	ent.requesting = false
 }
