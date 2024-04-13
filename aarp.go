@@ -133,7 +133,10 @@ func (a *AARPMachine) Run(ctx context.Context, incomingCh <-chan *ethertalk.Pack
 
 			switch aapkt.Opcode {
 			case aarp.RequestOp:
-				log.Printf("AARP: Who has %v? Tell %v", aapkt.Dst.Proto, aapkt.Src.Proto)
+				log.Printf("AARP: Who has %d.%d? Tell %d.%d",
+					aapkt.Dst.Proto.Network, aapkt.Dst.Proto.Node,
+					aapkt.Src.Proto.Network, aapkt.Src.Proto.Node,
+				)
 				// Glean that aapkt.Src.Proto -> aapkt.Src.Hardware
 				a.addressMappingTable.Learn(aapkt.Src.Proto, aapkt.Src.Hardware)
 				log.Printf("AARP: Gleaned that %d.%d -> %v", aapkt.Src.Proto.Network, aapkt.Src.Proto.Node, aapkt.Src.Hardware)
@@ -154,7 +157,9 @@ func (a *AARPMachine) Run(ctx context.Context, incomingCh <-chan *ethertalk.Pack
 				}
 
 			case aarp.ResponseOp:
-				log.Printf("AARP: %v is at %v", aapkt.Dst.Proto, aapkt.Dst.Hardware)
+				log.Printf("AARP: %d.%d is at %v",
+					aapkt.Dst.Proto.Network, aapkt.Dst.Proto.Node, aapkt.Dst.Hardware,
+				)
 				a.addressMappingTable.Learn(aapkt.Dst.Proto, aapkt.Dst.Hardware)
 
 				if aapkt.Dst.Proto != a.myAddr.Proto {
@@ -165,7 +170,9 @@ func (a *AARPMachine) Run(ctx context.Context, incomingCh <-chan *ethertalk.Pack
 				}
 
 			case aarp.ProbeOp:
-				log.Printf("AARP: %v probing to see if %v is available", aapkt.Src.Hardware, aapkt.Src.Proto)
+				log.Printf("AARP: %v probing to see if %d.%d is available",
+					aapkt.Src.Hardware, aapkt.Src.Proto.Network, aapkt.Src.Proto.Node,
+				)
 				// AMT should not be updated, because the address is tentative
 
 				if aapkt.Dst.Proto != a.myAddr.Proto {
@@ -256,7 +263,7 @@ func (a *AARPMachine) heyThatsMe(targ aarp.AddrPair) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("AARP: sending packet %+v", respFrame)
+	//log.Printf("AARP: sending packet %+v", respFrame)
 	// Instead of broadcasting the reply, send it to the target specifically?
 	respFrame.Dst = targ.Hardware
 	respFrameRaw, err := ethertalk.Marshal(*respFrame)
