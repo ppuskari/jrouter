@@ -138,7 +138,12 @@ func (a *AARPMachine) Run(ctx context.Context, incomingCh <-chan *ethertalk.Pack
 				a.addressMappingTable.Learn(aapkt.Src.Proto, aapkt.Src.Hardware)
 				log.Printf("AARP: Gleaned that %d.%d -> %v", aapkt.Src.Proto.Network, aapkt.Src.Proto.Node, aapkt.Src.Hardware)
 
-				if !(aapkt.Dst.Proto == a.myAddr.Proto && a.assigned) {
+				if aapkt.Dst.Proto != a.myAddr.Proto {
+					log.Printf("AARP: not replying to request for %d.%d (not my address)", aapkt.Dst.Proto.Network, aapkt.Dst.Proto.Node)
+					continue
+				}
+				if !a.assigned {
+					log.Printf("AARP: not replying to request for %d.%d (address still tentative)", aapkt.Dst.Proto.Network, aapkt.Dst.Proto.Node)
 					continue
 				}
 
@@ -251,6 +256,7 @@ func (a *AARPMachine) heyThatsMe(targ aarp.AddrPair) error {
 	if err != nil {
 		return err
 	}
+	log.Printf("AARP: sending packet %+v", respFrame)
 	// Instead of broadcasting the reply, send it to the target specifically
 	respFrame.Dst = targ.Hardware
 	respFrameRaw, err := ethertalk.Marshal(*respFrame)
