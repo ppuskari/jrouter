@@ -136,7 +136,7 @@ func (a *AARPMachine) Run(ctx context.Context, incomingCh <-chan *ethertalk.Pack
 				log.Printf("AARP: Who has %v? Tell %v", aapkt.Dst.Proto, aapkt.Src.Proto)
 				// Glean that aapkt.Src.Proto -> aapkt.Src.Hardware
 				a.addressMappingTable.Learn(aapkt.Src.Proto, aapkt.Src.Hardware)
-				log.Printf("AARP: Gleaned that %v -> %v", aapkt.Src.Proto, aapkt.Src.Hardware)
+				log.Printf("AARP: Gleaned that %d.%d -> %v", aapkt.Src.Proto.Network, aapkt.Src.Proto.Node, aapkt.Src.Hardware)
 
 				if !(aapkt.Dst.Proto == a.myAddr.Proto && a.assigned) {
 					continue

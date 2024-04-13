@@ -224,10 +224,11 @@ func main() {
 					ddpkt.SrcNet, ddpkt.SrcNode, ddpkt.SrcSocket,
 					ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket,
 					ddpkt.Proto, len(ddpkt.Data))
+
 				// Glean address info for AMT
 				srcAddr := ddp.Addr{Network: ddpkt.SrcNet, Node: ddpkt.SrcNode}
 				aarpMachine.Learn(srcAddr, ethFrame.Src)
-				log.Printf("DDP: Gleaned that %v -> %v", srcAddr, ethFrame.Src)
+				log.Printf("DDP: Gleaned that %d.%d -> %v", srcAddr.Network, srcAddr.Node, ethFrame.Src)
 
 				// Packet for us? First, who am I?
 				myAddr, ok := aarpMachine.Address()
@@ -249,10 +250,12 @@ func main() {
 					// Is it for a network in the routing table?
 					rt := lookupRoute(ddpkt.DstNet)
 					if rt == nil {
+						log.Printf("DDP: no route for network %d", ddpkt.DstNet)
 						continue
 					}
 
 					// Encap ethPacket.Payload into an AURP packet
+					log.Printf("DDP: forwarding to AURP peer %v", rt.peer.tr.RemoteDI)
 					if _, err := rt.peer.send(rt.peer.tr.NewAppleTalkPacket(ethFrame.Payload)); err != nil {
 						log.Printf("DDP: Couldn't forward packet to AURP peer: %v", err)
 					}

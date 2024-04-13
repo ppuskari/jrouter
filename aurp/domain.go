@@ -84,6 +84,8 @@ type DomainIdentifier interface {
 // NullDomainIdentifier represents a null domain identifier.
 type NullDomainIdentifier struct{}
 
+func (NullDomainIdentifier) String() string { return "(null DI)" }
+
 // WriteTo writes the encoded form of the domain identifier to w.
 func (NullDomainIdentifier) WriteTo(w io.Writer) (int64, error) {
 	n, err := w.Write([]byte{0x01, 0x00})
@@ -92,6 +94,8 @@ func (NullDomainIdentifier) WriteTo(w io.Writer) (int64, error) {
 
 // IPDomainIdentifier represents an IP address in a domain identifier.
 type IPDomainIdentifier net.IP
+
+func (i IPDomainIdentifier) String() string { return net.IP(i).String() }
 
 // WriteTo writes the encoded form of the domain identifier to w.
 func (i IPDomainIdentifier) WriteTo(w io.Writer) (int64, error) {
