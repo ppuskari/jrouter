@@ -170,14 +170,6 @@ func main() {
 	rtmpCh := make(chan *ddp.ExtPacket, 1024)
 	go rtmpMachine.Run(ctx, rtmpCh)
 
-	// ---------------------------------- NBP ---------------------------------
-	nbpMachine := &NBPMachine{
-		aarp:       aarpMachine,
-		pcapHandle: pcapHandle,
-	}
-	nbpCh := make(chan *ddp.ExtPacket, 1024)
-	go nbpMachine.Run(ctx, nbpCh)
-
 	// ---------------------- Raw AppleTalk/AARP inbound ----------------------
 	go func() {
 		for {
@@ -276,7 +268,24 @@ func main() {
 					rtmpCh <- ddpkt
 
 				case 2: // The NIS (NBP socket)
-					nbpCh <- ddpkt
+					if ddpkt.Proto != ddp.ProtoNBP {
+						log.Printf("NBP: invalid DDP type %d on socket 2", ddpkt.Proto)
+					}
+
+					nbpkt, err := nbp.Unmarshal(ddpkt.Data)
+					if err != nil {
+						log.Printf("NBP: invalid packet: %v", err)
+						continue
+					}
+
+					log.Printf("NBP: Got %v id %d with tuples %v", nbpkt.Function, nbpkt.NBPID, nbpkt.Tuples)
+
+					// Is it a BrRq?
+					if nbpkt.Function == nbp.FunctionBrRq {
+						// TODO: Translate it into a FwdReq and route it to the
+						// routers with the appropriate zone(s).
+						log.Print("NBP: TODO: BrRq-FwdReq translation")
+					}
 
 				case 4: // The AEP socket
 					if err := handleAEP(pcapHandle, myHWAddr, ethFrame.Src, ddpkt); err != nil {
