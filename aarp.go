@@ -252,12 +252,12 @@ func (a *AARPMachine) reroll() {
 
 // Send an AARP response
 func (a *AARPMachine) heyThatsMe(targ aarp.AddrPair) error {
-	respFrame, err := ethertalk.AARP(a.myAddr.Hardware, aarp.Response(targ, a.myAddr))
+	respFrame, err := ethertalk.AARP(a.myAddr.Hardware, aarp.Response(a.myAddr, targ))
 	if err != nil {
 		return err
 	}
 	log.Printf("AARP: sending packet %+v", respFrame)
-	// Instead of broadcasting the reply, send it to the target specifically
+	// Instead of broadcasting the reply, send it to the target specifically?
 	respFrame.Dst = targ.Hardware
 	respFrameRaw, err := ethertalk.Marshal(*respFrame)
 	if err != nil {
