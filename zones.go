@@ -17,6 +17,7 @@
 package main
 
 import (
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -65,6 +66,23 @@ func (zt *ZoneTable) Upsert(network ddp.Network, name string, local bool) {
 		Local:    local,
 		LastSeen: time.Now(),
 	}
+}
+
+func (zt *ZoneTable) Query(ns []ddp.Network) map[ddp.Network][]string {
+	slices.Sort(ns)
+	zs := make(map[ddp.Network][]string)
+
+	zt.mu.Lock()
+	defer zt.mu.Unlock()
+	for _, z := range zt.zones {
+		if time.Since(z.LastSeen) > maxZoneAge {
+			continue
+		}
+		if _, ok := slices.BinarySearch(ns, z.Network); ok {
+			zs[z.Network] = append(zs[z.Network], z.Name)
+		}
+	}
+	return zs
 }
 
 func (zt *ZoneTable) LocalNames() []string {
