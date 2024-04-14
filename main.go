@@ -129,6 +129,12 @@ func main() {
 		}()
 	}
 
+	// ----------------------------- Routing table ----------------------------
+	routing := &routingTable{
+		table:     make(map[ddp.Network][]*route),
+		allRoutes: make(map[*route]struct{}),
+	}
+
 	// ------------------------- Configured peer setup ------------------------
 	for _, peerStr := range cfg.Peers {
 		if !hasPortRE.MatchString(peerStr) {
@@ -148,9 +154,10 @@ func main() {
 				RemoteDI:    aurp.IPDomainIdentifier(raddr.IP),
 				LocalConnID: nextConnID,
 			},
-			conn:  ln,
-			raddr: raddr,
-			recv:  make(chan aurp.Packet, 1024),
+			conn:         ln,
+			raddr:        raddr,
+			recv:         make(chan aurp.Packet, 1024),
+			routingTable: routing,
 		}
 		aurp.Inc(&nextConnID)
 		peers[udpAddrFromNet(raddr)] = peer
@@ -164,9 +171,10 @@ func main() {
 
 	// --------------------------------- RTMP ---------------------------------
 	rtmpMachine := &RTMPMachine{
-		aarp:       aarpMachine,
-		cfg:        cfg,
-		pcapHandle: pcapHandle,
+		aarp:         aarpMachine,
+		cfg:          cfg,
+		pcapHandle:   pcapHandle,
+		routingTable: routing,
 	}
 	rtmpCh := make(chan *ddp.ExtPacket, 1024)
 	go rtmpMachine.Run(ctx, rtmpCh)
@@ -241,7 +249,7 @@ func main() {
 				// addressed to a node on the local network."
 				if ddpkt.DstNet != 0 && (ddpkt.DstNet < cfg.EtherTalk.NetStart || ddpkt.DstNet > cfg.EtherTalk.NetEnd) {
 					// Is it for a network in the routing table?
-					rt := lookupRoute(ddpkt.DstNet)
+					rt := routing.lookupRoute(ddpkt.DstNet)
 					if rt == nil {
 						log.Printf("DDP: no route for network %d", ddpkt.DstNet)
 						continue
@@ -481,9 +489,10 @@ func main() {
 					RemoteDI:    dh.SourceDI, // platinum rule
 					LocalConnID: nextConnID,
 				},
-				conn:  ln,
-				raddr: raddr,
-				recv:  make(chan aurp.Packet, 1024),
+				conn:         ln,
+				raddr:        raddr,
+				recv:         make(chan aurp.Packet, 1024),
+				routingTable: routing,
 			}
 			aurp.Inc(&nextConnID)
 			peers[ra] = pr

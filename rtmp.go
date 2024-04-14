@@ -32,9 +32,10 @@ import (
 
 // RTMPMachine implements RTMP on an AppleTalk network attached to the router.
 type RTMPMachine struct {
-	aarp       *AARPMachine
-	cfg        *config
-	pcapHandle *pcap.Handle
+	aarp         *AARPMachine
+	cfg          *config
+	pcapHandle   *pcap.Handle
+	routingTable *routingTable
 }
 
 // Run executes the machine.
@@ -213,12 +214,7 @@ func (m *RTMPMachine) dataPacket(myAddr ddp.Addr) *rtmp.DataPacket {
 			},
 		},
 	}
-	allRoutesMu.Lock()
-	defer allRoutesMu.Unlock()
-	for rt := range allRoutes {
-		if rt.peer == nil {
-			continue
-		}
+	for _, rt := range m.routingTable.validRoutes() {
 		p.NetworkTuples = append(p.NetworkTuples, rtmp.NetworkTuple{
 			Extended:   rt.extended,
 			RangeStart: rt.netStart,

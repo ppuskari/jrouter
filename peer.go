@@ -81,6 +81,8 @@ type peer struct {
 	conn  *net.UDPConn
 	raddr *net.UDPAddr
 	recv  chan aurp.Packet
+
+	routingTable *routingTable
 }
 
 // send encodes and sends pkt to the remote host.
@@ -277,7 +279,7 @@ func (p *peer) handle(ctx context.Context) error {
 				log.Printf("Learned about these networks: %v", pkt.Networks)
 
 				for _, nt := range pkt.Networks {
-					upsertRoutes(
+					p.routingTable.upsertRoutes(
 						nt.Extended,
 						ddp.Network(nt.RangeStart),
 						ddp.Network(nt.RangeEnd),
