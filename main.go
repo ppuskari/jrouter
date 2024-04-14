@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"flag"
-	"fmt"
 	"io"
 	"log"
 	"math/rand/v2"
@@ -32,12 +31,8 @@ import (
 	"time"
 
 	"gitea.drjosh.dev/josh/jrouter/atalk"
-	"gitea.drjosh.dev/josh/jrouter/atalk/aep"
-	"gitea.drjosh.dev/josh/jrouter/atalk/nbp"
-	"gitea.drjosh.dev/josh/jrouter/atalk/zip"
 	"gitea.drjosh.dev/josh/jrouter/aurp"
 	"github.com/google/gopacket/pcap"
-	"github.com/sfiera/multitalk/pkg/aarp"
 	"github.com/sfiera/multitalk/pkg/ddp"
 	"github.com/sfiera/multitalk/pkg/ethernet"
 	"github.com/sfiera/multitalk/pkg/ethertalk"
@@ -130,8 +125,10 @@ func main() {
 		}()
 	}
 
-	// ----------------------------- Routing table ----------------------------
+	// -------------------------------- Tables --------------------------------
 	routing := NewRoutingTable()
+	zones := NewZoneTable()
+	zones.Upsert(cfg.EtherTalk.NetStart, cfg.EtherTalk.ZoneName, true)
 
 	// ------------------------- Configured peer setup ------------------------
 	for _, peerStr := range cfg.Peers {
@@ -156,6 +153,7 @@ func main() {
 			raddr:        raddr,
 			recv:         make(chan aurp.Packet, 1024),
 			routingTable: routing,
+			zoneTable:    zones,
 		}
 		aurp.Inc(&nextConnID)
 		peers[udpAddrFromNet(raddr)] = peer
@@ -285,7 +283,7 @@ func main() {
 					}
 
 				case 6: // The ZIS (zone information socket / ZIP socket)
-					if err := handleZIP(pcapHandle, ethFrame.Src, myHWAddr, myAddr, cfg, ddpkt); err != nil {
+					if err := handleZIP(pcapHandle, ethFrame.Src, myHWAddr, myAddr, cfg, zones, ddpkt); err != nil {
 						log.Printf("ZIP: couldn't handle: %v", err)
 					}
 
@@ -414,6 +412,7 @@ func main() {
 				raddr:        raddr,
 				recv:         make(chan aurp.Packet, 1024),
 				routingTable: routing,
+				zoneTable:    zones,
 			}
 			aurp.Inc(&nextConnID)
 			peers[ra] = pr
@@ -428,262 +427,6 @@ func main() {
 		case <-ctx.Done():
 			return
 		}
-	}
-}
-
-func handleNBP(pcapHandle *pcap.Handle, myHWAddr, srcHWAddr ethernet.Addr, myAddr aarp.AddrPair, cfg *config, ddpkt *ddp.ExtPacket) error {
-	if ddpkt.Proto != ddp.ProtoNBP {
-		return fmt.Errorf("invalid DDP type %d on socket 2", ddpkt.Proto)
-	}
-
-	nbpkt, err := nbp.Unmarshal(ddpkt.Data)
-	if err != nil {
-		return fmt.Errorf("invalid packet: %w", err)
-	}
-
-	log.Printf("NBP: Got %v id %d with tuples %v", nbpkt.Function, nbpkt.NBPID, nbpkt.Tuples)
-
-	switch nbpkt.Function {
-	case nbp.FunctionLkUp:
-		// when in AppleTalk, do as Apple Internet Router does...
-		tuple := nbpkt.Tuples[0]
-		if tuple.Object != "jrouter" && tuple.Object != "=" {
-			return nil
-		}
-		if tuple.Type != "AppleRouter" && tuple.Type != "=" {
-			return nil
-		}
-		if tuple.Zone != cfg.EtherTalk.ZoneName && tuple.Zone != "*" && tuple.Zone != "" {
-			return nil
-		}
-		respPkt := &nbp.Packet{
-			Function: nbp.FunctionLkUpReply,
-			NBPID:    nbpkt.NBPID,
-			Tuples: []nbp.Tuple{
-				{
-					Network:    myAddr.Proto.Network,
-					Node:       myAddr.Proto.Node,
-					Socket:     253,
-					Enumerator: 0,
-					Object:     "jrouter",
-					Type:       "AppleRouter",
-					Zone:       cfg.EtherTalk.ZoneName,
-				},
-			},
-		}
-		respRaw, err := respPkt.Marshal()
-		if err != nil {
-			return fmt.Errorf("couldn't marshal LkUp-Reply: %v", err)
-		}
-		ddpkt.DstNet = ddpkt.SrcNet
-		ddpkt.DstNode = ddpkt.SrcNode
-		ddpkt.DstSocket = ddpkt.SrcSocket
-		ddpkt.SrcNet = myAddr.Proto.Network
-		ddpkt.SrcNode = myAddr.Proto.Node
-		ddpkt.SrcSocket = 2
-		ddpkt.Data = respRaw
-		outFrame, err := ethertalk.AppleTalk(myHWAddr, *ddpkt)
-		if err != nil {
-			return err
-		}
-		outFrame.Dst = srcHWAddr
-		outFrameRaw, err := ethertalk.Marshal(*outFrame)
-		if err != nil {
-			return err
-		}
-		return pcapHandle.WritePacketData(outFrameRaw)
-
-	case nbp.FunctionBrRq:
-		// There must be 1!
-		tuple := nbpkt.Tuples[0]
-
-		if tuple.Zone != cfg.EtherTalk.ZoneName {
-			// TODO: Translate it into a FwdReq and route it to the
-			// routers with the appropriate zone(s).
-			return errors.New("TODO: BrRq-FwdReq translation")
-		}
-
-		// If it's for the local zone, translate it to a LkUp and broadcast it back
-		// out the EtherTalk port.
-		// "Note: On an internet, nodes on extended networks performing lookups in
-		// their own zone must replace a zone name of asterisk (*) with their actual
-		// zone name before sending the packet to A-ROUTER. All nodes performing
-		// lookups in their own zone will receive LkUp packets from themselves
-		// (actually sent by a router). The node's NBP process should expect to
-		// receive these packets and must reply to them."
-		// TODO: use zone-specific multicast
-		nbpkt.Function = nbp.FunctionLkUp
-		nbpRaw, err := nbpkt.Marshal()
-		if err != nil {
-			return fmt.Errorf("couldn't marshal LkUp: %v", err)
-		}
-
-		ddpkt.DstNode = 0xFF // Broadcast node address within the dest network
-		ddpkt.Data = nbpRaw
-
-		outFrame, err := ethertalk.AppleTalk(myHWAddr, *ddpkt)
-		if err != nil {
-			return err
-		}
-		outFrameRaw, err := ethertalk.Marshal(*outFrame)
-		if err != nil {
-			return err
-		}
-		return pcapHandle.WritePacketData(outFrameRaw)
-
-	default:
-		return fmt.Errorf("TODO: handle function %v", nbpkt.Function)
-	}
-}
-
-func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAddr aarp.AddrPair, cfg *config, ddpkt *ddp.ExtPacket) error {
-	switch ddpkt.Proto {
-	case 3: // ATP
-		return errors.New("TODO implement ATP-based ZIP requests")
-
-	case 6: // ZIP
-		zipkt, err := zip.UnmarshalPacket(ddpkt.Data)
-		if err != nil {
-			return err
-		}
-		switch zipkt := zipkt.(type) {
-		case *zip.GetNetInfoPacket:
-			// Only running a network with one zone for now.
-			resp := &zip.GetNetInfoReplyPacket{
-				ZoneInvalid:     zipkt.ZoneName != cfg.EtherTalk.ZoneName,
-				UseBroadcast:    true, // TODO: add multicast addr computation
-				OnlyOneZone:     true,
-				NetStart:        cfg.EtherTalk.NetStart,
-				NetEnd:          cfg.EtherTalk.NetEnd,
-				ZoneName:        zipkt.ZoneName, // has to match request
-				MulticastAddr:   ethertalk.AppleTalkBroadcast,
-				DefaultZoneName: cfg.EtherTalk.ZoneName,
-			}
-			respRaw, err := resp.Marshal()
-			if err != nil {
-				return fmt.Errorf("couldn't marshal GetNetInfoReplyPacket: %w", err)
-			}
-
-			// TODO: fix
-			// "In cases where a node's provisional address is
-			// invalid, routers will not be able to respond to
-			// the node in a directed manner. An address is
-			// invalid if the network number is neither in the
-			// startup range nor in the network number range
-			// assigned to the node's network. In these cases,
-			// if the request was sent via a broadcast, the
-			// routers should respond with a broadcast."
-			ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket = 0x0000, 0xFF, ddpkt.SrcSocket
-			ddpkt.SrcNet = myAddr.Proto.Network
-			ddpkt.SrcNode = myAddr.Proto.Node
-			ddpkt.SrcSocket = 6
-			ddpkt.Data = respRaw
-			outFrame, err := ethertalk.AppleTalk(myHWAddr, *ddpkt)
-			if err != nil {
-				return fmt.Errorf("couldn't create EtherTalk frame: %w", err)
-			}
-			outFrame.Dst = srcHWAddr
-			outFrameRaw, err := ethertalk.Marshal(*outFrame)
-			if err != nil {
-				return fmt.Errorf("couldn't marshal EtherTalk frame: %w", err)
-			}
-			if err := pcapHandle.WritePacketData(outFrameRaw); err != nil {
-				return fmt.Errorf("couldn't write packet data: %w", err)
-			}
-			return nil
-
-		default:
-			return fmt.Errorf("TODO: handle type %T", zipkt)
-		}
-
-	default:
-		return fmt.Errorf("invalid DDP type %d on socket 6", ddpkt.Proto)
-	}
-}
-
-func handleNBPInAURP(pcapHandle *pcap.Handle, myHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) error {
-	if ddpkt.Proto != ddp.ProtoNBP {
-		return fmt.Errorf("invalid DDP type %d on socket 2", ddpkt.Proto)
-	}
-	nbpkt, err := nbp.Unmarshal(ddpkt.Data)
-	if err != nil {
-		return fmt.Errorf("invalid NBP packet: %v", err)
-	}
-	if nbpkt.Function != nbp.FunctionFwdReq {
-		// It's something else??
-		return fmt.Errorf("can't handle %v", nbpkt.Function)
-	}
-
-	if len(nbpkt.Tuples) < 1 {
-		return fmt.Errorf("no tuples in NBP packet")
-	}
-
-	log.Printf("NBP/DDP/AURP: Converting FwdReq to LkUp (%v)", nbpkt.Tuples[0])
-
-	// Convert it to a LkUp and broadcast on EtherTalk
-	// TODO: use zone-specific multicast
-	nbpkt.Function = nbp.FunctionLkUp
-	nbpRaw, err := nbpkt.Marshal()
-	if err != nil {
-		return fmt.Errorf("couldn't marshal LkUp: %v", err)
-	}
-
-	// "If the destination network is extended, however, the router must also
-	// change the destination network number to $0000, so that the packet is
-	// received by all nodes on the network (within the correct zone multicast
-	// address)."
-	ddpkt.DstNet = 0x0000
-	ddpkt.DstNode = 0xFF // Broadcast node address within the dest network
-	ddpkt.Data = nbpRaw
-
-	outFrame, err := ethertalk.AppleTalk(myHWAddr, *ddpkt)
-	if err != nil {
-		return err
-	}
-	// TODO: outFrame.Dst = zone-specific multicast address
-	outFrameRaw, err := ethertalk.Marshal(*outFrame)
-	if err != nil {
-		return err
-	}
-	return pcapHandle.WritePacketData(outFrameRaw)
-}
-
-func handleAEP(pcapHandle *pcap.Handle, src, dst ethernet.Addr, ddpkt *ddp.ExtPacket) error {
-	if ddpkt.Proto != ddp.ProtoAEP {
-		return fmt.Errorf("invalid DDP type %d on socket 4", ddpkt.Proto)
-	}
-	ep, err := aep.Unmarshal(ddpkt.Data)
-	if err != nil {
-		return err
-	}
-	switch ep.Function {
-	case aep.EchoReply:
-		// we didn't send a request? I don't think?
-		// we shouldn't be sending them from this socket
-		return fmt.Errorf("echo reply received at socket 4 why?")
-
-	case aep.EchoRequest:
-		// Uno Reverso the packet
-		// "The client can send the Echo Request datagram through any socket
-		// the client has open, and the Echo Reply will come back to this socket."
-		ddpkt.DstNet, ddpkt.SrcNet = ddpkt.SrcNet, ddpkt.DstNet
-		ddpkt.DstNode, ddpkt.SrcNode = ddpkt.SrcNode, ddpkt.DstNode
-		ddpkt.DstSocket, ddpkt.SrcSocket = ddpkt.SrcSocket, ddpkt.DstSocket
-		ddpkt.Data[0] = byte(aep.EchoReply)
-
-		ethFrame, err := ethertalk.AppleTalk(src, *ddpkt)
-		if err != nil {
-			return err
-		}
-		ethFrame.Dst = dst
-		ethFrameRaw, err := ethertalk.Marshal(*ethFrame)
-		if err != nil {
-			return err
-		}
-		return pcapHandle.WritePacketData(ethFrameRaw)
-
-	default:
-		return fmt.Errorf("invalid AEP function %d", ep.Function)
 	}
 }
 

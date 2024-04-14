@@ -83,6 +83,7 @@ type peer struct {
 	recv  chan aurp.Packet
 
 	routingTable *RoutingTable
+	zoneTable    *ZoneTable
 }
 
 // send encodes and sends pkt to the remote host.
@@ -367,8 +368,10 @@ func (p *peer) handle(ctx context.Context) error {
 				}
 
 			case *aurp.ZIRspPacket:
-				// TODO: Integrate info into zone table
 				log.Printf("Learned about these zones: %v", pkt.Zones)
+				for _, zt := range pkt.Zones {
+					p.zoneTable.Upsert(ddp.Network(zt.Network), zt.Name, false)
+				}
 
 			case *aurp.GDZLReqPacket:
 				if _, err := p.send(p.tr.NewGDZLRspPacket(-1, nil)); err != nil {
