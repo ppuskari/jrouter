@@ -84,5 +84,5 @@ func (rt *routingTable) validRoutes() []*route {
 		}
 		valid = append(valid, r)
 	}
-	return r
+	return valid
 }
