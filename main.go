@@ -37,6 +37,7 @@ import (
 	"gitea.drjosh.dev/josh/jrouter/atalk/zip"
 	"gitea.drjosh.dev/josh/jrouter/aurp"
 	"github.com/google/gopacket/pcap"
+	"github.com/sfiera/multitalk/pkg/aarp"
 	"github.com/sfiera/multitalk/pkg/ddp"
 	"github.com/sfiera/multitalk/pkg/ethernet"
 	"github.com/sfiera/multitalk/pkg/ethertalk"
@@ -303,69 +304,8 @@ func main() {
 					}
 
 				case 6: // The ZIS (zone information socket / ZIP socket)
-					switch ddpkt.Proto {
-					case 3: // ATP
-						log.Print("ZIP: TODO implement ATP-based ZIP requests")
-						continue
-
-					case 6: // ZIP
-						zipkt, err := zip.UnmarshalPacket(ddpkt.Data)
-						if err != nil {
-							log.Printf("ZIP: invalid packet: %v", err)
-							continue
-						}
-						switch zipkt := zipkt.(type) {
-						case *zip.GetNetInfoPacket:
-							// Only running a network with one zone for now.
-							resp := &zip.GetNetInfoReplyPacket{
-								ZoneInvalid:     zipkt.ZoneName != cfg.EtherTalk.ZoneName,
-								UseBroadcast:    true, // TODO: add multicast addr computation
-								OnlyOneZone:     true,
-								NetStart:        cfg.EtherTalk.NetStart,
-								NetEnd:          cfg.EtherTalk.NetEnd,
-								ZoneName:        zipkt.ZoneName, // has to match request
-								MulticastAddr:   ethertalk.AppleTalkBroadcast,
-								DefaultZoneName: cfg.EtherTalk.ZoneName,
-							}
-							respRaw, err := resp.Marshal()
-							if err != nil {
-								log.Printf("ZIP: couldn't marshal GetNetInfoReplyPacket: %v", err)
-								continue
-							}
-
-							// TODO: fix
-							// "In cases where a node's provisional address is
-							// invalid, routers will not be able to respond to
-							// the node in a directed manner. An address is
-							// invalid if the network number is neither in the
-							// startup range nor in the network number range
-							// assigned to the node's network. In these cases,
-							// if the request was sent via a broadcast, the
-							// routers should respond with a broadcast."
-							ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket = 0x0000, 0xFF, ddpkt.SrcSocket
-							ddpkt.SrcNet = myAddr.Proto.Network
-							ddpkt.SrcNode = myAddr.Proto.Node
-							ddpkt.SrcSocket = 6
-							ddpkt.Data = respRaw
-							outFrame, err := ethertalk.AppleTalk(myHWAddr, *ddpkt)
-							if err != nil {
-								log.Printf("ZIP: couldn't create EtherTalk frame: %v", err)
-								continue
-							}
-							outFrame.Dst = ethFrame.Src
-							outFrameRaw, err := ethertalk.Marshal(*outFrame)
-							if err != nil {
-								log.Printf("ZIP: couldn't marshal EtherTalk frame: %v", err)
-								continue
-							}
-							if err := pcapHandle.WritePacketData(outFrameRaw); err != nil {
-								log.Printf("ZIP: couldn't write packet data: %v", err)
-							}
-						}
-
-					default:
-						log.Printf("ZIP: invalid DDP type %d on socket 6", ddpkt.Proto)
-						continue
+					if err := handleZIP(pcapHandle, ethFrame.Src, myHWAddr, myAddr, cfg, ddpkt); err != nil {
+						log.Printf("ZIP: couldn't handle: %v", err)
 					}
 
 				default:
@@ -507,6 +447,71 @@ func main() {
 		case <-ctx.Done():
 			return
 		}
+	}
+}
+
+func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAddr aarp.AddrPair, cfg *config, ddpkt *ddp.ExtPacket) error {
+	switch ddpkt.Proto {
+	case 3: // ATP
+		return errors.New("TODO implement ATP-based ZIP requests")
+
+	case 6: // ZIP
+		zipkt, err := zip.UnmarshalPacket(ddpkt.Data)
+		if err != nil {
+			return err
+		}
+		switch zipkt := zipkt.(type) {
+		case *zip.GetNetInfoPacket:
+			// Only running a network with one zone for now.
+			resp := &zip.GetNetInfoReplyPacket{
+				ZoneInvalid:     zipkt.ZoneName != cfg.EtherTalk.ZoneName,
+				UseBroadcast:    true, // TODO: add multicast addr computation
+				OnlyOneZone:     true,
+				NetStart:        cfg.EtherTalk.NetStart,
+				NetEnd:          cfg.EtherTalk.NetEnd,
+				ZoneName:        zipkt.ZoneName, // has to match request
+				MulticastAddr:   ethertalk.AppleTalkBroadcast,
+				DefaultZoneName: cfg.EtherTalk.ZoneName,
+			}
+			respRaw, err := resp.Marshal()
+			if err != nil {
+				return fmt.Errorf("couldn't marshal GetNetInfoReplyPacket: %w", err)
+			}
+
+			// TODO: fix
+			// "In cases where a node's provisional address is
+			// invalid, routers will not be able to respond to
+			// the node in a directed manner. An address is
+			// invalid if the network number is neither in the
+			// startup range nor in the network number range
+			// assigned to the node's network. In these cases,
+			// if the request was sent via a broadcast, the
+			// routers should respond with a broadcast."
+			ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket = 0x0000, 0xFF, ddpkt.SrcSocket
+			ddpkt.SrcNet = myAddr.Proto.Network
+			ddpkt.SrcNode = myAddr.Proto.Node
+			ddpkt.SrcSocket = 6
+			ddpkt.Data = respRaw
+			outFrame, err := ethertalk.AppleTalk(myHWAddr, *ddpkt)
+			if err != nil {
+				return fmt.Errorf("couldn't create EtherTalk frame: %w", err)
+			}
+			outFrame.Dst = srcHWAddr
+			outFrameRaw, err := ethertalk.Marshal(*outFrame)
+			if err != nil {
+				return fmt.Errorf("couldn't marshal EtherTalk frame: %w", err)
+			}
+			if err := pcapHandle.WritePacketData(outFrameRaw); err != nil {
+				return fmt.Errorf("couldn't write packet data: %w", err)
+			}
+			return nil
+
+		default:
+			return fmt.Errorf("TODO: handle type %T", zipkt)
+		}
+
+	default:
+		return fmt.Errorf("invalid DDP type %d on socket 6", ddpkt.Proto)
 	}
 }
 
