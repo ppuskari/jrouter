@@ -18,6 +18,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 
 	"gitea.drjosh.dev/josh/jrouter/atalk/atp"
 	"gitea.drjosh.dev/josh/jrouter/atalk/zip"
@@ -107,15 +108,20 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 
 		switch zipkt := zipkt.(type) {
 		case *zip.QueryPacket:
+			log.Printf("ZIP: Got Query for networks %v", zipkt.Networks)
 			// TODO: multiple packets
+			networks := zones.Query(zipkt.Networks)
 			resp = &zip.ReplyPacket{
 				Extended: false,
-				Networks: zones.Query(zipkt.Networks),
+				Networks: networks,
 			}
+			log.Printf("ZIP: Replying with non-extended Reply: %v", networks)
 
 		case *zip.GetNetInfoPacket:
+			log.Printf("ZIP: Got GetNetInfo for zone %q", zipkt.ZoneName)
+
 			// Only running a network with one zone for now.
-			resp = &zip.GetNetInfoReplyPacket{
+			gnir := &zip.GetNetInfoReplyPacket{
 				ZoneInvalid:     zipkt.ZoneName != cfg.EtherTalk.ZoneName,
 				UseBroadcast:    true, // TODO: add multicast addr computation
 				OnlyOneZone:     true,
@@ -125,6 +131,8 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 				MulticastAddr:   ethertalk.AppleTalkBroadcast,
 				DefaultZoneName: cfg.EtherTalk.ZoneName,
 			}
+			log.Printf("ZIP: Replying with GetNetInfo-Reply: %+v", gnir)
+			resp = gnir
 
 		default:
 			return fmt.Errorf("TODO: handle type %T", zipkt)
