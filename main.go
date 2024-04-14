@@ -278,24 +278,8 @@ func main() {
 					rtmpCh <- ddpkt
 
 				case 2: // The NIS (name information socket / NBP socket)
-					if ddpkt.Proto != ddp.ProtoNBP {
-						log.Printf("NBP: invalid DDP type %d on socket 2", ddpkt.Proto)
-						continue
-					}
-
-					nbpkt, err := nbp.Unmarshal(ddpkt.Data)
-					if err != nil {
-						log.Printf("NBP: invalid packet: %v", err)
-						continue
-					}
-
-					log.Printf("NBP: Got %v id %d with tuples %v", nbpkt.Function, nbpkt.NBPID, nbpkt.Tuples)
-
-					// Is it a BrRq?
-					if nbpkt.Function == nbp.FunctionBrRq {
-						// TODO: Translate it into a FwdReq and route it to the
-						// routers with the appropriate zone(s).
-						log.Print("NBP: TODO: BrRq-FwdReq translation")
+					if err := handleNBP(pcapHandle, myHWAddr, cfg, ddpkt); err != nil {
+						log.Printf("NBP: Couldn't handle: %v", err)
 					}
 
 				case 4: // The AEP socket
@@ -450,6 +434,61 @@ func main() {
 	}
 }
 
+func handleNBP(pcapHandle *pcap.Handle, myHWAddr ethernet.Addr, cfg *config, ddpkt *ddp.ExtPacket) error {
+	if ddpkt.Proto != ddp.ProtoNBP {
+		return fmt.Errorf("invalid DDP type %d on socket 2", ddpkt.Proto)
+	}
+
+	nbpkt, err := nbp.Unmarshal(ddpkt.Data)
+	if err != nil {
+		return fmt.Errorf("invalid packet: %w", err)
+	}
+
+	log.Printf("NBP: Got %v id %d with tuples %v", nbpkt.Function, nbpkt.NBPID, nbpkt.Tuples)
+
+	// Is it a BrRq?
+	if nbpkt.Function != nbp.FunctionBrRq {
+		return nil
+	}
+
+	// There must be 1!
+	tuple := nbpkt.Tuples[0]
+
+	if tuple.Zone != cfg.EtherTalk.ZoneName {
+		// TODO: Translate it into a FwdReq and route it to the
+		// routers with the appropriate zone(s).
+		return errors.New("TODO: BrRq-FwdReq translation")
+	}
+
+	// If it's for the local zone, translate it to a LkUp and broadcast it back
+	// out the EtherTalk port.
+	// "Note: On an internet, nodes on extended networks performing lookups in
+	// their own zone must replace a zone name of asterisk (*) with their actual
+	// zone name before sending the packet to A-ROUTER. All nodes performing
+	// lookups in their own zone will receive LkUp packets from themselves
+	// (actually sent by a router). The node's NBP process should expect to
+	// receive these packets and must reply to them."
+	// TODO: use zone-specific multicast
+	nbpkt.Function = nbp.FunctionLkUp
+	nbpRaw, err := nbpkt.Marshal()
+	if err != nil {
+		return fmt.Errorf("couldn't marshal LkUp: %v", err)
+	}
+
+	ddpkt.DstNode = 0xFF // Broadcast node address within the dest network
+	ddpkt.Data = nbpRaw
+
+	outFrame, err := ethertalk.AppleTalk(myHWAddr, *ddpkt)
+	if err != nil {
+		return err
+	}
+	outFrameRaw, err := ethertalk.Marshal(*outFrame)
+	if err != nil {
+		return err
+	}
+	return pcapHandle.WritePacketData(outFrameRaw)
+}
+
 func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAddr aarp.AddrPair, cfg *config, ddpkt *ddp.ExtPacket) error {
 	switch ddpkt.Proto {
 	case 3: // ATP
@@ -535,6 +574,7 @@ func handleNBPInAURP(pcapHandle *pcap.Handle, myHWAddr ethernet.Addr, ddpkt *ddp
 	log.Printf("NBP/DDP/AURP: Converting FwdReq to LkUp (%v)", nbpkt.Tuples[0])
 
 	// Convert it to a LkUp and broadcast on EtherTalk
+	// TODO: use zone-specific multicast
 	nbpkt.Function = nbp.FunctionLkUp
 	nbpRaw, err := nbpkt.Marshal()
 	if err != nil {
