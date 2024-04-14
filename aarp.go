@@ -139,7 +139,7 @@ func (a *AARPMachine) Run(ctx context.Context, incomingCh <-chan *ethertalk.Pack
 				)
 				// Glean that aapkt.Src.Proto -> aapkt.Src.Hardware
 				a.addressMappingTable.Learn(aapkt.Src.Proto, aapkt.Src.Hardware)
-				log.Printf("AARP: Gleaned that %d.%d -> %v", aapkt.Src.Proto.Network, aapkt.Src.Proto.Node, aapkt.Src.Hardware)
+				// log.Printf("AARP: Gleaned that %d.%d -> %v", aapkt.Src.Proto.Network, aapkt.Src.Proto.Node, aapkt.Src.Hardware)
 
 				if aapkt.Dst.Proto != a.myAddr.Proto {
 					log.Printf("AARP: not replying to request for %d.%d (not my address)", aapkt.Dst.Proto.Network, aapkt.Dst.Proto.Node)

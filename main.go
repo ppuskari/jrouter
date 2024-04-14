@@ -221,7 +221,7 @@ func main() {
 				// Glean address info for AMT
 				srcAddr := ddp.Addr{Network: ddpkt.SrcNet, Node: ddpkt.SrcNode}
 				aarpMachine.Learn(srcAddr, ethFrame.Src)
-				log.Printf("DDP: Gleaned that %d.%d -> %v", srcAddr.Network, srcAddr.Node, ethFrame.Src)
+				// log.Printf("DDP: Gleaned that %d.%d -> %v", srcAddr.Network, srcAddr.Node, ethFrame.Src)
 
 				// Packet for us? First, who am I?
 				myAddr, ok := aarpMachine.Address()
