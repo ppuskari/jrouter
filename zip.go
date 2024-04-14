@@ -112,7 +112,6 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 				Extended: false,
 				Networks: zones.Query(zipkt.Networks),
 			}
-			// TODO: direct to queryer
 
 		case *zip.GetNetInfoPacket:
 			// Only running a network with one zone for now.
@@ -139,7 +138,6 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 			return fmt.Errorf("couldn't marshal %T: %w", resp, err)
 		}
 
-		// TODO: fix
 		// "In cases where a node's provisional address is
 		// invalid, routers will not be able to respond to
 		// the node in a directed manner. An address is
@@ -148,16 +146,32 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 		// assigned to the node's network. In these cases,
 		// if the request was sent via a broadcast, the
 		// routers should respond with a broadcast."
-		ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket = 0x0000, 0xFF, ddpkt.SrcSocket
-		ddpkt.SrcNet = myAddr.Proto.Network
-		ddpkt.SrcNode = myAddr.Proto.Node
-		ddpkt.SrcSocket = 6
-		ddpkt.Data = respRaw
-		outFrame, err := ethertalk.AppleTalk(myHWAddr, *ddpkt)
+		outDDP := ddp.ExtPacket{
+			ExtHeader: ddp.ExtHeader{
+				DstNet:    ddpkt.SrcNet,
+				DstNode:   ddpkt.SrcNode,
+				DstSocket: ddpkt.SrcSocket,
+				SrcNet:    myAddr.Proto.Network,
+				SrcNode:   myAddr.Proto.Node,
+				SrcSocket: 6,
+			},
+			Data: respRaw,
+		}
+		if ddpkt.DstNet == 0x0000 {
+			outDDP.DstNet = 0x0000
+		}
+		if ddpkt.DstNode == 0xFF {
+			outDDP.DstNode = 0xFF
+		}
+
+		outFrame, err := ethertalk.AppleTalk(myHWAddr, outDDP)
 		if err != nil {
 			return fmt.Errorf("couldn't create EtherTalk frame: %w", err)
 		}
-		outFrame.Dst = srcHWAddr
+		// If it's a broadcast packet, broadcast it. Otherwise don't?
+		if outDDP.DstNet != 0x0000 || outDDP.DstNode != 0xFF {
+			outFrame.Dst = srcHWAddr
+		}
 		outFrameRaw, err := ethertalk.Marshal(*outFrame)
 		if err != nil {
 			return fmt.Errorf("couldn't marshal EtherTalk frame: %w", err)
