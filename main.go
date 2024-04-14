@@ -312,7 +312,7 @@ func main() {
 			continue
 		}
 
-		log.Printf("AURP: Received packet of length %d from %v", pktlen, raddr)
+		// log.Printf("AURP: Received packet of length %d from %v", pktlen, raddr)
 
 		dh, pkt, parseErr := aurp.ParsePacket(pktbuf[:pktlen])
 		if parseErr != nil {
@@ -324,15 +324,13 @@ func main() {
 			return
 		}
 
-		log.Printf("AURP: The packet parsed succesfully as a %T", pkt)
-
 		if apkt, ok := pkt.(*aurp.AppleTalkPacket); ok {
 			ddpkt := new(ddp.ExtPacket)
 			if err := ddp.ExtUnmarshal(apkt.Data, ddpkt); err != nil {
 				log.Printf("AURP: Couldn't unmarshal encapsulated DDP packet: %v", err)
 				continue
 			}
-			log.Printf("DDP/AURP: Got src (%d.%d s %d) dst (%d.%d s %d) proto %d data len %d",
+			log.Printf("DDP/AURP: Got %d.%d.%d -> %d.%d.%d proto %d data len %d",
 				ddpkt.SrcNet, ddpkt.SrcNode, ddpkt.SrcSocket,
 				ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket,
 				ddpkt.Proto, len(ddpkt.Data))
@@ -395,6 +393,8 @@ func main() {
 			}
 			continue
 		}
+
+		log.Printf("AURP: Got %T", pkt)
 
 		// Existing peer?
 		ra := udpAddrFromNet(raddr)
