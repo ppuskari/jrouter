@@ -631,6 +631,11 @@ func handleNBPInAURP(pcapHandle *pcap.Handle, myHWAddr ethernet.Addr, ddpkt *ddp
 		return fmt.Errorf("couldn't marshal LkUp: %v", err)
 	}
 
+	// "If the destination network is extended, however, the router must also
+	// change the destination network number to $0000, so that the packet is
+	// received by all nodes on the network (within the correct zone multicast
+	// address)."
+	ddpkt.DstNet = 0x0000
 	ddpkt.DstNode = 0xFF // Broadcast node address within the dest network
 	ddpkt.Data = nbpRaw
 
@@ -638,6 +643,7 @@ func handleNBPInAURP(pcapHandle *pcap.Handle, myHWAddr ethernet.Addr, ddpkt *ddp
 	if err != nil {
 		return err
 	}
+	// TODO: outFrame.Dst = zone-specific multicast address
 	outFrameRaw, err := ethertalk.Marshal(*outFrame)
 	if err != nil {
 		return err

@@ -39,13 +39,10 @@ func UnmarshalPacket(data []byte) (any, error) {
 	}
 	switch data[0] {
 	case FunctionQuery:
-		return nil, fmt.Errorf("ZIP Query unmarshaling unimplemented")
+		return UnmarshalQueryPacket(data)
 
-	case FunctionReply:
-		return nil, fmt.Errorf("ZIP Reply unmarshaling unimplemented")
-
-	case FunctionExtendedReply:
-		return nil, fmt.Errorf("ZIP Extended Reply unmarshaling unimplemented")
+	case FunctionReply, FunctionExtendedReply:
+		return UnmarshalReplyPacket(data)
 
 	case FunctionGetNetInfo:
 		return UnmarshalGetNetInfoPacket(data)
