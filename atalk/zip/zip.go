@@ -24,12 +24,18 @@ import (
 type Function uint8
 
 const (
+	// ZIP packets
 	FunctionQuery           = 1
 	FunctionReply           = 2
 	FunctionGetNetInfo      = 5
 	FunctionGetNetInfoReply = 6
 	FunctionNotify          = 7
 	FunctionExtendedReply   = 8
+
+	// ATP packets
+	FunctionGetMyZone     = 7
+	FunctionGetZoneList   = 8
+	FunctionGetLocalZones = 9
 )
 
 // Non-ATP packets only
