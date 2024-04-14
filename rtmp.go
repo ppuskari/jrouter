@@ -35,7 +35,7 @@ type RTMPMachine struct {
 	aarp         *AARPMachine
 	cfg          *config
 	pcapHandle   *pcap.Handle
-	routingTable *routingTable
+	routingTable *RoutingTable
 }
 
 // Run executes the machine.
@@ -214,12 +214,12 @@ func (m *RTMPMachine) dataPacket(myAddr ddp.Addr) *rtmp.DataPacket {
 			},
 		},
 	}
-	for _, rt := range m.routingTable.validRoutes() {
+	for _, rt := range m.routingTable.ValidRoutes() {
 		p.NetworkTuples = append(p.NetworkTuples, rtmp.NetworkTuple{
-			Extended:   rt.extended,
-			RangeStart: rt.netStart,
-			RangeEnd:   rt.netEnd,
-			Distance:   rt.metric + 1,
+			Extended:   rt.Extended,
+			RangeStart: rt.NetStart,
+			RangeEnd:   rt.NetEnd,
+			Distance:   rt.Distance + 1,
 		})
 	}
 	return p

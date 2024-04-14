@@ -131,10 +131,7 @@ func main() {
 	}
 
 	// ----------------------------- Routing table ----------------------------
-	routing := &routingTable{
-		table:     make(map[ddp.Network][]*route),
-		allRoutes: make(map[*route]struct{}),
-	}
+	routing := NewRoutingTable()
 
 	// ------------------------- Configured peer setup ------------------------
 	for _, peerStr := range cfg.Peers {
@@ -250,15 +247,15 @@ func main() {
 				// addressed to a node on the local network."
 				if ddpkt.DstNet != 0 && (ddpkt.DstNet < cfg.EtherTalk.NetStart || ddpkt.DstNet > cfg.EtherTalk.NetEnd) {
 					// Is it for a network in the routing table?
-					rt := routing.lookupRoute(ddpkt.DstNet)
+					rt := routing.LookupRoute(ddpkt.DstNet)
 					if rt == nil {
 						log.Printf("DDP: no route for network %d", ddpkt.DstNet)
 						continue
 					}
 
 					// Encap ethPacket.Payload into an AURP packet
-					log.Printf("DDP: forwarding to AURP peer %v", rt.peer.tr.RemoteDI)
-					if _, err := rt.peer.send(rt.peer.tr.NewAppleTalkPacket(ethFrame.Payload)); err != nil {
+					log.Printf("DDP: forwarding to AURP peer %v", rt.Peer.tr.RemoteDI)
+					if _, err := rt.Peer.send(rt.Peer.tr.NewAppleTalkPacket(ethFrame.Payload)); err != nil {
 						log.Printf("DDP: Couldn't forward packet to AURP peer: %v", err)
 					}
 

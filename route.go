@@ -1,9 +1,7 @@
 package main
 
 import (
-	"cmp"
 	"fmt"
-	"slices"
 	"sync"
 	"time"
 
@@ -12,74 +10,83 @@ import (
 
 const maxRouteAge = 10 * time.Minute // TODO: confirm
 
-type route struct {
-	extended bool
-	netStart ddp.Network
-	netEnd   ddp.Network
-	peer     *peer
-	metric   uint8
-	last     time.Time
+type Route struct {
+	Extended bool
+	NetStart ddp.Network
+	NetEnd   ddp.Network
+	Peer     *peer
+	Distance uint8
+	LastSeen time.Time
 }
 
-type routingTable struct {
-	tableMu sync.Mutex
-	table   map[ddp.Network][]*route
-
-	allRoutesMu sync.Mutex
-	allRoutes   map[*route]struct{}
+type RoutingTable struct {
+	mu     sync.Mutex
+	routes map[*Route]struct{}
 }
 
-func (rt *routingTable) lookupRoute(network ddp.Network) *route {
-	rt.tableMu.Lock()
-	defer rt.tableMu.Unlock()
+func NewRoutingTable() *RoutingTable {
+	return &RoutingTable{
+		routes: make(map[*Route]struct{}),
+	}
+}
 
-	for _, rs := range rt.table[network] {
-		if time.Since(rs.last) > maxRouteAge {
+func (rt *RoutingTable) LookupRoute(network ddp.Network) *Route {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+
+	var bestRoute *Route
+	for r := range rt.routes {
+		if r.Peer == nil {
 			continue
 		}
-		return rs
+		if network < r.NetStart || network > r.NetEnd {
+			continue
+		}
+		if time.Since(r.LastSeen) > maxRouteAge {
+			continue
+		}
+		if bestRoute == nil {
+			bestRoute = r
+			continue
+		}
+		if r.Distance < bestRoute.Distance {
+			bestRoute = r
+		}
 	}
-	return nil
+	return bestRoute
 }
 
-func (rt *routingTable) upsertRoutes(extended bool, netStart, netEnd ddp.Network, peer *peer, metric uint8) error {
+func (rt *RoutingTable) UpsertRoute(extended bool, netStart, netEnd ddp.Network, peer *peer, metric uint8) error {
 	if netStart > netEnd {
 		return fmt.Errorf("invalid network range [%d, %d]", netStart, netEnd)
 	}
 
-	r := &route{
-		extended: extended,
-		netStart: netStart,
-		netEnd:   netEnd,
-		peer:     peer,
-		metric:   metric,
-		last:     time.Now(),
+	// TODO: handle the Update part of "Upsert"
+
+	r := &Route{
+		Extended: extended,
+		NetStart: netStart,
+		NetEnd:   netEnd,
+		Peer:     peer,
+		Distance: metric,
+		LastSeen: time.Now(),
 	}
 
-	rt.allRoutesMu.Lock()
-	rt.allRoutes[r] = struct{}{}
-	rt.allRoutesMu.Unlock()
-
-	rt.tableMu.Lock()
-	defer rt.tableMu.Unlock()
-	for n := netStart; n <= netEnd; n++ {
-		rt.table[n] = append(rt.table[n], r)
-		slices.SortFunc(rt.table[n], func(r, s *route) int {
-			return cmp.Compare(r.metric, s.metric)
-		})
-	}
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	rt.routes[r] = struct{}{}
 	return nil
 }
 
-func (rt *routingTable) validRoutes() []*route {
-	rt.allRoutesMu.Lock()
-	defer rt.allRoutesMu.Unlock()
-	valid := make([]*route, 0, len(rt.allRoutes))
-	for r := range rt.allRoutes {
-		if r.peer == nil {
+func (rt *RoutingTable) ValidRoutes() []*Route {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	valid := make([]*Route, 0, len(rt.routes))
+	for r := range rt.routes {
+		if r.Peer == nil {
 			continue
 		}
-		if time.Since(r.last) > maxRouteAge {
+		if time.Since(r.LastSeen) > maxRouteAge {
 			continue
 		}
 		valid = append(valid, r)
