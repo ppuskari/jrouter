@@ -223,7 +223,7 @@ func (m *RTMPMachine) dataPacket(myAddr ddp.Addr) *rtmp.DataPacket {
 			Extended:   rt.extended,
 			RangeStart: rt.netStart,
 			RangeEnd:   rt.netEnd,
-			Distance:   rt.metric,
+			Distance:   rt.metric + 1,
 		})
 	}
 	return p
