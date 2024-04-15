@@ -158,6 +158,8 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 		// routers should respond with a broadcast."
 		outDDP := ddp.ExtPacket{
 			ExtHeader: ddp.ExtHeader{
+				Size:      uint16(len(respRaw)),
+				Cksum:     0,
 				DstNet:    ddpkt.SrcNet,
 				DstNode:   ddpkt.SrcNode,
 				DstSocket: ddpkt.SrcSocket,
