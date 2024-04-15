@@ -100,6 +100,10 @@ func handleNBP(pcapHandle *pcap.Handle, myHWAddr, srcHWAddr ethernet.Addr, myAdd
 	case nbp.FunctionBrRq:
 		// There must be 1!
 		tuple := &nbpkt.Tuples[0]
+		ethDst := ethertalk.AppleTalkBroadcast
+		if tuple.Zone != "*" && tuple.Zone != "" {
+			ethDst = atalk.MulticastAddr(tuple.Zone)
+		}
 
 		zones := zoneTable.LookupName(tuple.Zone)
 		for _, z := range zones {
@@ -112,7 +116,6 @@ func handleNBP(pcapHandle *pcap.Handle, myHWAddr, srcHWAddr ethernet.Addr, myAdd
 				// lookups in their own zone will receive LkUp packets from themselves
 				// (actually sent by a router). The node's NBP process should expect to
 				// receive these packets and must reply to them."
-				// TODO: use zone-specific multicast
 				nbpkt.Function = nbp.FunctionLkUp
 				nbpRaw, err := nbpkt.Marshal()
 				if err != nil {
@@ -128,6 +131,7 @@ func handleNBP(pcapHandle *pcap.Handle, myHWAddr, srcHWAddr ethernet.Addr, myAdd
 				if err != nil {
 					return err
 				}
+				outFrame.Dst = ethDst
 				outFrameRaw, err := ethertalk.Marshal(*outFrame)
 				if err != nil {
 					return err

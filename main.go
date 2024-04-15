@@ -205,6 +205,9 @@ func main() {
 				continue
 			}
 
+			// TODO: filter ethFrame.Dst to myHWAddr, the broadcast address,
+			// or the relevant zone multicast address
+
 			switch ethFrame.SNAPProto {
 			case ethertalk.AARPProto:
 				// log.Print("Got an AARP frame")

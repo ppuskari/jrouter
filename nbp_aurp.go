@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log"
 
+	"gitea.drjosh.dev/josh/jrouter/atalk"
 	"gitea.drjosh.dev/josh/jrouter/atalk/nbp"
 	"github.com/google/gopacket/pcap"
 	"github.com/sfiera/multitalk/pkg/ddp"
@@ -43,11 +44,11 @@ func handleNBPInAURP(pcapHandle *pcap.Handle, myHWAddr ethernet.Addr, ddpkt *ddp
 	if len(nbpkt.Tuples) < 1 {
 		return fmt.Errorf("no tuples in NBP packet")
 	}
+	tuple := &nbpkt.Tuples[0]
 
-	log.Printf("NBP/DDP/AURP: Converting FwdReq to LkUp (%v)", nbpkt.Tuples[0])
+	log.Printf("NBP/DDP/AURP: Converting FwdReq to LkUp (%v)", tuple)
 
 	// Convert it to a LkUp and broadcast on EtherTalk
-	// TODO: use zone-specific multicast
 	nbpkt.Function = nbp.FunctionLkUp
 	nbpRaw, err := nbpkt.Marshal()
 	if err != nil {
@@ -66,7 +67,9 @@ func handleNBPInAURP(pcapHandle *pcap.Handle, myHWAddr ethernet.Addr, ddpkt *ddp
 	if err != nil {
 		return err
 	}
-	// TODO: outFrame.Dst = zone-specific multicast address
+	if tuple.Zone != "*" && tuple.Zone != "" {
+		outFrame.Dst = atalk.MulticastAddr(tuple.Zone)
+	}
 	outFrameRaw, err := ethertalk.Marshal(*outFrame)
 	if err != nil {
 		return err

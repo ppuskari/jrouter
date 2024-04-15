@@ -57,9 +57,9 @@ type GetNetInfoReplyPacket struct {
 	// DDP type = 6
 	// ---
 	// ZIP command = 6
-	ZoneInvalid  bool // 0x80
-	UseBroadcast bool // 0x40
-	OnlyOneZone  bool // 0x20
+	ZoneInvalid  bool // 0x80 - "set if the zone name in the request is invalid for the network from which the request was sent"
+	UseBroadcast bool // 0x40 - "set for data links that do not support multicast"
+	OnlyOneZone  bool // 0x20 - "set if the network's zone list contains only one zone name"
 	// Remainder of flags reserved
 	NetStart ddp.Network
 	NetEnd   ddp.Network

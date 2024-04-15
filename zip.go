@@ -126,12 +126,12 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 			// Only running a network with one zone for now.
 			gnir := &zip.GetNetInfoReplyPacket{
 				ZoneInvalid:     zipkt.ZoneName != cfg.EtherTalk.ZoneName,
-				UseBroadcast:    true, // TODO: add multicast addr computation
+				UseBroadcast:    false,
 				OnlyOneZone:     true,
 				NetStart:        cfg.EtherTalk.NetStart,
 				NetEnd:          cfg.EtherTalk.NetEnd,
 				ZoneName:        zipkt.ZoneName, // has to match request
-				MulticastAddr:   ethertalk.AppleTalkBroadcast,
+				MulticastAddr:   atalk.MulticastAddr(cfg.EtherTalk.ZoneName),
 				DefaultZoneName: cfg.EtherTalk.ZoneName,
 			}
 			log.Printf("ZIP: Replying with GetNetInfo-Reply: %+v", gnir)
