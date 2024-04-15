@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"log"
 
+	"gitea.drjosh.dev/josh/jrouter/atalk"
 	"gitea.drjosh.dev/josh/jrouter/atalk/nbp"
 	"github.com/google/gopacket/pcap"
 	"github.com/sfiera/multitalk/pkg/aarp"
@@ -73,14 +74,20 @@ func handleNBP(pcapHandle *pcap.Handle, myHWAddr, srcHWAddr ethernet.Addr, myAdd
 		if err != nil {
 			return fmt.Errorf("couldn't marshal LkUp-Reply: %v", err)
 		}
-		ddpkt.DstNet = ddpkt.SrcNet
-		ddpkt.DstNode = ddpkt.SrcNode
-		ddpkt.DstSocket = ddpkt.SrcSocket
-		ddpkt.SrcNet = myAddr.Proto.Network
-		ddpkt.SrcNode = myAddr.Proto.Node
-		ddpkt.SrcSocket = 2
-		ddpkt.Data = respRaw
-		outFrame, err := ethertalk.AppleTalk(myHWAddr, *ddpkt)
+		outDDP := ddp.ExtPacket{
+			ExtHeader: ddp.ExtHeader{
+				Size:      uint16(len(respRaw)) + atalk.DDPExtHeaderSize,
+				Cksum:     0,
+				DstNet:    ddpkt.SrcNet,
+				DstNode:   ddpkt.SrcNode,
+				DstSocket: ddpkt.SrcSocket,
+				SrcNet:    myAddr.Proto.Network,
+				SrcNode:   myAddr.Proto.Node,
+				SrcSocket: 2,
+			},
+			Data: respRaw,
+		}
+		outFrame, err := ethertalk.AppleTalk(myHWAddr, outDDP)
 		if err != nil {
 			return err
 		}
