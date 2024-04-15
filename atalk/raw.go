@@ -23,6 +23,8 @@ import (
 	"github.com/google/gopacket/pcap"
 )
 
+const DDPExtHeaderSize = 13
+
 // StartPcap opens an AppleTalk and AARP listening session on a network device.
 func StartPcap(device string) (*pcap.Handle, error) {
 	handle, err := pcap.OpenLive(device, 4096, true, 100*time.Millisecond)

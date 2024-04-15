@@ -22,6 +22,7 @@ import (
 	"log"
 	"time"
 
+	"gitea.drjosh.dev/josh/jrouter/atalk"
 	"gitea.drjosh.dev/josh/jrouter/atalk/rtmp"
 	"github.com/google/gopacket/pcap"
 	"github.com/sfiera/multitalk/pkg/aarp"
@@ -97,7 +98,7 @@ func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket)
 					}
 					ddpPkt := &ddp.ExtPacket{
 						ExtHeader: ddp.ExtHeader{
-							Size:      uint16(len(respPktRaw)),
+							Size:      uint16(len(respPktRaw)) + atalk.DDPExtHeaderSize,
 							Cksum:     0,
 							DstNet:    pkt.SrcNet,
 							DstNode:   pkt.SrcNode,
@@ -127,7 +128,7 @@ func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket)
 
 					ddpPkt := &ddp.ExtPacket{
 						ExtHeader: ddp.ExtHeader{
-							Size:      uint16(len(dataPktRaw)),
+							Size:      uint16(len(dataPktRaw)) + atalk.DDPExtHeaderSize,
 							Cksum:     0,
 							DstNet:    pkt.SrcNet,
 							DstNode:   pkt.SrcNode,
@@ -182,7 +183,7 @@ func (m *RTMPMachine) broadcastData(myAddr aarp.AddrPair) error {
 
 	ddpPkt := &ddp.ExtPacket{
 		ExtHeader: ddp.ExtHeader{
-			Size:      uint16(len(dataPktRaw)),
+			Size:      uint16(len(dataPktRaw)) + atalk.DDPExtHeaderSize,
 			Cksum:     0,
 			DstNet:    0,    // this network
 			DstNode:   0xff, // broadcast packet

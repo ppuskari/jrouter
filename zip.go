@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log"
 
+	"gitea.drjosh.dev/josh/jrouter/atalk"
 	"gitea.drjosh.dev/josh/jrouter/atalk/atp"
 	"gitea.drjosh.dev/josh/jrouter/atalk/zip"
 	"github.com/google/gopacket/pcap"
@@ -68,7 +69,7 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 			}
 			respDDP := ddp.ExtPacket{
 				ExtHeader: ddp.ExtHeader{
-					Size:      uint16(len(ddpBody)),
+					Size:      uint16(len(ddpBody)) + atalk.DDPExtHeaderSize,
 					Cksum:     0,
 					DstNet:    ddpkt.SrcNet,
 					DstNode:   ddpkt.SrcNode,
@@ -158,7 +159,7 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 		// routers should respond with a broadcast."
 		outDDP := ddp.ExtPacket{
 			ExtHeader: ddp.ExtHeader{
-				Size:      uint16(len(respRaw)),
+				Size:      uint16(len(respRaw)) + atalk.DDPExtHeaderSize,
 				Cksum:     0,
 				DstNet:    ddpkt.SrcNet,
 				DstNode:   ddpkt.SrcNode,
