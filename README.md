@@ -21,6 +21,7 @@ TODO: explain the configuration file
 Building and running:
 
 ```shell
+sudo apt install libpcap-dev
 go install gitea.drjosh.dev/josh/jrouter@latest
 sudo setcap 'CAP_NET_BIND_SERVICE=ep CAP_NET_RAW=ep' ~/go/bin/jrouter
 ~/go/bin/jrouter
