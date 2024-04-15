@@ -68,6 +68,8 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 			}
 			respDDP := ddp.ExtPacket{
 				ExtHeader: ddp.ExtHeader{
+					Size:      uint16(len(ddpBody)),
+					Cksum:     0,
 					DstNet:    ddpkt.SrcNet,
 					DstNode:   ddpkt.SrcNode,
 					DstSocket: ddpkt.SrcSocket,
@@ -162,6 +164,7 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 				SrcNet:    myAddr.Proto.Network,
 				SrcNode:   myAddr.Proto.Node,
 				SrcSocket: 6,
+				Proto:     ddp.ProtoZIP,
 			},
 			Data: respRaw,
 		}
