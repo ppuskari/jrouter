@@ -23,7 +23,7 @@ import (
 )
 
 // Inside AppleTalk, appendix D
-var toUpperMap = []byte{
+var toUpperMap = [256]byte{
 	// The alphabet
 	0x61: 0x41,
 	0x62: 0x42,
