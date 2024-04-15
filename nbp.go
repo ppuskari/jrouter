@@ -175,4 +175,6 @@ func handleNBP(pcapHandle *pcap.Handle, myHWAddr, srcHWAddr ethernet.Addr, myAdd
 	default:
 		return fmt.Errorf("TODO: handle function %v", nbpkt.Function)
 	}
+
+	return nil
 }
