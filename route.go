@@ -8,7 +8,7 @@ import (
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
-const maxRouteAge = 10 * time.Minute // TODO: confirm
+// const maxRouteAge = 10 * time.Minute // TODO: confirm
 
 type Route struct {
 	Extended bool
@@ -42,9 +42,9 @@ func (rt *RoutingTable) LookupRoute(network ddp.Network) *Route {
 		if network < r.NetStart || network > r.NetEnd {
 			continue
 		}
-		if time.Since(r.LastSeen) > maxRouteAge {
-			continue
-		}
+		// if time.Since(r.LastSeen) > maxRouteAge {
+		// 	continue
+		// }
 		if bestRoute == nil {
 			bestRoute = r
 			continue
@@ -86,9 +86,9 @@ func (rt *RoutingTable) ValidRoutes() []*Route {
 		if r.Peer == nil {
 			continue
 		}
-		if time.Since(r.LastSeen) > maxRouteAge {
-			continue
-		}
+		// if time.Since(r.LastSeen) > maxRouteAge {
+		// 	continue
+		// }
 		valid = append(valid, r)
 	}
 	return valid

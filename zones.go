@@ -25,7 +25,7 @@ import (
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
-const maxZoneAge = 10 * time.Minute // TODO: confirm
+//const maxZoneAge = 10 * time.Minute // TODO: confirm
 
 type Zone struct {
 	Network  ddp.Network
@@ -75,9 +75,9 @@ func (zt *ZoneTable) Query(ns []ddp.Network) map[ddp.Network][]string {
 	zt.mu.Lock()
 	defer zt.mu.Unlock()
 	for _, z := range zt.zones {
-		if time.Since(z.LastSeen) > maxZoneAge {
-			continue
-		}
+		// if time.Since(z.LastSeen) > maxZoneAge {
+		// 	continue
+		// }
 		if _, ok := slices.BinarySearch(ns, z.Network); ok {
 			zs[z.Network] = append(zs[z.Network], z.Name)
 		}
@@ -90,9 +90,9 @@ func (zt *ZoneTable) LocalNames() []string {
 	seen := make(map[string]struct{})
 	zs := make([]string, 0, len(zt.zones))
 	for _, z := range zt.zones {
-		if time.Since(z.LastSeen) > maxZoneAge {
-			continue
-		}
+		// if time.Since(z.LastSeen) > maxZoneAge {
+		// 	continue
+		// }
 		if !z.Local {
 			continue
 		}
@@ -114,9 +114,9 @@ func (zt *ZoneTable) AllNames() []string {
 	seen := make(map[string]struct{})
 	zs := make([]string, 0, len(zt.zones))
 	for _, z := range zt.zones {
-		if time.Since(z.LastSeen) > maxZoneAge {
-			continue
-		}
+		// if time.Since(z.LastSeen) > maxZoneAge {
+		// 	continue
+		// }
 		if _, s := seen[z.Name]; s {
 			continue
 		}
