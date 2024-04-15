@@ -236,11 +236,6 @@ func main() {
 					continue
 				}
 
-				// TODO: If the packet is NBP BrRq and for a zone we have in
-				// our zone info table, convert it to a FwdReq and send that
-				// out to the peer
-				// TODO: implement the zone information table
-
 				// Our network?
 				// "The network number 0 is reserved to mean unknown; by default
 				// it specifies the local network to which the node is
