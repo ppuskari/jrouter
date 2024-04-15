@@ -56,7 +56,7 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 				resp.Zones = zones.LocalNames()
 
 			case zip.FunctionGetMyZone:
-				return fmt.Errorf("TODO: support GetMyZone?")
+				resp.Zones = []string{cfg.EtherTalk.ZoneName}
 			}
 
 			respATP, err := resp.MarshalTResp()
