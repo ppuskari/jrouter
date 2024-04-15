@@ -85,6 +85,19 @@ func (zt *ZoneTable) Query(ns []ddp.Network) map[ddp.Network][]string {
 	return zs
 }
 
+func (zt *ZoneTable) LookupName(name string) []*Zone {
+	zt.mu.Lock()
+	defer zt.mu.Unlock()
+
+	var zs []*Zone
+	for _, z := range zt.zones {
+		if z.Name == name {
+			zs = append(zs, z)
+		}
+	}
+	return zs
+}
+
 func (zt *ZoneTable) LocalNames() []string {
 	zt.mu.Lock()
 	seen := make(map[string]struct{})

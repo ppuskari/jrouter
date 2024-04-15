@@ -17,7 +17,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"log"
 
@@ -30,7 +29,7 @@ import (
 	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
 
-func handleNBP(pcapHandle *pcap.Handle, myHWAddr, srcHWAddr ethernet.Addr, myAddr aarp.AddrPair, cfg *config, ddpkt *ddp.ExtPacket) error {
+func handleNBP(pcapHandle *pcap.Handle, myHWAddr, srcHWAddr ethernet.Addr, myAddr aarp.AddrPair, zoneTable *ZoneTable, routeTable *RoutingTable, cfg *config, ddpkt *ddp.ExtPacket) error {
 	if ddpkt.Proto != ddp.ProtoNBP {
 		return fmt.Errorf("invalid DDP type %d on socket 2", ddpkt.Proto)
 	}
@@ -100,41 +99,78 @@ func handleNBP(pcapHandle *pcap.Handle, myHWAddr, srcHWAddr ethernet.Addr, myAdd
 
 	case nbp.FunctionBrRq:
 		// There must be 1!
-		tuple := nbpkt.Tuples[0]
+		tuple := &nbpkt.Tuples[0]
 
-		if tuple.Zone != cfg.EtherTalk.ZoneName {
-			// TODO: Translate it into a FwdReq and route it to the
+		zones := zoneTable.LookupName(tuple.Zone)
+		for _, z := range zones {
+			if z.Local {
+				// If it's for the local zone, translate it to a LkUp and broadcast it back
+				// out the EtherTalk port.
+				// "Note: On an internet, nodes on extended networks performing lookups in
+				// their own zone must replace a zone name of asterisk (*) with their actual
+				// zone name before sending the packet to A-ROUTER. All nodes performing
+				// lookups in their own zone will receive LkUp packets from themselves
+				// (actually sent by a router). The node's NBP process should expect to
+				// receive these packets and must reply to them."
+				// TODO: use zone-specific multicast
+				nbpkt.Function = nbp.FunctionLkUp
+				nbpRaw, err := nbpkt.Marshal()
+				if err != nil {
+					return fmt.Errorf("couldn't marshal LkUp: %v", err)
+				}
+
+				outDDP := *ddpkt
+				outDDP.Size = uint16(len(nbpRaw)) + atalk.DDPExtHeaderSize
+				outDDP.DstNode = 0xFF // Broadcast node address within the dest network
+				outDDP.Data = nbpRaw
+
+				outFrame, err := ethertalk.AppleTalk(myHWAddr, outDDP)
+				if err != nil {
+					return err
+				}
+				outFrameRaw, err := ethertalk.Marshal(*outFrame)
+				if err != nil {
+					return err
+				}
+				if err := pcapHandle.WritePacketData(outFrameRaw); err != nil {
+					return err
+				}
+
+				continue
+			}
+
+			route := routeTable.LookupRoute(z.Network)
+			if route == nil {
+				return fmt.Errorf("no route for network %d", z.Network)
+			}
+			peer := route.Peer
+			if peer == nil {
+				return fmt.Errorf("nil peer for route for network %d", z.Network)
+			}
+
+			// Translate it into a FwdReq and route it to the
 			// routers with the appropriate zone(s).
-			return errors.New("TODO: BrRq-FwdReq translation")
-		}
+			nbpkt.Function = nbp.FunctionFwdReq
+			nbpRaw, err := nbpkt.Marshal()
+			if err != nil {
+				return fmt.Errorf("couldn't marshal FwdReq: %v", err)
+			}
 
-		// If it's for the local zone, translate it to a LkUp and broadcast it back
-		// out the EtherTalk port.
-		// "Note: On an internet, nodes on extended networks performing lookups in
-		// their own zone must replace a zone name of asterisk (*) with their actual
-		// zone name before sending the packet to A-ROUTER. All nodes performing
-		// lookups in their own zone will receive LkUp packets from themselves
-		// (actually sent by a router). The node's NBP process should expect to
-		// receive these packets and must reply to them."
-		// TODO: use zone-specific multicast
-		nbpkt.Function = nbp.FunctionLkUp
-		nbpRaw, err := nbpkt.Marshal()
-		if err != nil {
-			return fmt.Errorf("couldn't marshal LkUp: %v", err)
-		}
+			outDDP := *ddpkt
+			outDDP.Size = uint16(len(nbpRaw)) + atalk.DDPExtHeaderSize
+			outDDP.DstNet = z.Network
+			outDDP.DstNode = 0x00 // Router node address for the dest network
+			outDDP.Data = nbpRaw
 
-		ddpkt.DstNode = 0xFF // Broadcast node address within the dest network
-		ddpkt.Data = nbpRaw
+			outDDPRaw, err := ddp.ExtMarshal(outDDP)
+			if err != nil {
+				return err
+			}
 
-		outFrame, err := ethertalk.AppleTalk(myHWAddr, *ddpkt)
-		if err != nil {
-			return err
+			if _, err := peer.send(peer.tr.NewAppleTalkPacket(outDDPRaw)); err != nil {
+				return fmt.Errorf("sending FwdReq on to peer: %w", err)
+			}
 		}
-		outFrameRaw, err := ethertalk.Marshal(*outFrame)
-		if err != nil {
-			return err
-		}
-		return pcapHandle.WritePacketData(outFrameRaw)
 
 	default:
 		return fmt.Errorf("TODO: handle function %v", nbpkt.Function)
