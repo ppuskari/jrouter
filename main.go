@@ -273,7 +273,7 @@ func main() {
 					rtmpCh <- ddpkt
 
 				case 2: // The NIS (name information socket / NBP socket)
-					if err := handleNBP(pcapHandle, myHWAddr, ethFrame.Src, myAddr, cfg, ddpkt); err != nil {
+					if err := handleNBP(pcapHandle, myHWAddr, ethFrame.Src, myAddr, zones, routing, cfg, ddpkt); err != nil {
 						log.Printf("NBP: Couldn't handle: %v", err)
 					}
 
