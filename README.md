@@ -10,6 +10,30 @@ Home-grown alternative implementation of Apple Internet Router 3.0
 
 TashTalk could be a stretch goal, if I can acquire one!
 
+## Caveats
+
+Things I plan to fix Real Soon Now:
+
+* It currently listens to all AppleTalk and AARP traffic on the EtherTalk port.
+  This might not play well with other AppleTalk software, e.g. netatalk.
+* Also it currently uses the default Ethernet address for the interface for
+  sending packets. I plan to add the ability to configure a different address.
+* It doesn't do any of the required packet splitting to keep packets under the
+  AppleTalk size limits. In particular ZIP GetZoneList Replies are incorrect
+  when the zone list would exceed the limit.
+* It logs a lot and has no other monitoring or observability capability. I plan
+  to add a Prometheus metrics endpoint and at least add log levels / verbosity
+  flag.
+* The AURP implementation is strictly incomplete, and lost connections with
+  configured peers aren't re-established after some backoff. This won't be too
+  difficult.
+
+Things I plan to fix At Some Point:
+
+* For expediency I made it act as a _seed router_. At some point I might add 
+  "soft seed" functionality.
+
+
 ## How to use
 
 WARNING: It Barely Works™
