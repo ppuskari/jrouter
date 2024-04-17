@@ -14,10 +14,13 @@ TashTalk could be a stretch goal, if I can acquire one!
 
 Things I plan to fix Real Soon Now:
 
-* It currently listens to all AppleTalk and AARP traffic on the EtherTalk port.
-  This might not play well with other AppleTalk software, e.g. netatalk.
-* Also it currently uses the default Ethernet address for the interface for
-  sending packets. I plan to add the ability to configure a different address.
+* ~~It currently listens to all AppleTalk and AARP traffic on the EtherTalk port.
+  This might not play well with other AppleTalk software, e.g. netatalk.~~
+* ~~Also it currently uses the default Ethernet address for the interface for
+  sending packets. I plan to add the ability to configure a different address.~~ 
+  You can now configure a different Ethernet address for the EtherTalk
+  interface. I haven't tested it with netatalk or tashrouter on the same
+  host, but I think using a distinct Ethernet address would help them coexist.
 * It doesn't do any of the required packet splitting to keep packets under the
   AppleTalk size limits. In particular ZIP GetZoneList Replies are incorrect
   when the zone list would exceed the limit.
