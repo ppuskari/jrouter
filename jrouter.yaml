@@ -1,5 +1,6 @@
 ethertalk:
     device: enp2s0
+    # ethernet_addr: '08:00:07:fe:dc:ba'
     zone_name: The Twilight Zone
     net_start: 100
     net_end: 100
