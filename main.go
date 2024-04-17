@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"math/rand/v2"
@@ -30,7 +31,6 @@ import (
 	"sync"
 	"time"
 
-	"gitea.drjosh.dev/josh/jrouter/atalk"
 	"gitea.drjosh.dev/josh/jrouter/aurp"
 	"github.com/google/gopacket/pcap"
 	"github.com/sfiera/multitalk/pkg/ddp"
@@ -98,15 +98,29 @@ func main() {
 	ctx, _ := signal.NotifyContext(cctx, os.Interrupt)
 
 	// Open PCAP session
+	// First check the interface
 	iface, err := net.InterfaceByName(cfg.EtherTalk.Device)
 	if err != nil {
 		log.Fatalf("Couldn't find interface named %q: %v", cfg.EtherTalk.Device, err)
 	}
 	myHWAddr := ethernet.Addr(iface.HardwareAddr)
+	if cfg.EtherTalk.EthAddr != "" {
+		// Override myHWAddr with the configured address
+		netHWAddr, err := net.ParseMAC(cfg.EtherTalk.EthAddr)
+		if err != nil {
+			log.Fatalf("Couldn't parse ethertalk.ethernet_addr value %q: %v", cfg.EtherTalk.EthAddr, err)
+		}
+		myHWAddr = ethernet.Addr(netHWAddr)
+	}
 
-	pcapHandle, err := atalk.StartPcap(cfg.EtherTalk.Device)
+	pcapHandle, err := pcap.OpenLive(cfg.EtherTalk.Device, 4096, true, 100*time.Millisecond)
 	if err != nil {
-		log.Fatalf("Couldn't open network device for AppleTalk: %v", err)
+		log.Fatalf("Couldn't open %q for packet capture: %v", cfg.EtherTalk.Device, err)
+	}
+	bpfFilter := fmt.Sprintf("(atalk or aarp) and (ether multicast or ether dst %s)", myHWAddr)
+	if err := pcapHandle.SetBPFFilter(bpfFilter); err != nil {
+		pcapHandle.Close()
+		log.Fatalf("Couldn't set BPF filter on packet capture: %v", err)
 	}
 	defer pcapHandle.Close()
 

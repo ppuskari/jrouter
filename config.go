@@ -36,6 +36,7 @@ type config struct {
 
 	// Required for routing a local EtherTalk network.
 	EtherTalk struct {
+		EthAddr  string      `yaml:"ethernet_addr"`
 		Device   string      `yaml:"device"`
 		ZoneName string      `yaml:"zone_name"`
 		NetStart ddp.Network `yaml:"net_start"`
