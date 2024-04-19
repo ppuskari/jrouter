@@ -65,8 +65,8 @@ func UnmarshalQueryPacket(data []byte) (*QueryPacket, error) {
 
 type ReplyPacket struct {
 	// Function = 2 or 8
-	Extended bool
-	// NetworkCount uint8
+	Extended     bool
+	NetworkCount uint8
 	// "Replies contain the number of zones lists indicated in the Reply header"
 	// and
 	// "Extended Replies can contain only one zones list. ...
@@ -94,15 +94,11 @@ func (p *ReplyPacket) Marshal() ([]byte, error) {
 		b.WriteByte(FunctionExtendedReply)
 	} else {
 		b.WriteByte(FunctionReply)
-		b.WriteByte(byte(len(p.Networks)))
 	}
+	b.WriteByte(p.NetworkCount)
 	for n, zs := range p.Networks {
-		if p.Extended {
-			if len(zs) > 255 {
-				return nil, fmt.Errorf("too many zone names [%d > 255]", len(zs))
-			}
-			// TODO: handle spreading extended replies across multiple packets
-			b.WriteByte(byte(len(zs)))
+		if p.Extended && len(zs) > 255 {
+			return nil, fmt.Errorf("too many zone names [%d > 255]", len(zs))
 		}
 		for _, z := range zs {
 			if len(z) > 32 {

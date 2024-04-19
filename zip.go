@@ -132,26 +132,120 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 			return err
 		}
 
-		var resp interface {
-			Marshal() ([]byte, error)
-		}
-
 		switch zipkt := zipkt.(type) {
 		case *zip.QueryPacket:
 			log.Printf("ZIP: Got Query for networks %v", zipkt.Networks)
-			// TODO: multiple packets
 			networks := zones.Query(zipkt.Networks)
-			resp = &zip.ReplyPacket{
-				Extended: false,
-				Networks: networks,
+
+			sendReply := func(resp *zip.ReplyPacket) error {
+				respRaw, err := resp.Marshal()
+				if err != nil {
+					return fmt.Errorf("couldn't marshal %T: %w", resp, err)
+				}
+				outDDP := ddp.ExtPacket{
+					ExtHeader: ddp.ExtHeader{
+						Size:      uint16(len(respRaw)) + atalk.DDPExtHeaderSize,
+						Cksum:     0,
+						DstNet:    ddpkt.SrcNet,
+						DstNode:   ddpkt.SrcNode,
+						DstSocket: ddpkt.SrcSocket,
+						SrcNet:    myAddr.Proto.Network,
+						SrcNode:   myAddr.Proto.Node,
+						SrcSocket: 6,
+						Proto:     ddp.ProtoZIP,
+					},
+					Data: respRaw,
+				}
+
+				outFrame, err := ethertalk.AppleTalk(myHWAddr, outDDP)
+				if err != nil {
+					return fmt.Errorf("couldn't create EtherTalk frame: %w", err)
+				}
+				// Unicast reply.
+				outFrame.Dst = srcHWAddr
+				outFrameRaw, err := ethertalk.Marshal(*outFrame)
+				if err != nil {
+					return fmt.Errorf("couldn't marshal EtherTalk frame: %w", err)
+				}
+				if err := pcapHandle.WritePacketData(outFrameRaw); err != nil {
+					return fmt.Errorf("couldn't write packet data: %w", err)
+				}
+				return nil
 			}
-			log.Printf("ZIP: Replying with non-extended Reply: %v", networks)
+
+			// Inside AppleTalk SE, pp 8-11:
+			//
+			// "Replies (but not Extended Replies) can contain any number of
+			// zones lists, as long as the zones list for each network is
+			// entirely contained in the Reply packet."
+			//
+			// and
+			//
+			// "The zones list for a given network must be contiguous in the
+			// packet, with each zone name in that list preceded by the first
+			// network number in the range of the requested network."
+			size := 2
+			for _, zl := range networks {
+				for _, z := range zl {
+					size += 3 + len(z) // Network number, length byte, string
+				}
+			}
+
+			if size <= atalk.DDPMaxDataSize {
+				// Send one non-extended reply packet with all the data
+				log.Printf("ZIP: Replying with non-extended Reply: %v", networks)
+				return sendReply(&zip.ReplyPacket{
+					Extended: false,
+					// "Replies contain the number of zones lists indicated in
+					// the Reply header."
+					NetworkCount: uint8(len(networks)),
+					Networks:     networks,
+				})
+			}
+
+			// Send Extended Reply packets, 1 or more for each network
+			//
+			// "Extended Replies can contain only one zones list."
+			for nn, zl := range networks {
+				rem := zl // rem: remaining zone names to send for this network
+				for len(rem) > 0 {
+					size := 2
+					var chunk []string // chunk: zone names to send now
+					for _, z := range rem {
+						size += 3 + len(z)
+						if size > atalk.DDPMaxDataSize {
+							break
+						}
+						chunk = append(chunk, z)
+					}
+					rem = rem[len(chunk):]
+
+					nets := map[ddp.Network][]string{
+						nn: chunk,
+					}
+					log.Printf("ZIP: Replying with Extended Reply: %v", nets)
+					err := sendReply(&zip.ReplyPacket{
+						Extended: true,
+						// "The network count in the header indicates, not the
+						// number of zones names in the packet, but the number
+						// of zone names in the entire zones list for the
+						// requested network, which may span more than one
+						// packet."
+						NetworkCount: uint8(len(zl)),
+						Networks:     nets,
+					})
+					if err != nil {
+						return err
+					}
+				}
+			}
+			return nil
 
 		case *zip.GetNetInfoPacket:
 			log.Printf("ZIP: Got GetNetInfo for zone %q", zipkt.ZoneName)
 
 			// Only running a network with one zone for now.
-			gnir := &zip.GetNetInfoReplyPacket{
+			resp := &zip.GetNetInfoReplyPacket{
 				ZoneInvalid:     zipkt.ZoneName != cfg.EtherTalk.ZoneName,
 				UseBroadcast:    false,
 				OnlyOneZone:     true,
@@ -161,66 +255,62 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 				MulticastAddr:   atalk.MulticastAddr(cfg.EtherTalk.ZoneName),
 				DefaultZoneName: cfg.EtherTalk.ZoneName,
 			}
-			log.Printf("ZIP: Replying with GetNetInfo-Reply: %+v", gnir)
-			resp = gnir
+			log.Printf("ZIP: Replying with GetNetInfo-Reply: %+v", resp)
+
+			respRaw, err := resp.Marshal()
+			if err != nil {
+				return fmt.Errorf("couldn't marshal %T: %w", resp, err)
+			}
+
+			// "In cases where a node's provisional address is
+			// invalid, routers will not be able to respond to
+			// the node in a directed manner. An address is
+			// invalid if the network number is neither in the
+			// startup range nor in the network number range
+			// assigned to the node's network. In these cases,
+			// if the request was sent via a broadcast, the
+			// routers should respond with a broadcast."
+			outDDP := ddp.ExtPacket{
+				ExtHeader: ddp.ExtHeader{
+					Size:      uint16(len(respRaw)) + atalk.DDPExtHeaderSize,
+					Cksum:     0,
+					DstNet:    ddpkt.SrcNet,
+					DstNode:   ddpkt.SrcNode,
+					DstSocket: ddpkt.SrcSocket,
+					SrcNet:    myAddr.Proto.Network,
+					SrcNode:   myAddr.Proto.Node,
+					SrcSocket: 6,
+					Proto:     ddp.ProtoZIP,
+				},
+				Data: respRaw,
+			}
+			if ddpkt.DstNet == 0x0000 {
+				outDDP.DstNet = 0x0000
+			}
+			if ddpkt.DstNode == 0xFF {
+				outDDP.DstNode = 0xFF
+			}
+
+			outFrame, err := ethertalk.AppleTalk(myHWAddr, outDDP)
+			if err != nil {
+				return fmt.Errorf("couldn't create EtherTalk frame: %w", err)
+			}
+			// If it's a broadcast packet, broadcast it. Otherwise don't?
+			if outDDP.DstNet != 0x0000 || outDDP.DstNode != 0xFF {
+				outFrame.Dst = srcHWAddr
+			}
+			outFrameRaw, err := ethertalk.Marshal(*outFrame)
+			if err != nil {
+				return fmt.Errorf("couldn't marshal EtherTalk frame: %w", err)
+			}
+			if err := pcapHandle.WritePacketData(outFrameRaw); err != nil {
+				return fmt.Errorf("couldn't write packet data: %w", err)
+			}
+			return nil
 
 		default:
 			return fmt.Errorf("TODO: handle type %T", zipkt)
 		}
-
-		if resp == nil {
-			return nil
-		}
-		respRaw, err := resp.Marshal()
-		if err != nil {
-			return fmt.Errorf("couldn't marshal %T: %w", resp, err)
-		}
-
-		// "In cases where a node's provisional address is
-		// invalid, routers will not be able to respond to
-		// the node in a directed manner. An address is
-		// invalid if the network number is neither in the
-		// startup range nor in the network number range
-		// assigned to the node's network. In these cases,
-		// if the request was sent via a broadcast, the
-		// routers should respond with a broadcast."
-		outDDP := ddp.ExtPacket{
-			ExtHeader: ddp.ExtHeader{
-				Size:      uint16(len(respRaw)) + atalk.DDPExtHeaderSize,
-				Cksum:     0,
-				DstNet:    ddpkt.SrcNet,
-				DstNode:   ddpkt.SrcNode,
-				DstSocket: ddpkt.SrcSocket,
-				SrcNet:    myAddr.Proto.Network,
-				SrcNode:   myAddr.Proto.Node,
-				SrcSocket: 6,
-				Proto:     ddp.ProtoZIP,
-			},
-			Data: respRaw,
-		}
-		if ddpkt.DstNet == 0x0000 {
-			outDDP.DstNet = 0x0000
-		}
-		if ddpkt.DstNode == 0xFF {
-			outDDP.DstNode = 0xFF
-		}
-
-		outFrame, err := ethertalk.AppleTalk(myHWAddr, outDDP)
-		if err != nil {
-			return fmt.Errorf("couldn't create EtherTalk frame: %w", err)
-		}
-		// If it's a broadcast packet, broadcast it. Otherwise don't?
-		if outDDP.DstNet != 0x0000 || outDDP.DstNode != 0xFF {
-			outFrame.Dst = srcHWAddr
-		}
-		outFrameRaw, err := ethertalk.Marshal(*outFrame)
-		if err != nil {
-			return fmt.Errorf("couldn't marshal EtherTalk frame: %w", err)
-		}
-		if err := pcapHandle.WritePacketData(outFrameRaw); err != nil {
-			return fmt.Errorf("couldn't write packet data: %w", err)
-		}
-		return nil
 
 	default:
 		return fmt.Errorf("invalid DDP type %d on socket 6", ddpkt.Proto)
