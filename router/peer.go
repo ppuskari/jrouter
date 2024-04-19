@@ -167,6 +167,7 @@ func (p *Peer) Handle(ctx context.Context) error {
 				if sendRetries >= tickleRetryLimit {
 					log.Printf("AURP Peer: Send retry limit reached while waiting for Tickle-Ack, closing connection")
 					rstate = rsUnconnected
+					p.RoutingTable.DeletePeer(p)
 					break
 				}
 
@@ -176,12 +177,31 @@ func (p *Peer) Handle(ctx context.Context) error {
 					log.Printf("AURP Peer: Couldn't send Tickle: %v", err)
 					return err
 				}
+				// still in Wait For Tickle-Ack
 
 			case rsWaitForRIRsp:
-				// TODO
+				if time.Since(lastSend) <= sendRetryTimer {
+					break
+				}
+				if sendRetries >= sendRetryLimit {
+					log.Printf("AURP Peer: Send retry limit reached while waiting for RI-Rsp, closing connection")
+					rstate = rsUnconnected
+					p.RoutingTable.DeletePeer(p)
+					break
+				}
+
+				// RI-Req is stateless, so we don't need to cache the one we
+				// sent earlier just to send it again
+				sendRetries++
+				if _, err := p.Send(p.Transport.NewRIReqPacket()); err != nil {
+					log.Printf("AURP Peer: Couldn't send RI-Req packet: %v", err)
+					return err
+				}
+				// still in Wait For RI-Rsp
 
 			case rsUnconnected:
-				// TODO
+				// TODO: periodically try to reconnect,
+				// if this peer is in the config file
 			}
 
 		case pkt := <-p.RecieveCh:
@@ -245,6 +265,7 @@ func (p *Peer) Handle(ctx context.Context) error {
 				rstate = rsConnected
 
 				// Send an RI-Req
+				sendRetries = 0
 				if _, err := p.Send(p.Transport.NewRIReqPacket()); err != nil {
 					log.Printf("AURP Peer: Couldn't send RI-Req packet: %v", err)
 					return err
