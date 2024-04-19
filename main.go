@@ -142,7 +142,7 @@ func main() {
 	}
 
 	// -------------------------------- Tables --------------------------------
-	routing := router.NewRoutingTable()
+	routes := router.NewRoutingTable()
 	zones := router.NewZoneTable()
 	zones.Upsert(cfg.EtherTalk.NetStart, cfg.EtherTalk.ZoneName, true)
 
@@ -168,7 +168,7 @@ func main() {
 			UDPConn:      ln,
 			RemoteAddr:   raddr,
 			RecieveCh:    make(chan aurp.Packet, 1024),
-			RoutingTable: routing,
+			RoutingTable: routes,
 			ZoneTable:    zones,
 		}
 		aurp.Inc(&nextConnID)
@@ -186,7 +186,7 @@ func main() {
 		AARP:         aarpMachine,
 		Config:       cfg,
 		PcapHandle:   pcapHandle,
-		RoutingTable: routing,
+		RoutingTable: routes,
 	}
 	rtmpCh := make(chan *ddp.ExtPacket, 1024)
 	go rtmpMachine.Run(ctx, rtmpCh)
@@ -197,7 +197,7 @@ func main() {
 		PcapHandle: pcapHandle,
 		MyHWAddr:   myHWAddr,
 		// MyDDPAddr: ...,
-		RouteTable: routing,
+		RouteTable: routes,
 		ZoneTable:  zones,
 	}
 
@@ -268,9 +268,10 @@ func main() {
 				// it specifies the local network to which the node is
 				// connected. Packets whose destination network number is 0 are
 				// addressed to a node on the local network."
+				// TODO: more generic routing
 				if ddpkt.DstNet != 0 && (ddpkt.DstNet < cfg.EtherTalk.NetStart || ddpkt.DstNet > cfg.EtherTalk.NetEnd) {
 					// Is it for a network in the routing table?
-					rt := routing.LookupRoute(ddpkt.DstNet)
+					rt := routes.LookupRoute(ddpkt.DstNet)
 					if rt == nil {
 						log.Printf("DDP: no route for network %d", ddpkt.DstNet)
 						continue
@@ -436,7 +437,7 @@ func main() {
 				UDPConn:      ln,
 				RemoteAddr:   raddr,
 				RecieveCh:    make(chan aurp.Packet, 1024),
-				RoutingTable: routing,
+				RoutingTable: routes,
 				ZoneTable:    zones,
 			}
 			aurp.Inc(&nextConnID)
