@@ -32,6 +32,8 @@ import (
 	"time"
 
 	"gitea.drjosh.dev/josh/jrouter/aurp"
+	"gitea.drjosh.dev/josh/jrouter/router"
+
 	"github.com/google/gopacket/pcap"
 	"github.com/sfiera/multitalk/pkg/ddp"
 	"github.com/sfiera/multitalk/pkg/ethernet"
@@ -46,7 +48,7 @@ func main() {
 	flag.Parse()
 	log.Println("jrouter")
 
-	cfg, err := loadConfig(*configFilePath)
+	cfg, err := router.LoadConfig(*configFilePath)
 	if err != nil {
 		log.Fatalf("Couldn't load configuration file: %v", err)
 	}
@@ -80,7 +82,7 @@ func main() {
 
 	log.Printf("EtherTalk configuration: %+v", cfg.EtherTalk)
 
-	peers := make(map[udpAddr]*peer)
+	peers := make(map[udpAddr]*router.Peer)
 	var nextConnID uint16
 	for nextConnID == 0 {
 		nextConnID = uint16(rand.IntN(0x10000))
@@ -131,17 +133,17 @@ func main() {
 		handlersWG.Wait()
 		ln.Close()
 	}()
-	goPeerHandler := func(p *peer) {
+	goPeerHandler := func(p *router.Peer) {
 		handlersWG.Add(1)
 		go func() {
 			defer handlersWG.Done()
-			p.handle(ctx)
+			p.Handle(ctx)
 		}()
 	}
 
 	// -------------------------------- Tables --------------------------------
-	routing := NewRoutingTable()
-	zones := NewZoneTable()
+	routing := router.NewRoutingTable()
+	zones := router.NewZoneTable()
 	zones.Upsert(cfg.EtherTalk.NetStart, cfg.EtherTalk.ZoneName, true)
 
 	// ------------------------- Configured peer setup ------------------------
@@ -156,18 +158,18 @@ func main() {
 		}
 		log.Printf("resolved %q to %v", peerStr, raddr)
 
-		peer := &peer{
-			cfg: cfg,
-			tr: &aurp.Transport{
+		peer := &router.Peer{
+			Config: cfg,
+			Transport: &aurp.Transport{
 				LocalDI:     localDI,
 				RemoteDI:    aurp.IPDomainIdentifier(raddr.IP),
 				LocalConnID: nextConnID,
 			},
-			conn:         ln,
-			raddr:        raddr,
-			recv:         make(chan aurp.Packet, 1024),
-			routingTable: routing,
-			zoneTable:    zones,
+			UDPConn:      ln,
+			RemoteAddr:   raddr,
+			RecieveCh:    make(chan aurp.Packet, 1024),
+			RoutingTable: routing,
+			ZoneTable:    zones,
 		}
 		aurp.Inc(&nextConnID)
 		peers[udpAddrFromNet(raddr)] = peer
@@ -175,19 +177,29 @@ func main() {
 	}
 
 	// --------------------------------- AARP ---------------------------------
-	aarpMachine := NewAARPMachine(cfg, pcapHandle, myHWAddr)
+	aarpMachine := router.NewAARPMachine(cfg, pcapHandle, myHWAddr)
 	aarpCh := make(chan *ethertalk.Packet, 1024)
 	go aarpMachine.Run(ctx, aarpCh)
 
 	// --------------------------------- RTMP ---------------------------------
-	rtmpMachine := &RTMPMachine{
-		aarp:         aarpMachine,
-		cfg:          cfg,
-		pcapHandle:   pcapHandle,
-		routingTable: routing,
+	rtmpMachine := &router.RTMPMachine{
+		AARP:         aarpMachine,
+		Config:       cfg,
+		PcapHandle:   pcapHandle,
+		RoutingTable: routing,
 	}
 	rtmpCh := make(chan *ddp.ExtPacket, 1024)
 	go rtmpMachine.Run(ctx, rtmpCh)
+
+	// -------------------------------- Router --------------------------------
+	rooter := &router.Router{
+		Config:     cfg,
+		PcapHandle: pcapHandle,
+		MyHWAddr:   myHWAddr,
+		// MyDDPAddr: ...,
+		RouteTable: routing,
+		ZoneTable:  zones,
+	}
 
 	// ---------------------- Raw AppleTalk/AARP inbound ----------------------
 	go func() {
@@ -249,6 +261,7 @@ func main() {
 				if !ok {
 					continue
 				}
+				rooter.MyDDPAddr = myAddr.Proto
 
 				// Our network?
 				// "The network number 0 is reserved to mean unknown; by default
@@ -264,8 +277,8 @@ func main() {
 					}
 
 					// Encap ethPacket.Payload into an AURP packet
-					log.Printf("DDP: forwarding to AURP peer %v", rt.Peer.tr.RemoteDI)
-					if _, err := rt.Peer.send(rt.Peer.tr.NewAppleTalkPacket(ethFrame.Payload)); err != nil {
+					log.Printf("DDP: forwarding to AURP peer %v", rt.Peer.Transport.RemoteDI)
+					if _, err := rt.Peer.Send(rt.Peer.Transport.NewAppleTalkPacket(ethFrame.Payload)); err != nil {
 						log.Printf("DDP: Couldn't forward packet to AURP peer: %v", err)
 					}
 
@@ -285,17 +298,17 @@ func main() {
 					rtmpCh <- ddpkt
 
 				case 2: // The NIS (name information socket / NBP socket)
-					if err := handleNBP(pcapHandle, myHWAddr, ethFrame.Src, myAddr, zones, routing, cfg, ddpkt); err != nil {
+					if err := rooter.HandleNBP(ethFrame.Src, ddpkt); err != nil {
 						log.Printf("NBP: Couldn't handle: %v", err)
 					}
 
 				case 4: // The AEP socket
-					if err := handleAEP(pcapHandle, myHWAddr, ethFrame.Src, ddpkt); err != nil {
+					if err := rooter.HandleAEP(ethFrame.Src, ddpkt); err != nil {
 						log.Printf("AEP: Couldn't handle: %v", err)
 					}
 
 				case 6: // The ZIS (zone information socket / ZIP socket)
-					if err := handleZIP(pcapHandle, ethFrame.Src, myHWAddr, myAddr, cfg, zones, ddpkt); err != nil {
+					if err := rooter.HandleZIP(ethFrame.Src, ddpkt); err != nil {
 						log.Printf("ZIP: couldn't handle: %v", err)
 					}
 
@@ -375,7 +388,7 @@ func main() {
 					continue
 				}
 				// It's NBP
-				if err := handleNBPInAURP(pcapHandle, myHWAddr, ddpkt); err != nil {
+				if err := rooter.HandleNBPInAURP(ddpkt); err != nil {
 					log.Printf("NBP/DDP/AURP: %v", err)
 				}
 				continue
@@ -413,18 +426,18 @@ func main() {
 		pr := peers[ra]
 		if pr == nil {
 			// New peer!
-			pr = &peer{
-				cfg: cfg,
-				tr: &aurp.Transport{
+			pr = &router.Peer{
+				Config: cfg,
+				Transport: &aurp.Transport{
 					LocalDI:     localDI,
 					RemoteDI:    dh.SourceDI, // platinum rule
 					LocalConnID: nextConnID,
 				},
-				conn:         ln,
-				raddr:        raddr,
-				recv:         make(chan aurp.Packet, 1024),
-				routingTable: routing,
-				zoneTable:    zones,
+				UDPConn:      ln,
+				RemoteAddr:   raddr,
+				RecieveCh:    make(chan aurp.Packet, 1024),
+				RoutingTable: routing,
+				ZoneTable:    zones,
 			}
 			aurp.Inc(&nextConnID)
 			peers[ra] = pr
@@ -433,7 +446,7 @@ func main() {
 
 		// Pass the packet to the goroutine in charge of this peer.
 		select {
-		case pr.recv <- pkt:
+		case pr.RecieveCh <- pkt:
 			// That's it for us.
 
 		case <-ctx.Done():

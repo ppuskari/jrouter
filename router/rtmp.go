@@ -14,7 +14,7 @@
    limitations under the License.
 */
 
-package main
+package router
 
 import (
 	"context"
@@ -33,17 +33,17 @@ import (
 
 // RTMPMachine implements RTMP on an AppleTalk network attached to the router.
 type RTMPMachine struct {
-	aarp         *AARPMachine
-	cfg          *config
-	pcapHandle   *pcap.Handle
-	routingTable *RoutingTable
+	AARP         *AARPMachine
+	Config       *Config
+	PcapHandle   *pcap.Handle
+	RoutingTable *RoutingTable
 }
 
 // Run executes the machine.
 func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket) error {
 	// Await local address assignment before doing anything
-	<-m.aarp.Assigned()
-	myAddr, ok := m.aarp.Address()
+	<-m.AARP.Assigned()
+	myAddr, ok := m.AARP.Address()
 	if !ok {
 		return fmt.Errorf("AARP machine closed Assigned channel but Address is not valid")
 	}
@@ -76,7 +76,7 @@ func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket)
 				}
 
 				// should be in the cache...
-				theirHWAddr, err := m.aarp.Resolve(ctx, ddp.Addr{Network: pkt.SrcNet, Node: pkt.SrcNode})
+				theirHWAddr, err := m.AARP.Resolve(ctx, ddp.Addr{Network: pkt.SrcNet, Node: pkt.SrcNode})
 				if err != nil {
 					log.Printf("RTMP: Couldn't resolve %d.%d to a hardware address: %v", pkt.SrcNet, pkt.SrcNode, err)
 					continue
@@ -88,8 +88,8 @@ func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket)
 					respPkt := &rtmp.ResponsePacket{
 						SenderAddr: myAddr.Proto,
 						Extended:   true,
-						RangeStart: m.cfg.EtherTalk.NetStart,
-						RangeEnd:   m.cfg.EtherTalk.NetEnd,
+						RangeStart: m.Config.EtherTalk.NetStart,
+						RangeEnd:   m.Config.EtherTalk.NetEnd,
 					}
 					respPktRaw, err := respPkt.Marshal()
 					if err != nil {
@@ -170,7 +170,7 @@ func (m *RTMPMachine) send(src, dst ethernet.Addr, ddpPkt *ddp.ExtPacket) error 
 	if err != nil {
 		return err
 	}
-	return m.pcapHandle.WritePacketData(ethFrameRaw)
+	return m.PcapHandle.WritePacketData(ethFrameRaw)
 }
 
 func (m *RTMPMachine) broadcastData(myAddr aarp.AddrPair) error {
@@ -209,13 +209,13 @@ func (m *RTMPMachine) dataPacket(myAddr ddp.Addr) *rtmp.DataPacket {
 			// to that network."
 			{
 				Extended:   true,
-				RangeStart: m.cfg.EtherTalk.NetStart,
-				RangeEnd:   m.cfg.EtherTalk.NetEnd,
+				RangeStart: m.Config.EtherTalk.NetStart,
+				RangeEnd:   m.Config.EtherTalk.NetEnd,
 				Distance:   0,
 			},
 		},
 	}
-	for _, rt := range m.routingTable.ValidRoutes() {
+	for _, rt := range m.RoutingTable.ValidRoutes() {
 		p.NetworkTuples = append(p.NetworkTuples, rtmp.NetworkTuple{
 			Extended:   rt.Extended,
 			RangeStart: rt.NetStart,

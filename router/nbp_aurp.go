@@ -14,7 +14,7 @@
    limitations under the License.
 */
 
-package main
+package router
 
 import (
 	"fmt"
@@ -22,13 +22,11 @@ import (
 
 	"gitea.drjosh.dev/josh/jrouter/atalk"
 	"gitea.drjosh.dev/josh/jrouter/atalk/nbp"
-	"github.com/google/gopacket/pcap"
 	"github.com/sfiera/multitalk/pkg/ddp"
-	"github.com/sfiera/multitalk/pkg/ethernet"
 	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
 
-func handleNBPInAURP(pcapHandle *pcap.Handle, myHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) error {
+func (rtr *Router) HandleNBPInAURP(ddpkt *ddp.ExtPacket) error {
 	if ddpkt.Proto != ddp.ProtoNBP {
 		return fmt.Errorf("invalid DDP type %d on socket 2", ddpkt.Proto)
 	}
@@ -63,7 +61,7 @@ func handleNBPInAURP(pcapHandle *pcap.Handle, myHWAddr ethernet.Addr, ddpkt *ddp
 	ddpkt.DstNode = 0xFF // Broadcast node address within the dest network
 	ddpkt.Data = nbpRaw
 
-	outFrame, err := ethertalk.AppleTalk(myHWAddr, *ddpkt)
+	outFrame, err := ethertalk.AppleTalk(rtr.MyHWAddr, *ddpkt)
 	if err != nil {
 		return err
 	}
@@ -74,5 +72,5 @@ func handleNBPInAURP(pcapHandle *pcap.Handle, myHWAddr ethernet.Addr, ddpkt *ddp
 	if err != nil {
 		return err
 	}
-	return pcapHandle.WritePacketData(outFrameRaw)
+	return rtr.PcapHandle.WritePacketData(outFrameRaw)
 }

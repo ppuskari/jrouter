@@ -14,7 +14,7 @@
    limitations under the License.
 */
 
-package main
+package router
 
 import (
 	"context"
@@ -44,7 +44,7 @@ const (
 type AARPMachine struct {
 	*addressMappingTable
 
-	cfg        *config
+	cfg        *Config
 	pcapHandle *pcap.Handle
 
 	// The Run goroutine is responsible for all writes to myAddr.Proto and
@@ -58,7 +58,7 @@ type AARPMachine struct {
 }
 
 // NewAARPMachine creates a new AARPMachine.
-func NewAARPMachine(cfg *config, pcapHandle *pcap.Handle, myHWAddr ethernet.Addr) *AARPMachine {
+func NewAARPMachine(cfg *Config, pcapHandle *pcap.Handle, myHWAddr ethernet.Addr) *AARPMachine {
 	return &AARPMachine{
 		addressMappingTable: new(addressMappingTable),
 		cfg:                 cfg,

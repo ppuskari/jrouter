@@ -14,19 +14,18 @@
    limitations under the License.
 */
 
-package main
+package router
 
 import (
 	"fmt"
 
 	"gitea.drjosh.dev/josh/jrouter/atalk/aep"
-	"github.com/google/gopacket/pcap"
 	"github.com/sfiera/multitalk/pkg/ddp"
 	"github.com/sfiera/multitalk/pkg/ethernet"
 	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
 
-func handleAEP(pcapHandle *pcap.Handle, src, dst ethernet.Addr, ddpkt *ddp.ExtPacket) error {
+func (rtr *Router) HandleAEP(src ethernet.Addr, ddpkt *ddp.ExtPacket) error {
 	if ddpkt.Proto != ddp.ProtoAEP {
 		return fmt.Errorf("invalid DDP type %d on socket 4", ddpkt.Proto)
 	}
@@ -49,16 +48,16 @@ func handleAEP(pcapHandle *pcap.Handle, src, dst ethernet.Addr, ddpkt *ddp.ExtPa
 		ddpkt.DstSocket, ddpkt.SrcSocket = ddpkt.SrcSocket, ddpkt.DstSocket
 		ddpkt.Data[0] = byte(aep.EchoReply)
 
-		ethFrame, err := ethertalk.AppleTalk(src, *ddpkt)
+		ethFrame, err := ethertalk.AppleTalk(rtr.MyHWAddr, *ddpkt)
 		if err != nil {
 			return err
 		}
-		ethFrame.Dst = dst
+		ethFrame.Dst = src
 		ethFrameRaw, err := ethertalk.Marshal(*ethFrame)
 		if err != nil {
 			return err
 		}
-		return pcapHandle.WritePacketData(ethFrameRaw)
+		return rtr.PcapHandle.WritePacketData(ethFrameRaw)
 
 	default:
 		return fmt.Errorf("invalid AEP function %d", ep.Function)

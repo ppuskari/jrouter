@@ -14,7 +14,7 @@
    limitations under the License.
 */
 
-package main
+package router
 
 import (
 	"os"
@@ -23,7 +23,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type config struct {
+type Config struct {
 	// Optional: default is 387.
 	ListenPort uint16 `yaml:"listen_port"`
 
@@ -55,14 +55,14 @@ type config struct {
 	Peers []string `yaml:"peers"`
 }
 
-func loadConfig(cfgPath string) (*config, error) {
+func LoadConfig(cfgPath string) (*Config, error) {
 	f, err := os.Open(cfgPath)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
 
-	c := new(config)
+	c := new(Config)
 	if err := yaml.NewDecoder(f).Decode(c); err != nil {
 		return nil, err
 	}

@@ -14,7 +14,7 @@
    limitations under the License.
 */
 
-package main
+package router
 
 import (
 	"fmt"
@@ -23,14 +23,12 @@ import (
 	"gitea.drjosh.dev/josh/jrouter/atalk"
 	"gitea.drjosh.dev/josh/jrouter/atalk/atp"
 	"gitea.drjosh.dev/josh/jrouter/atalk/zip"
-	"github.com/google/gopacket/pcap"
-	"github.com/sfiera/multitalk/pkg/aarp"
 	"github.com/sfiera/multitalk/pkg/ddp"
 	"github.com/sfiera/multitalk/pkg/ethernet"
 	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
 
-func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAddr aarp.AddrPair, cfg *config, zones *ZoneTable, ddpkt *ddp.ExtPacket) error {
+func (rtr *Router) HandleZIP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) error {
 	switch ddpkt.Proto {
 	case ddp.ProtoATP:
 		atpkt, err := atp.UnmarshalPacket(ddpkt.Data)
@@ -54,13 +52,13 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 
 			switch gzl.Function {
 			case zip.FunctionGetZoneList:
-				resp.Zones = zones.AllNames()
+				resp.Zones = rtr.ZoneTable.AllNames()
 
 			case zip.FunctionGetLocalZones:
-				resp.Zones = zones.LocalNames()
+				resp.Zones = rtr.ZoneTable.LocalNames()
 
 			case zip.FunctionGetMyZone:
-				resp.Zones = []string{cfg.EtherTalk.ZoneName}
+				resp.Zones = []string{rtr.Config.EtherTalk.ZoneName}
 			}
 
 			// Inside AppleTalk SE, pp 8-8
@@ -101,14 +99,14 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 					DstNet:    ddpkt.SrcNet,
 					DstNode:   ddpkt.SrcNode,
 					DstSocket: ddpkt.SrcSocket,
-					SrcNet:    myAddr.Proto.Network,
-					SrcNode:   myAddr.Proto.Node,
+					SrcNet:    rtr.MyDDPAddr.Network,
+					SrcNode:   rtr.MyDDPAddr.Node,
 					SrcSocket: 6,
 					Proto:     ddp.ProtoATP,
 				},
 				Data: ddpBody,
 			}
-			outFrame, err := ethertalk.AppleTalk(myHWAddr, respDDP)
+			outFrame, err := ethertalk.AppleTalk(rtr.MyHWAddr, respDDP)
 			if err != nil {
 				return err
 			}
@@ -117,7 +115,7 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 			if err != nil {
 				return err
 			}
-			return pcapHandle.WritePacketData(outFrameRaw)
+			return rtr.PcapHandle.WritePacketData(outFrameRaw)
 
 		case *atp.TResp:
 			return fmt.Errorf("TODO: support handling ZIP ATP replies?")
@@ -135,7 +133,7 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 		switch zipkt := zipkt.(type) {
 		case *zip.QueryPacket:
 			log.Printf("ZIP: Got Query for networks %v", zipkt.Networks)
-			networks := zones.Query(zipkt.Networks)
+			networks := rtr.ZoneTable.Query(zipkt.Networks)
 
 			sendReply := func(resp *zip.ReplyPacket) error {
 				respRaw, err := resp.Marshal()
@@ -149,15 +147,15 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 						DstNet:    ddpkt.SrcNet,
 						DstNode:   ddpkt.SrcNode,
 						DstSocket: ddpkt.SrcSocket,
-						SrcNet:    myAddr.Proto.Network,
-						SrcNode:   myAddr.Proto.Node,
+						SrcNet:    rtr.MyDDPAddr.Network,
+						SrcNode:   rtr.MyDDPAddr.Node,
 						SrcSocket: 6,
 						Proto:     ddp.ProtoZIP,
 					},
 					Data: respRaw,
 				}
 
-				outFrame, err := ethertalk.AppleTalk(myHWAddr, outDDP)
+				outFrame, err := ethertalk.AppleTalk(rtr.MyHWAddr, outDDP)
 				if err != nil {
 					return fmt.Errorf("couldn't create EtherTalk frame: %w", err)
 				}
@@ -167,7 +165,7 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 				if err != nil {
 					return fmt.Errorf("couldn't marshal EtherTalk frame: %w", err)
 				}
-				if err := pcapHandle.WritePacketData(outFrameRaw); err != nil {
+				if err := rtr.PcapHandle.WritePacketData(outFrameRaw); err != nil {
 					return fmt.Errorf("couldn't write packet data: %w", err)
 				}
 				return nil
@@ -246,14 +244,14 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 
 			// Only running a network with one zone for now.
 			resp := &zip.GetNetInfoReplyPacket{
-				ZoneInvalid:     zipkt.ZoneName != cfg.EtherTalk.ZoneName,
+				ZoneInvalid:     zipkt.ZoneName != rtr.Config.EtherTalk.ZoneName,
 				UseBroadcast:    false,
 				OnlyOneZone:     true,
-				NetStart:        cfg.EtherTalk.NetStart,
-				NetEnd:          cfg.EtherTalk.NetEnd,
+				NetStart:        rtr.Config.EtherTalk.NetStart,
+				NetEnd:          rtr.Config.EtherTalk.NetEnd,
 				ZoneName:        zipkt.ZoneName, // has to match request
-				MulticastAddr:   atalk.MulticastAddr(cfg.EtherTalk.ZoneName),
-				DefaultZoneName: cfg.EtherTalk.ZoneName,
+				MulticastAddr:   atalk.MulticastAddr(rtr.Config.EtherTalk.ZoneName),
+				DefaultZoneName: rtr.Config.EtherTalk.ZoneName,
 			}
 			log.Printf("ZIP: Replying with GetNetInfo-Reply: %+v", resp)
 
@@ -277,8 +275,8 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 					DstNet:    ddpkt.SrcNet,
 					DstNode:   ddpkt.SrcNode,
 					DstSocket: ddpkt.SrcSocket,
-					SrcNet:    myAddr.Proto.Network,
-					SrcNode:   myAddr.Proto.Node,
+					SrcNet:    rtr.MyDDPAddr.Network,
+					SrcNode:   rtr.MyDDPAddr.Node,
 					SrcSocket: 6,
 					Proto:     ddp.ProtoZIP,
 				},
@@ -291,7 +289,7 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 				outDDP.DstNode = 0xFF
 			}
 
-			outFrame, err := ethertalk.AppleTalk(myHWAddr, outDDP)
+			outFrame, err := ethertalk.AppleTalk(rtr.MyHWAddr, outDDP)
 			if err != nil {
 				return fmt.Errorf("couldn't create EtherTalk frame: %w", err)
 			}
@@ -303,7 +301,7 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 			if err != nil {
 				return fmt.Errorf("couldn't marshal EtherTalk frame: %w", err)
 			}
-			if err := pcapHandle.WritePacketData(outFrameRaw); err != nil {
+			if err := rtr.PcapHandle.WritePacketData(outFrameRaw); err != nil {
 				return fmt.Errorf("couldn't write packet data: %w", err)
 			}
 			return nil

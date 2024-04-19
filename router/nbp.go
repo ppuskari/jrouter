@@ -14,7 +14,7 @@
    limitations under the License.
 */
 
-package main
+package router
 
 import (
 	"fmt"
@@ -22,14 +22,12 @@ import (
 
 	"gitea.drjosh.dev/josh/jrouter/atalk"
 	"gitea.drjosh.dev/josh/jrouter/atalk/nbp"
-	"github.com/google/gopacket/pcap"
-	"github.com/sfiera/multitalk/pkg/aarp"
 	"github.com/sfiera/multitalk/pkg/ddp"
 	"github.com/sfiera/multitalk/pkg/ethernet"
 	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
 
-func handleNBP(pcapHandle *pcap.Handle, myHWAddr, srcHWAddr ethernet.Addr, myAddr aarp.AddrPair, zoneTable *ZoneTable, routeTable *RoutingTable, cfg *config, ddpkt *ddp.ExtPacket) error {
+func (rtr *Router) HandleNBP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) error {
 	if ddpkt.Proto != ddp.ProtoNBP {
 		return fmt.Errorf("invalid DDP type %d on socket 2", ddpkt.Proto)
 	}
@@ -51,7 +49,7 @@ func handleNBP(pcapHandle *pcap.Handle, myHWAddr, srcHWAddr ethernet.Addr, myAdd
 		if tuple.Type != "AppleRouter" && tuple.Type != "=" {
 			return nil
 		}
-		if tuple.Zone != cfg.EtherTalk.ZoneName && tuple.Zone != "*" && tuple.Zone != "" {
+		if tuple.Zone != rtr.Config.EtherTalk.ZoneName && tuple.Zone != "*" && tuple.Zone != "" {
 			return nil
 		}
 		respPkt := &nbp.Packet{
@@ -59,13 +57,13 @@ func handleNBP(pcapHandle *pcap.Handle, myHWAddr, srcHWAddr ethernet.Addr, myAdd
 			NBPID:    nbpkt.NBPID,
 			Tuples: []nbp.Tuple{
 				{
-					Network:    myAddr.Proto.Network,
-					Node:       myAddr.Proto.Node,
+					Network:    rtr.MyDDPAddr.Network,
+					Node:       rtr.MyDDPAddr.Node,
 					Socket:     253,
 					Enumerator: 0,
 					Object:     "jrouter",
 					Type:       "AppleRouter",
-					Zone:       cfg.EtherTalk.ZoneName,
+					Zone:       rtr.Config.EtherTalk.ZoneName,
 				},
 			},
 		}
@@ -80,13 +78,13 @@ func handleNBP(pcapHandle *pcap.Handle, myHWAddr, srcHWAddr ethernet.Addr, myAdd
 				DstNet:    ddpkt.SrcNet,
 				DstNode:   ddpkt.SrcNode,
 				DstSocket: ddpkt.SrcSocket,
-				SrcNet:    myAddr.Proto.Network,
-				SrcNode:   myAddr.Proto.Node,
+				SrcNet:    rtr.MyDDPAddr.Network,
+				SrcNode:   rtr.MyDDPAddr.Node,
 				SrcSocket: 2,
 			},
 			Data: respRaw,
 		}
-		outFrame, err := ethertalk.AppleTalk(myHWAddr, outDDP)
+		outFrame, err := ethertalk.AppleTalk(rtr.MyHWAddr, outDDP)
 		if err != nil {
 			return err
 		}
@@ -95,7 +93,7 @@ func handleNBP(pcapHandle *pcap.Handle, myHWAddr, srcHWAddr ethernet.Addr, myAdd
 		if err != nil {
 			return err
 		}
-		return pcapHandle.WritePacketData(outFrameRaw)
+		return rtr.PcapHandle.WritePacketData(outFrameRaw)
 
 	case nbp.FunctionBrRq:
 		// There must be 1!
@@ -105,7 +103,7 @@ func handleNBP(pcapHandle *pcap.Handle, myHWAddr, srcHWAddr ethernet.Addr, myAdd
 			ethDst = atalk.MulticastAddr(tuple.Zone)
 		}
 
-		zones := zoneTable.LookupName(tuple.Zone)
+		zones := rtr.ZoneTable.LookupName(tuple.Zone)
 		for _, z := range zones {
 			if z.Local {
 				// If it's for the local zone, translate it to a LkUp and broadcast it back
@@ -127,7 +125,7 @@ func handleNBP(pcapHandle *pcap.Handle, myHWAddr, srcHWAddr ethernet.Addr, myAdd
 				outDDP.DstNode = 0xFF // Broadcast node address within the dest network
 				outDDP.Data = nbpRaw
 
-				outFrame, err := ethertalk.AppleTalk(myHWAddr, outDDP)
+				outFrame, err := ethertalk.AppleTalk(rtr.MyHWAddr, outDDP)
 				if err != nil {
 					return err
 				}
@@ -136,14 +134,14 @@ func handleNBP(pcapHandle *pcap.Handle, myHWAddr, srcHWAddr ethernet.Addr, myAdd
 				if err != nil {
 					return err
 				}
-				if err := pcapHandle.WritePacketData(outFrameRaw); err != nil {
+				if err := rtr.PcapHandle.WritePacketData(outFrameRaw); err != nil {
 					return err
 				}
 
 				continue
 			}
 
-			route := routeTable.LookupRoute(z.Network)
+			route := rtr.RouteTable.LookupRoute(z.Network)
 			if route == nil {
 				return fmt.Errorf("no route for network %d", z.Network)
 			}
@@ -171,7 +169,7 @@ func handleNBP(pcapHandle *pcap.Handle, myHWAddr, srcHWAddr ethernet.Addr, myAdd
 				return err
 			}
 
-			if _, err := peer.send(peer.tr.NewAppleTalkPacket(outDDPRaw)); err != nil {
+			if _, err := peer.Send(peer.Transport.NewAppleTalkPacket(outDDPRaw)); err != nil {
 				return fmt.Errorf("sending FwdReq on to peer: %w", err)
 			}
 		}

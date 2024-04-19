@@ -14,7 +14,7 @@
    limitations under the License.
 */
 
-package main
+package router
 
 import (
 	"bytes"
@@ -75,28 +75,27 @@ func (ss senderState) String() string {
 	}[ss]
 }
 
-type peer struct {
-	cfg   *config
-	tr    *aurp.Transport
-	conn  *net.UDPConn
-	raddr *net.UDPAddr
-	recv  chan aurp.Packet
-
-	routingTable *RoutingTable
-	zoneTable    *ZoneTable
+type Peer struct {
+	Config       *Config
+	Transport    *aurp.Transport
+	UDPConn      *net.UDPConn
+	RemoteAddr   *net.UDPAddr
+	RecieveCh    chan aurp.Packet
+	RoutingTable *RoutingTable
+	ZoneTable    *ZoneTable
 }
 
-// send encodes and sends pkt to the remote host.
-func (p *peer) send(pkt aurp.Packet) (int, error) {
+// Send encodes and sends pkt to the remote host.
+func (p *Peer) Send(pkt aurp.Packet) (int, error) {
 	var b bytes.Buffer
 	if _, err := pkt.WriteTo(&b); err != nil {
 		return 0, err
 	}
-	log.Printf("Sending %T (len %d) to %v", pkt, b.Len(), p.raddr)
-	return p.conn.WriteToUDP(b.Bytes(), p.raddr)
+	log.Printf("Sending %T (len %d) to %v", pkt, b.Len(), p.RemoteAddr)
+	return p.UDPConn.WriteToUDP(b.Bytes(), p.RemoteAddr)
 }
 
-func (p *peer) handle(ctx context.Context) error {
+func (p *Peer) Handle(ctx context.Context) error {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
@@ -108,7 +107,7 @@ func (p *peer) handle(ctx context.Context) error {
 	sstate := ssUnconnected
 
 	// Write an Open-Req packet
-	if _, err := p.send(p.tr.NewOpenReqPacket(nil)); err != nil {
+	if _, err := p.Send(p.Transport.NewOpenReqPacket(nil)); err != nil {
 		log.Printf("Couldn't send Open-Req packet: %v", err)
 		return err
 	}
@@ -123,7 +122,7 @@ func (p *peer) handle(ctx context.Context) error {
 				return ctx.Err()
 			}
 			// Send a best-effort Router Down before returning
-			if _, err := p.send(p.tr.NewRDPacket(aurp.ErrCodeNormalClose)); err != nil {
+			if _, err := p.Send(p.Transport.NewRDPacket(aurp.ErrCodeNormalClose)); err != nil {
 				log.Printf("Couldn't send RD packet: %v", err)
 			}
 			return ctx.Err()
@@ -143,7 +142,7 @@ func (p *peer) handle(ctx context.Context) error {
 				// Send another Open-Req
 				sendRetries++
 				lastSend = time.Now()
-				if _, err := p.send(p.tr.NewOpenReqPacket(nil)); err != nil {
+				if _, err := p.Send(p.Transport.NewOpenReqPacket(nil)); err != nil {
 					log.Printf("Couldn't send Open-Req packet: %v", err)
 					return err
 				}
@@ -153,7 +152,7 @@ func (p *peer) handle(ctx context.Context) error {
 				if time.Since(lastHeardFrom) <= lastHeardFromTimer {
 					break
 				}
-				if _, err := p.send(p.tr.NewTicklePacket()); err != nil {
+				if _, err := p.Send(p.Transport.NewTicklePacket()); err != nil {
 					log.Printf("Couldn't send Tickle: %v", err)
 					return err
 				}
@@ -173,7 +172,7 @@ func (p *peer) handle(ctx context.Context) error {
 
 				sendRetries++
 				lastSend = time.Now()
-				if _, err := p.send(p.tr.NewTicklePacket()); err != nil {
+				if _, err := p.Send(p.Transport.NewTicklePacket()); err != nil {
 					log.Printf("Couldn't send Tickle: %v", err)
 					return err
 				}
@@ -185,7 +184,7 @@ func (p *peer) handle(ctx context.Context) error {
 				// TODO
 			}
 
-		case pkt := <-p.recv:
+		case pkt := <-p.RecieveCh:
 			lastHeardFrom = time.Now()
 
 			switch pkt := pkt.(type) {
@@ -195,25 +194,25 @@ func (p *peer) handle(ctx context.Context) error {
 				}
 
 				// The peer tells us their connection ID in Open-Req.
-				p.tr.RemoteConnID = pkt.ConnectionID
+				p.Transport.RemoteConnID = pkt.ConnectionID
 
 				// Formulate a response.
 				var orsp *aurp.OpenRspPacket
 				switch {
 				case pkt.Version != 1:
 					// Respond with Open-Rsp with unknown version error.
-					orsp = p.tr.NewOpenRspPacket(0, int16(aurp.ErrCodeInvalidVersion), nil)
+					orsp = p.Transport.NewOpenRspPacket(0, int16(aurp.ErrCodeInvalidVersion), nil)
 
 				case len(pkt.Options) > 0:
 					// Options? OPTIONS? We don't accept no stinkin' _options_
-					orsp = p.tr.NewOpenRspPacket(0, int16(aurp.ErrCodeOptionNegotiation), nil)
+					orsp = p.Transport.NewOpenRspPacket(0, int16(aurp.ErrCodeOptionNegotiation), nil)
 
 				default:
 					// Accept it I guess.
-					orsp = p.tr.NewOpenRspPacket(0, 1, nil)
+					orsp = p.Transport.NewOpenRspPacket(0, 1, nil)
 				}
 
-				if _, err := p.send(orsp); err != nil {
+				if _, err := p.Send(orsp); err != nil {
 					log.Printf("Couldn't send Open-Rsp: %v", err)
 					return err
 				}
@@ -225,7 +224,7 @@ func (p *peer) handle(ctx context.Context) error {
 				if rstate == rsUnconnected {
 					lastSend = time.Now()
 					sendRetries = 0
-					if _, err := p.send(p.tr.NewOpenReqPacket(nil)); err != nil {
+					if _, err := p.Send(p.Transport.NewOpenReqPacket(nil)); err != nil {
 						log.Printf("Couldn't send Open-Req packet: %v", err)
 						return err
 					}
@@ -238,7 +237,7 @@ func (p *peer) handle(ctx context.Context) error {
 				}
 				if pkt.RateOrErrCode < 0 {
 					// It's an error code.
-					log.Printf("Open-Rsp error code from peer %v: %d", p.raddr.IP, pkt.RateOrErrCode)
+					log.Printf("Open-Rsp error code from peer %v: %d", p.RemoteAddr.IP, pkt.RateOrErrCode)
 					rstate = rsUnconnected
 					break
 				}
@@ -246,7 +245,7 @@ func (p *peer) handle(ctx context.Context) error {
 				rstate = rsConnected
 
 				// Send an RI-Req
-				if _, err := p.send(p.tr.NewRIReqPacket()); err != nil {
+				if _, err := p.Send(p.Transport.NewRIReqPacket()); err != nil {
 					log.Printf("Couldn't send RI-Req packet: %v", err)
 					return err
 				}
@@ -260,13 +259,13 @@ func (p *peer) handle(ctx context.Context) error {
 				nets := aurp.NetworkTuples{
 					{
 						Extended:   true,
-						RangeStart: uint16(p.cfg.EtherTalk.NetStart),
-						RangeEnd:   uint16(p.cfg.EtherTalk.NetEnd),
+						RangeStart: uint16(p.Config.EtherTalk.NetStart),
+						RangeEnd:   uint16(p.Config.EtherTalk.NetEnd),
 						Distance:   0,
 					},
 				}
-				p.tr.LocalSeq = 1
-				if _, err := p.send(p.tr.NewRIRspPacket(aurp.RoutingFlagLast, nets)); err != nil {
+				p.Transport.LocalSeq = 1
+				if _, err := p.Send(p.Transport.NewRIRspPacket(aurp.RoutingFlagLast, nets)); err != nil {
 					log.Printf("Couldn't send RI-Rsp packet: %v", err)
 					return err
 				}
@@ -280,7 +279,7 @@ func (p *peer) handle(ctx context.Context) error {
 				log.Printf("Learned about these networks: %v", pkt.Networks)
 
 				for _, nt := range pkt.Networks {
-					p.routingTable.UpsertRoute(
+					p.RoutingTable.UpsertRoute(
 						nt.Extended,
 						ddp.Network(nt.RangeStart),
 						ddp.Network(nt.RangeEnd),
@@ -291,7 +290,7 @@ func (p *peer) handle(ctx context.Context) error {
 
 				// TODO: track which networks we don't have zone info for, and
 				// only set SZI for those ?
-				if _, err := p.send(p.tr.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, aurp.RoutingFlagSendZoneInfo)); err != nil {
+				if _, err := p.Send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, aurp.RoutingFlagSendZoneInfo)); err != nil {
 					log.Printf("Couldn't send RI-Ack packet: %v", err)
 					return err
 				}
@@ -324,11 +323,11 @@ func (p *peer) handle(ctx context.Context) error {
 				if pkt.Flags&aurp.RoutingFlagSendZoneInfo != 0 {
 					zones := aurp.ZoneTuples{
 						{
-							Network: uint16(p.cfg.EtherTalk.NetStart),
-							Name:    p.cfg.EtherTalk.ZoneName,
+							Network: uint16(p.Config.EtherTalk.NetStart),
+							Name:    p.Config.EtherTalk.ZoneName,
 						},
 					}
-					if _, err := p.send(p.tr.NewZIRspPacket(zones)); err != nil {
+					if _, err := p.Send(p.Transport.NewZIRspPacket(zones)); err != nil {
 						log.Printf("Couldn't send ZI-Rsp packet: %v", err)
 					}
 				}
@@ -346,7 +345,7 @@ func (p *peer) handle(ctx context.Context) error {
 
 				log.Printf("Router Down: error code %d %s", pkt.ErrorCode, pkt.ErrorCode)
 				// Respond with RI-Ack
-				if _, err := p.send(p.tr.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, 0)); err != nil {
+				if _, err := p.Send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, 0)); err != nil {
 					log.Printf("Couldn't send RI-Ack: %v", err)
 					return err
 				}
@@ -358,11 +357,11 @@ func (p *peer) handle(ctx context.Context) error {
 				// ZI-Req
 				zones := aurp.ZoneTuples{
 					{
-						Network: uint16(p.cfg.EtherTalk.NetStart),
-						Name:    p.cfg.EtherTalk.ZoneName,
+						Network: uint16(p.Config.EtherTalk.NetStart),
+						Name:    p.Config.EtherTalk.ZoneName,
 					},
 				}
-				if _, err := p.send(p.tr.NewZIRspPacket(zones)); err != nil {
+				if _, err := p.Send(p.Transport.NewZIRspPacket(zones)); err != nil {
 					log.Printf("Couldn't send ZI-Rsp packet: %v", err)
 					return err
 				}
@@ -370,11 +369,11 @@ func (p *peer) handle(ctx context.Context) error {
 			case *aurp.ZIRspPacket:
 				log.Printf("Learned about these zones: %v", pkt.Zones)
 				for _, zt := range pkt.Zones {
-					p.zoneTable.Upsert(ddp.Network(zt.Network), zt.Name, false)
+					p.ZoneTable.Upsert(ddp.Network(zt.Network), zt.Name, false)
 				}
 
 			case *aurp.GDZLReqPacket:
-				if _, err := p.send(p.tr.NewGDZLRspPacket(-1, nil)); err != nil {
+				if _, err := p.Send(p.Transport.NewGDZLRspPacket(-1, nil)); err != nil {
 					log.Printf("Couldn't send GDZL-Rsp packet: %v", err)
 					return err
 				}
@@ -383,7 +382,7 @@ func (p *peer) handle(ctx context.Context) error {
 				log.Printf("Received a GDZL-Rsp, but I wouldn't have sent a GDZL-Req - that's weird")
 
 			case *aurp.GZNReqPacket:
-				if _, err := p.send(p.tr.NewGZNRspPacket(pkt.ZoneName, false, nil)); err != nil {
+				if _, err := p.Send(p.Transport.NewGZNRspPacket(pkt.ZoneName, false, nil)); err != nil {
 					log.Printf("Couldn't send GZN-Rsp packet: %v", err)
 					return err
 				}
@@ -393,7 +392,7 @@ func (p *peer) handle(ctx context.Context) error {
 
 			case *aurp.TicklePacket:
 				// Immediately respond with Tickle-Ack
-				if _, err := p.send(p.tr.NewTickleAckPacket()); err != nil {
+				if _, err := p.Send(p.Transport.NewTickleAckPacket()); err != nil {
 					log.Printf("Couldn't send Tickle-Ack: %v", err)
 					return err
 				}
