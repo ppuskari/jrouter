@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
 // Subcode is used to distinguish types of zone request/response.
@@ -45,7 +47,7 @@ func parseSubcode(p []byte) (Subcode, []byte, error) {
 type ZIReqPacket struct {
 	Header
 	Subcode
-	Networks []uint16
+	Networks []ddp.Network
 }
 
 func (p *ZIReqPacket) WriteTo(w io.Writer) (int64, error) {
@@ -53,7 +55,7 @@ func (p *ZIReqPacket) WriteTo(w io.Writer) (int64, error) {
 	a.writeTo(&p.Header)
 	a.write16(uint16(p.Subcode))
 	for _, n := range p.Networks {
-		a.write16(n)
+		a.write16(uint16(n))
 	}
 	return a.ret()
 }
@@ -63,9 +65,9 @@ func parseZIReqPacket(p []byte) (*ZIReqPacket, error) {
 		return nil, fmt.Errorf("odd number of bytes %d for networks", len(p))
 	}
 	c := len(p) / 2
-	ns := make([]uint16, 0, c)
+	ns := make([]ddp.Network, 0, c)
 	for i := range c {
-		ns[i] = binary.BigEndian.Uint16(p[i*2:][:2])
+		ns[i] = ddp.Network(binary.BigEndian.Uint16(p[i*2:][:2]))
 	}
 	return &ZIReqPacket{
 		Subcode:  SubcodeZoneInfoReq,
@@ -298,7 +300,7 @@ func (zs ZoneTuples) String() string {
 }
 
 type ZoneTuple struct {
-	Network uint16
+	Network ddp.Network
 	Name    string
 }
 
@@ -317,7 +319,7 @@ func (zs ZoneTuples) WriteTo(w io.Writer) (int64, error) {
 	offsets := make(map[string]uint16)
 
 	for _, zt := range zs {
-		a.write16(zt.Network)
+		a.write16(uint16(zt.Network))
 
 		if offset, wrote := offsets[zt.Name]; wrote {
 			// Optimised tuple
@@ -351,7 +353,7 @@ func parseZoneTuples(p []byte) (ZoneTuples, error) {
 			return nil, fmt.Errorf("insufficient remaining input length %d for another zone tuple", len(p))
 		}
 		var zt ZoneTuple
-		zt.Network = binary.BigEndian.Uint16(p[:2])
+		zt.Network = ddp.Network(binary.BigEndian.Uint16(p[:2]))
 		p = p[2:]
 		if nameLen := p[0]; nameLen&0x80 == 0 {
 			// Long tuple

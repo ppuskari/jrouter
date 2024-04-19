@@ -20,6 +20,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+
+	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
 // TrHeader represent an AURP-Tr packet header. It includes the domain header.
@@ -175,20 +177,22 @@ func (tr *Transport) NewRIAckPacket(connID, seq uint16, szi RoutingFlag) *RIAckP
 // NewZIRspPacket returns a new ZI-Rsp packet structure containing the given
 // zone information. It automatically chooses between subcodes 1 or 2 depending
 // on whether there is one network ID or more than one network ID.
-func (tr *Transport) NewZIRspPacket(zones ZoneTuples) *ZIRspPacket {
+func (tr *Transport) NewZIRspPacket(zoneLists map[ddp.Network][]string) *ZIRspPacket {
 	// Only one zone: use non-extended
 	subcode := SubcodeZoneInfoNonExt
-	if len(zones) > 1 {
-		// Count distinct networks
-		nns := make(map[uint16]struct{})
-		for _, z := range zones {
-			nns[z.Network] = struct{}{}
-		}
-
+	if len(zoneLists) == 1 {
 		// Only one network: use extended format
-		// More than one network: use non-extended
-		if len(nns) == 1 {
-			subcode = SubcodeZoneInfoExt
+		subcode = SubcodeZoneInfoExt
+	}
+
+	// Translate from network->zones map into zone tuples
+	var zones ZoneTuples
+	for nn, zl := range zoneLists {
+		for _, z := range zl {
+			zones = append(zones, ZoneTuple{
+				Network: nn,
+				Name:    z,
+			})
 		}
 	}
 

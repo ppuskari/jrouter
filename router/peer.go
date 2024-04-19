@@ -339,14 +339,10 @@ func (p *Peer) Handle(ctx context.Context) error {
 				sstate = ssConnected
 
 				// If SZI flag is set, send ZI-Rsp (transaction)
-				// TODO: only respond with zones for networks that were in the
-				// RI-Rsp that corresponded to this RI-Ack
+				// TODO: split ZI-Rsp packets similarly to ZIP Replies
 				if pkt.Flags&aurp.RoutingFlagSendZoneInfo != 0 {
-					zones := aurp.ZoneTuples{
-						{
-							Network: uint16(p.Config.EtherTalk.NetStart),
-							Name:    p.Config.EtherTalk.ZoneName,
-						},
+					zones := map[ddp.Network][]string{
+						p.Config.EtherTalk.NetStart: {p.Config.EtherTalk.ZoneName},
 					}
 					if _, err := p.Send(p.Transport.NewZIRspPacket(zones)); err != nil {
 						log.Printf("AURP Peer: Couldn't send ZI-Rsp packet: %v", err)
@@ -357,6 +353,9 @@ func (p *Peer) Handle(ctx context.Context) error {
 
 			case *aurp.RIUpdPacket:
 				// TODO: Integrate info into route table
+				for _, et := range pkt.Events {
+					log.Printf("AURP Peer: RI-Upd event %v", et)
+				}
 
 			case *aurp.RDPacket:
 				if rstate == rsUnconnected || rstate == rsWaitForOpenRsp {
@@ -375,14 +374,8 @@ func (p *Peer) Handle(ctx context.Context) error {
 				rstate = rsUnconnected
 
 			case *aurp.ZIReqPacket:
-				// TODO: only respond with zones for networks specified by the
-				// ZI-Req
-				zones := aurp.ZoneTuples{
-					{
-						Network: uint16(p.Config.EtherTalk.NetStart),
-						Name:    p.Config.EtherTalk.ZoneName,
-					},
-				}
+				// TODO: split ZI-Rsp packets similarly to ZIP Replies
+				zones := p.ZoneTable.Query(pkt.Networks)
 				if _, err := p.Send(p.Transport.NewZIRspPacket(zones)); err != nil {
 					log.Printf("AURP Peer: Couldn't send ZI-Rsp packet: %v", err)
 					return err
