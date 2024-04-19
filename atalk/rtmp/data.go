@@ -39,6 +39,14 @@ type NetworkTuple struct {
 	Distance   uint8
 }
 
+func (nt *NetworkTuple) Size() int {
+	if nt.Extended {
+		return 6
+	} else {
+		return 3
+	}
+}
+
 // Marshal marshals an RTMP Data packet.
 func (dp *DataPacket) Marshal() ([]byte, error) {
 	b := bytes.NewBuffer(nil)
