@@ -33,6 +33,7 @@ const (
 	tickleRetryLimit   = 10
 	sendRetryTimer     = 10 * time.Second
 	sendRetryLimit     = 5
+	reconnectTimer     = 10 * time.Minute
 )
 
 type receiverState int
@@ -83,6 +84,7 @@ type Peer struct {
 	RecieveCh    chan aurp.Packet
 	RoutingTable *RoutingTable
 	ZoneTable    *ZoneTable
+	Reconnect    bool
 }
 
 // Send encodes and sends pkt to the remote host.
@@ -202,6 +204,9 @@ func (p *Peer) Handle(ctx context.Context) error {
 			case rsUnconnected:
 				// TODO: periodically try to reconnect,
 				// if this peer is in the config file
+
+				// TODO: if sstate != ssUnconnected, send a null RI-Upd to check
+				// that the sender side is also unconnected
 			}
 
 		case pkt := <-p.RecieveCh:
@@ -355,6 +360,11 @@ func (p *Peer) Handle(ctx context.Context) error {
 				// TODO: Integrate info into route table
 				for _, et := range pkt.Events {
 					log.Printf("AURP Peer: RI-Upd event %v", et)
+				}
+
+				if _, err := p.Send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, 0)); err != nil {
+					log.Printf("AURP Peer: Couldn't send RI-Ack: %v", err)
+					return err
 				}
 
 			case *aurp.RDPacket:

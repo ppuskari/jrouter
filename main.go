@@ -170,6 +170,7 @@ func main() {
 			RecieveCh:    make(chan aurp.Packet, 1024),
 			RoutingTable: routes,
 			ZoneTable:    zones,
+			Reconnect:    true,
 		}
 		aurp.Inc(&nextConnID)
 		peers[udpAddrFromNet(raddr)] = peer
@@ -439,6 +440,7 @@ func main() {
 				RecieveCh:    make(chan aurp.Packet, 1024),
 				RoutingTable: routes,
 				ZoneTable:    zones,
+				Reconnect:    false,
 			}
 			aurp.Inc(&nextConnID)
 			peers[ra] = pr
