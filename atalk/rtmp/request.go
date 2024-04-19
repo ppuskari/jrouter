@@ -18,23 +18,49 @@ package rtmp
 
 import "fmt"
 
-// RequestPacket represents an RTMP Request or RTMP Route Data Request packet.
+const (
+	FunctionRequest         = 1
+	FunctionRDRSplitHorizon = 2
+	FunctionRDRComplete     = 3
+	FunctionLoopProbe       = 4 // AURP Ch.4 pp 94
+)
+
+// RequestPacket represents an RTMP Request, Route Data Request, or Loop Probe.
 type RequestPacket struct {
 	Function uint8
+	Data     []byte // only for LoopProbe
 }
 
 // Marshal marshals an RTMP Request or RTMP RDR packet.
 func (rp *RequestPacket) Marshal() ([]byte, error) {
-	if rp.Function < 1 || rp.Function > 3 {
+	if rp.Function < 1 || rp.Function > 4 {
 		return nil, fmt.Errorf("invalid RTMP request function %d", rp.Function)
+	}
+	if rp.Function == FunctionLoopProbe {
+		return append([]byte{rp.Function, 0x00, 0x00, 0x00, 0x00}, rp.Data...), nil
+	}
+	if len(rp.Data) > 0 {
+		return nil, fmt.Errorf("data field only valid for RTMP Loop Probe")
 	}
 	return []byte{rp.Function}, nil
 }
 
 // UnmarshalRequestPacket unmarshals an RTMP Request or RTMP RDR packet.
 func UnmarshalRequestPacket(data []byte) (*RequestPacket, error) {
-	if len(data) != 1 {
-		return nil, fmt.Errorf("invalid data length %d for RTMP Request or RTMP RDR packet", len(data))
+	if len(data) < 1 {
+		return nil, fmt.Errorf("invalid data length %d for RTMP request packet", len(data))
 	}
-	return &RequestPacket{Function: data[0]}, nil
+	// Loop probes include four 0x00 bytes after the function.
+	if data[0] == FunctionLoopProbe {
+		if len(data) < 5 {
+			return nil, fmt.Errorf("insufficient data length %d for RTMP Loop Probe", len(data))
+		}
+		return &RequestPacket{
+			Function: data[0],
+			Data:     data[5:],
+		}, nil
+	}
+	return &RequestPacket{
+		Function: data[0],
+	}, nil
 }
