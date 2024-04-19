@@ -154,7 +154,8 @@ func main() {
 
 		raddr, err := net.ResolveUDPAddr("udp4", peerStr)
 		if err != nil {
-			log.Fatalf("Invalid UDP address: %v", err)
+			log.Printf("couldn't resolve UDP address, skipping: %v", err)
+			continue
 		}
 		log.Printf("resolved %q to %v", peerStr, raddr)
 
