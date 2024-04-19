@@ -20,6 +20,13 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+
+	"gitea.drjosh.dev/josh/jrouter/atalk"
+)
+
+const (
+	HeaderSize  = 8
+	MaxDataSize = atalk.DDPMaxDataSize - HeaderSize // 578
 )
 
 const (
@@ -49,6 +56,9 @@ func (p *TReq) Marshal() ([]byte, error) {
 	}
 	if p.TRelTimeoutIndicator > 4 {
 		return nil, fmt.Errorf("invalid TRel timeout indicator [%d > 4]", p.TRelTimeoutIndicator)
+	}
+	if len(p.Data) > MaxDataSize {
+		return nil, fmt.Errorf("%w [%d > %d]", atalk.ErrDataTooBig, len(p.Data), MaxDataSize)
 	}
 
 	b := bytes.NewBuffer(nil)

@@ -21,6 +21,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"gitea.drjosh.dev/josh/jrouter/atalk"
 	"gitea.drjosh.dev/josh/jrouter/atalk/atp"
 )
 
@@ -78,6 +79,9 @@ func (p *GetZonesReplyPacket) MarshalTResp() (*atp.TResp, error) {
 		b.WriteString(z)
 	}
 	r.Data = b.Bytes()
+	if len(r.Data) > atp.MaxDataSize {
+		return nil, fmt.Errorf("%w [%d > %d]", atalk.ErrDataTooBig, len(r.Data), atp.MaxDataSize)
+	}
 	return r, nil
 }
 

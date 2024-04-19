@@ -22,8 +22,9 @@ Things I plan to fix Real Soon Now:
   interface. I haven't tested it with netatalk or tashrouter on the same
   host, but I think using a distinct Ethernet address would help them coexist.
 * It doesn't do any of the required packet splitting to keep packets under the
-  AppleTalk size limits. In particular ZIP GetZoneList Replies are incorrect
-  when the zone list would exceed the limit.
+  AppleTalk size limits. ~~In particular ZIP GetZoneList Replies are incorrect
+  when the zone list would exceed the limit.~~ GetZoneList is now fixed, but
+  various others need fixing.
 * It logs a lot and has no other monitoring or observability capability. I plan
   to add a Prometheus metrics endpoint and at least add log levels / verbosity
   flag.

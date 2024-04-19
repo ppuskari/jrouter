@@ -16,4 +16,11 @@
 
 package atalk
 
-const DDPExtHeaderSize = 13
+import "errors"
+
+const (
+	DDPExtHeaderSize = 13
+	DDPMaxDataSize   = 586
+)
+
+var ErrDataTooBig = errors.New("data too big")

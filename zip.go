@@ -32,7 +32,7 @@ import (
 
 func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAddr aarp.AddrPair, cfg *config, zones *ZoneTable, ddpkt *ddp.ExtPacket) error {
 	switch ddpkt.Proto {
-	case 3: // ATP
+	case ddp.ProtoATP:
 		atpkt, err := atp.UnmarshalPacket(ddpkt.Data)
 		if err != nil {
 			return err
@@ -43,11 +43,15 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 			if err != nil {
 				return err
 			}
-			// TODO: handle this in a more transactiony way
+			if gzl.StartIndex == 0 {
+				return fmt.Errorf("ZIP ATP: received request with StartIndex = 0 (invalid)")
+			}
+
 			resp := &zip.GetZonesReplyPacket{
 				TID:      gzl.TID,
-				LastFlag: true, // TODO: support multiple response packets
+				LastFlag: true,
 			}
+
 			switch gzl.Function {
 			case zip.FunctionGetZoneList:
 				resp.Zones = zones.AllNames()
@@ -57,6 +61,29 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 
 			case zip.FunctionGetMyZone:
 				resp.Zones = []string{cfg.EtherTalk.ZoneName}
+			}
+
+			// Inside AppleTalk SE, pp 8-8
+			if int(gzl.StartIndex) > len(resp.Zones) {
+				// "Note: A 0-byte response will be returned by a router if the
+				// index specified in the request is greater than the index of
+				// the last zone in the list (and the user bytes field will
+				// indicate no more zones)."
+				resp.Zones = nil
+			} else {
+				// Trim the zones list
+				// "zone names in the router are assumed to be numbered starting
+				// with 1"
+				resp.Zones = resp.Zones[gzl.StartIndex-1:]
+				size := 0
+				for i, z := range resp.Zones {
+					size += 1 + len(z) // length prefix plus string
+					if size > atp.MaxDataSize {
+						resp.LastFlag = false
+						resp.Zones = resp.Zones[:i]
+						break
+					}
+				}
 			}
 
 			respATP, err := resp.MarshalTResp()
@@ -99,7 +126,7 @@ func handleZIP(pcapHandle *pcap.Handle, srcHWAddr, myHWAddr ethernet.Addr, myAdd
 			return fmt.Errorf("unsupported ATP packet type %T for ZIP", atpkt)
 		}
 
-	case 6: // ZIP
+	case ddp.ProtoZIP:
 		zipkt, err := zip.UnmarshalPacket(ddpkt.Data)
 		if err != nil {
 			return err
