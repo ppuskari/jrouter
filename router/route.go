@@ -72,6 +72,17 @@ func (rt *RoutingTable) LookupRoute(network ddp.Network) *Route {
 	return bestRoute
 }
 
+func (rt *RoutingTable) DeletePeer(peer *Peer) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+
+	for route := range rt.routes {
+		if route.Peer == peer {
+			delete(rt.routes, route)
+		}
+	}
+}
+
 func (rt *RoutingTable) UpsertRoute(extended bool, netStart, netEnd ddp.Network, peer *Peer, metric uint8) error {
 	if netStart > netEnd {
 		return fmt.Errorf("invalid network range [%d, %d]", netStart, netEnd)

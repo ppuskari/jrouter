@@ -83,7 +83,7 @@ func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket)
 				}
 
 				switch req.Function {
-				case 1: // RTMP Request
+				case rtmp.FunctionRequest:
 					// Respond with RTMP Response
 					respPkt := &rtmp.ResponsePacket{
 						SenderAddr: myAddr.Proto,
@@ -115,7 +115,7 @@ func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket)
 						log.Printf("RTMP: Couldn't send Data broadcast: %v", err)
 					}
 
-				case 2, 3:
+				case rtmp.FunctionRDRSplitHorizon, rtmp.FunctionRDRComplete:
 					// Like the Data broadcast, but solicited by a request (RDR).
 					// TODO: handle split-horizon processing
 					for _, dataPkt := range m.dataPackets(myAddr.Proto) {
@@ -145,6 +145,10 @@ func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket)
 							break
 						}
 					}
+
+				case rtmp.FunctionLoopProbe:
+					log.Printf("RTMP: TODO: handle Loop Probes")
+
 				}
 
 			case ddp.ProtoRTMPResp:
