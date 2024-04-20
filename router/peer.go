@@ -33,7 +33,8 @@ const (
 	tickleRetryLimit   = 10
 	sendRetryTimer     = 10 * time.Second
 	sendRetryLimit     = 5
-	reconnectTimer     = 10 * time.Minute
+	reconnectTimer     = 1 * time.Minute
+	updateTimer        = 10 * time.Second
 )
 
 type receiverState int
@@ -98,11 +99,15 @@ func (p *Peer) Send(pkt aurp.Packet) (int, error) {
 }
 
 func (p *Peer) Handle(ctx context.Context) error {
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
+	rticker := time.NewTicker(1 * time.Second)
+	defer rticker.Stop()
+	sticker := time.NewTicker(1 * time.Second)
+	defer sticker.Stop()
 
+	lastReconnect := time.Now()
 	lastHeardFrom := time.Now()
 	lastSend := time.Now()
+	lastUpdate := time.Now()
 	sendRetries := 0
 
 	rstate := rsUnconnected
@@ -129,7 +134,7 @@ func (p *Peer) Handle(ctx context.Context) error {
 			}
 			return ctx.Err()
 
-		case <-ticker.C:
+		case <-rticker.C:
 			switch rstate {
 			case rsWaitForOpenRsp:
 				if time.Since(lastSend) <= sendRetryTimer {
@@ -202,11 +207,69 @@ func (p *Peer) Handle(ctx context.Context) error {
 				// still in Wait For RI-Rsp
 
 			case rsUnconnected:
-				// TODO: periodically try to reconnect,
-				// if this peer is in the config file
-
 				// TODO: if sstate != ssUnconnected, send a null RI-Upd to check
 				// that the sender side is also unconnected
+				if sstate != ssUnconnected && time.Since(lastSend) > sendRetryTimer {
+					if sendRetries >= sendRetryLimit {
+						log.Printf("AURP Peer: Send retry limit reached while probing sender connect, closing connection")
+					}
+					sendRetries++
+					lastSend = time.Now()
+					aurp.Inc(&p.Transport.LocalSeq)
+					events := aurp.EventTuples{{
+						EventCode: aurp.EventCodeNull,
+					}}
+					if _, err := p.Send(p.Transport.NewRIUpdPacket(events)); err != nil {
+						log.Printf("AURP Peer: Couldn't send RI-Upd packet: %v", err)
+						return err
+					}
+					sstate = ssWaitForRIAck1
+				}
+
+				if p.Reconnect {
+					// Periodically try to reconnect, if this peer is in the config file
+					if time.Since(lastReconnect) <= reconnectTimer {
+						break
+					}
+
+					sendRetries = 0
+					lastSend = time.Now()
+					if _, err := p.Send(p.Transport.NewOpenReqPacket(nil)); err != nil {
+						log.Printf("AURP Peer: Couldn't send Open-Req packet: %v", err)
+						return err
+					}
+					rstate = rsWaitForOpenRsp
+				}
+			}
+
+		case <-sticker.C:
+			switch sstate {
+			case ssUnconnected:
+				// Do nothing
+
+			case ssConnected:
+				if time.Since(lastUpdate) <= updateTimer {
+					break
+				}
+				// TODO: is there a routing update to send?
+
+			case ssWaitForRIAck1:
+				if time.Since(lastSend) <= sendRetryTimer {
+					break
+				}
+				// TODO: Re-send RI-Rsp
+
+			case ssWaitForRIAck2:
+				if time.Since(lastSend) <= sendRetryTimer {
+					break
+				}
+				// TODO: Re-send RI-Upd
+
+			case ssWaitForRIAck3:
+				if time.Since(lastSend) <= sendRetryTimer {
+					break
+				}
+				sstate = ssUnconnected
 			}
 
 		case pkt := <-p.RecieveCh:
@@ -380,8 +443,9 @@ func (p *Peer) Handle(ctx context.Context) error {
 					log.Printf("AURP Peer: Couldn't send RI-Ack: %v", err)
 					return err
 				}
-				// Connection closed
+				// Connections closed
 				rstate = rsUnconnected
+				sstate = ssUnconnected
 
 			case *aurp.ZIReqPacket:
 				// TODO: split ZI-Rsp packets similarly to ZIP Replies

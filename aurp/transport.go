@@ -174,6 +174,18 @@ func (tr *Transport) NewRIAckPacket(connID, seq uint16, szi RoutingFlag) *RIAckP
 	}
 }
 
+// NewRIUpdPacket returns a new RI-Upd packet structure.
+func (tr *Transport) NewRIUpdPacket(events EventTuples) *RIUpdPacket {
+	return &RIUpdPacket{
+		Header: Header{
+			TrHeader:    tr.sequenced(tr.RemoteConnID, tr.LocalSeq),
+			CommandCode: CmdCodeRIUpd,
+			Flags:       0,
+		},
+		Events: events,
+	}
+}
+
 // NewZIRspPacket returns a new ZI-Rsp packet structure containing the given
 // zone information. It automatically chooses between subcodes 1 or 2 depending
 // on whether there is one network ID or more than one network ID.
