@@ -207,7 +207,7 @@ func (p *Peer) Handle(ctx context.Context) error {
 				// still in Wait For RI-Rsp
 
 			case rsUnconnected:
-				// TODO: if sstate != ssUnconnected, send a null RI-Upd to check
+				// If sstate != ssUnconnected, send a null RI-Upd to check
 				// that the sender side is also unconnected
 				if sstate != ssUnconnected && time.Since(lastSend) > sendRetryTimer {
 					if sendRetries >= sendRetryLimit {
