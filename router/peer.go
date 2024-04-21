@@ -232,6 +232,7 @@ func (p *Peer) Handle(ctx context.Context) error {
 						break
 					}
 
+					lastReconnect = time.Now()
 					sendRetries = 0
 					lastSend = time.Now()
 					if _, err := p.Send(p.Transport.NewOpenReqPacket(nil)); err != nil {
