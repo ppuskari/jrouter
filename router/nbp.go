@@ -188,6 +188,7 @@ func (rtr *Router) helloWorldThisIsMe(ddpkt *ddp.ExtPacket, nbpID uint8, tuple *
 			SrcNet:    rtr.MyDDPAddr.Network,
 			SrcNode:   rtr.MyDDPAddr.Node,
 			SrcSocket: 2,
+			Proto:     ddp.ProtoNBP,
 		},
 		Data: respRaw,
 	}, nil
