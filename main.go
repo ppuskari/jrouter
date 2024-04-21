@@ -17,6 +17,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -25,9 +26,11 @@ import (
 	"log"
 	"math/rand/v2"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -147,6 +150,31 @@ func main() {
 	zones.Upsert(cfg.EtherTalk.NetStart, cfg.EtherTalk.ZoneName, true)
 
 	// ------------------------- Configured peer setup ------------------------
+	if cfg.PeerListURL != "" {
+		log.Printf("Fetching peer list from %s...", cfg.PeerListURL)
+		existing := len(cfg.Peers)
+		func() {
+			resp, err := http.Get(cfg.PeerListURL)
+			if err != nil {
+				log.Fatalf("Couldn't fetch peer list: %v", err)
+			}
+			defer resp.Body.Close()
+
+			sc := bufio.NewScanner(resp.Body)
+			for sc.Scan() {
+				p := strings.TrimSpace(sc.Text())
+				if p == "" {
+					continue
+				}
+				cfg.Peers = append(cfg.Peers, p)
+			}
+			if err := sc.Err(); err != nil {
+				log.Fatalf("Couldn't scan peer list response: %v", err)
+			}
+		}()
+		log.Printf("Fetched list containing %d peers", len(cfg.Peers)-existing)
+	}
+
 	for _, peerStr := range cfg.Peers {
 		if !hasPortRE.MatchString(peerStr) {
 			peerStr += ":387"
@@ -158,6 +186,11 @@ func main() {
 			continue
 		}
 		log.Printf("resolved %q to %v", peerStr, raddr)
+
+		if raddr.IP.Equal(localIP) {
+			log.Printf("%v == %v == me, skipping", peerStr, raddr)
+			continue
+		}
 
 		peer := &router.Peer{
 			Config: cfg,

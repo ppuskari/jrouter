@@ -53,6 +53,9 @@ type Config struct {
 
 	// List of peer routers.
 	Peers []string `yaml:"peers"`
+
+	// Or a URL to fetch a list of peers from.
+	PeerListURL string `yaml:"peerlist_url"`
 }
 
 func LoadConfig(cfgPath string) (*Config, error) {

@@ -1,6 +1,6 @@
 ethertalk:
     device: enp2s0
-    # ethernet_addr: '08:00:07:fe:dc:ba'
+    #ethernet_addr: '08:00:07:fe:dc:ba'
     zone_name: The Twilight Zone
     net_start: 100
     net_end: 100
@@ -8,3 +8,5 @@ ethertalk:
 open_peering: true
 peers:
 - 192.168.86.21
+
+#peerlist_url: http://example.com/peers.txt
