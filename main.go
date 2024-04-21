@@ -301,7 +301,7 @@ func main() {
 				// connected. Packets whose destination network number is 0 are
 				// addressed to a node on the local network."
 				// TODO: more generic routing
-				if ddpkt.DstNet != 0 && (ddpkt.DstNet < cfg.EtherTalk.NetStart || ddpkt.DstNet > cfg.EtherTalk.NetEnd) {
+				if ddpkt.DstNet != 0 && !(ddpkt.DstNet >= cfg.EtherTalk.NetStart && ddpkt.DstNet <= cfg.EtherTalk.NetEnd) {
 					// Is it for a network in the routing table?
 					rt := routes.LookupRoute(ddpkt.DstNet)
 					if rt == nil {
@@ -310,7 +310,7 @@ func main() {
 					}
 
 					// Encap ethPacket.Payload into an AURP packet
-					log.Printf("DDP: forwarding to AURP peer %v", rt.Peer.Transport.RemoteDI)
+					log.Printf("DDP: forwarding to AURP peer %v", rt.Peer.RemoteAddr)
 					if _, err := rt.Peer.Send(rt.Peer.Transport.NewAppleTalkPacket(ethFrame.Payload)); err != nil {
 						log.Printf("DDP: Couldn't forward packet to AURP peer: %v", err)
 					}
@@ -422,7 +422,6 @@ func main() {
 			continue
 
 		case aurp.PacketTypeAppleTalk:
-
 			apkt, ok := pkt.(*aurp.AppleTalkPacket)
 			if !ok {
 				log.Printf("AURP: Got %T but domain header packet type was %v ?", pkt, dh.PacketType)
