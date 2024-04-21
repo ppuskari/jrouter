@@ -266,9 +266,6 @@ func main() {
 				continue
 			}
 
-			// TODO: filter ethFrame.Dst to myHWAddr, the broadcast address,
-			// or the relevant zone multicast address
-
 			switch ethFrame.SNAPProto {
 			case ethertalk.AARPProto:
 				// log.Print("Got an AARP frame")
@@ -385,7 +382,54 @@ func main() {
 			return
 		}
 
-		if apkt, ok := pkt.(*aurp.AppleTalkPacket); ok {
+		log.Printf("AURP: Got %T from %v", pkt, dh.SourceDI)
+
+		// Existing peer?
+		ra := udpAddrFromNet(raddr)
+		pr := peers[ra]
+		if pr == nil {
+			// New peer!
+			pr = &router.Peer{
+				Config: cfg,
+				Transport: &aurp.Transport{
+					LocalDI:     localDI,
+					RemoteDI:    dh.SourceDI, // platinum rule
+					LocalConnID: nextConnID,
+				},
+				UDPConn:      ln,
+				RemoteAddr:   raddr,
+				RecieveCh:    make(chan aurp.Packet, 1024),
+				RoutingTable: routes,
+				ZoneTable:    zones,
+				Reconnect:    false,
+			}
+			aurp.Inc(&nextConnID)
+			peers[ra] = pr
+			goPeerHandler(pr)
+		}
+
+		switch dh.PacketType {
+		case aurp.PacketTypeRouting:
+			// It's AURP routing data.
+			// Pass the packet to the goroutine in charge of this peer.
+			select {
+			case pr.RecieveCh <- pkt:
+				// That's it for us.
+
+			case <-ctx.Done():
+				return
+			}
+			continue
+
+		case aurp.PacketTypeAppleTalk:
+
+			apkt, ok := pkt.(*aurp.AppleTalkPacket)
+			if !ok {
+				log.Printf("AURP: Got %T but domain header packet type was %v ?", pkt, dh.PacketType)
+				continue
+			}
+
+			// Route or otherwise handle the encapsulated AppleTalk traffic
 			ddpkt := new(ddp.ExtPacket)
 			if err := ddp.ExtUnmarshal(apkt.Data, ddpkt); err != nil {
 				log.Printf("AURP: Couldn't unmarshal encapsulated DDP packet: %v", err)
@@ -424,7 +468,7 @@ func main() {
 					continue
 				}
 				// It's NBP
-				if err := rooter.HandleNBPInAURP(ddpkt); err != nil {
+				if err := rooter.HandleNBPInAURP(pr, ddpkt); err != nil {
 					log.Printf("NBP/DDP/AURP: %v", err)
 				}
 				continue
@@ -453,41 +497,9 @@ func main() {
 				log.Printf("DDP/AURP: couldn't write output frame to device: %v", err)
 			}
 			continue
-		}
 
-		log.Printf("AURP: Got %T from %v", pkt, dh.SourceDI)
-
-		// Existing peer?
-		ra := udpAddrFromNet(raddr)
-		pr := peers[ra]
-		if pr == nil {
-			// New peer!
-			pr = &router.Peer{
-				Config: cfg,
-				Transport: &aurp.Transport{
-					LocalDI:     localDI,
-					RemoteDI:    dh.SourceDI, // platinum rule
-					LocalConnID: nextConnID,
-				},
-				UDPConn:      ln,
-				RemoteAddr:   raddr,
-				RecieveCh:    make(chan aurp.Packet, 1024),
-				RoutingTable: routes,
-				ZoneTable:    zones,
-				Reconnect:    false,
-			}
-			aurp.Inc(&nextConnID)
-			peers[ra] = pr
-			goPeerHandler(pr)
-		}
-
-		// Pass the packet to the goroutine in charge of this peer.
-		select {
-		case pr.RecieveCh <- pkt:
-			// That's it for us.
-
-		case <-ctx.Done():
-			return
+		default:
+			log.Printf("AURP: Got unknown packet type %v", dh.PacketType)
 		}
 	}
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/google/gopacket/pcap"
 	"github.com/sfiera/multitalk/pkg/ddp"
 	"github.com/sfiera/multitalk/pkg/ethernet"
+	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
 
 type Router struct {
@@ -29,4 +30,17 @@ type Router struct {
 	MyDDPAddr  ddp.Addr
 	RouteTable *RoutingTable
 	ZoneTable  *ZoneTable
+}
+
+func (rtr *Router) sendEtherTalkDDP(dstEth ethernet.Addr, pkt *ddp.ExtPacket) error {
+	outFrame, err := ethertalk.AppleTalk(rtr.MyHWAddr, *pkt)
+	if err != nil {
+		return err
+	}
+	outFrame.Dst = dstEth
+	outFrameRaw, err := ethertalk.Marshal(*outFrame)
+	if err != nil {
+		return err
+	}
+	return rtr.PcapHandle.WritePacketData(outFrameRaw)
 }

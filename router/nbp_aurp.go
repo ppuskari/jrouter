@@ -26,7 +26,7 @@ import (
 	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
 
-func (rtr *Router) HandleNBPInAURP(ddpkt *ddp.ExtPacket) error {
+func (rtr *Router) HandleNBPInAURP(peer *Peer, ddpkt *ddp.ExtPacket) error {
 	if ddpkt.Proto != ddp.ProtoNBP {
 		return fmt.Errorf("invalid DDP type %d on socket 2", ddpkt.Proto)
 	}
@@ -43,6 +43,12 @@ func (rtr *Router) HandleNBPInAURP(ddpkt *ddp.ExtPacket) error {
 		return fmt.Errorf("no tuples in NBP packet")
 	}
 	tuple := &nbpkt.Tuples[0]
+
+	if tuple.Zone != rtr.Config.EtherTalk.ZoneName {
+		return fmt.Errorf("FwdReq querying zone %q, which is not our zone", tuple.Zone)
+	}
+
+	// TODO: Route the FwdReq to another router if it's not our zone
 
 	log.Printf("NBP/DDP/AURP: Converting FwdReq to LkUp (%v)", tuple)
 
@@ -61,16 +67,23 @@ func (rtr *Router) HandleNBPInAURP(ddpkt *ddp.ExtPacket) error {
 	ddpkt.DstNode = 0xFF // Broadcast node address within the dest network
 	ddpkt.Data = nbpRaw
 
-	outFrame, err := ethertalk.AppleTalk(rtr.MyHWAddr, *ddpkt)
-	if err != nil {
-		return err
-	}
+	dstEth := ethertalk.AppleTalkBroadcast
 	if tuple.Zone != "*" && tuple.Zone != "" {
-		outFrame.Dst = atalk.MulticastAddr(tuple.Zone)
+		dstEth = atalk.MulticastAddr(tuple.Zone)
 	}
-	outFrameRaw, err := ethertalk.Marshal(*outFrame)
+	if err := rtr.sendEtherTalkDDP(dstEth, ddpkt); err != nil {
+		return err
+	}
+
+	// But also... if it matches us, reply directly with a LkUp-Reply of our own
+	outDDP, err := rtr.helloWorldThisIsMe(ddpkt, nbpkt.NBPID, tuple)
+	if err != nil || outDDP == nil {
+		return err
+	}
+	outDDPRaw, err := ddp.ExtMarshal(*outDDP)
 	if err != nil {
 		return err
 	}
-	return rtr.PcapHandle.WritePacketData(outFrameRaw)
+	_, err = peer.Send(peer.Transport.NewAppleTalkPacket(outDDPRaw))
+	return err
 }
