@@ -62,18 +62,18 @@ type senderState int
 const (
 	ssUnconnected senderState = iota
 	ssConnected
-	ssWaitForRIAck1
-	ssWaitForRIAck2
-	ssWaitForRIAck3
+	ssWaitForRIRspAck
+	ssWaitForRIUpdAck
+	ssWaitForRDAck
 )
 
 func (ss senderState) String() string {
 	return map[senderState]string{
-		ssUnconnected:   "unconnected",
-		ssConnected:     "connected",
-		ssWaitForRIAck1: "waiting for RI-Ack (1)",
-		ssWaitForRIAck2: "waiting for RI-Ack (2)",
-		ssWaitForRIAck3: "waiting for RI-Ack (3)",
+		ssUnconnected:     "unconnected",
+		ssConnected:       "connected",
+		ssWaitForRIRspAck: "waiting for RI-Ack for RI-Rsp",
+		ssWaitForRIUpdAck: "waiting for RI-Ack for RI-Upd",
+		ssWaitForRDAck:    "waiting for RI-Ack for RD",
 	}[ss]
 }
 
@@ -110,6 +110,8 @@ func (p *Peer) Handle(ctx context.Context) error {
 	lastUpdate := time.Now()
 	sendRetries := 0
 
+	var lastRISent aurp.Packet
+
 	rstate := rsUnconnected
 	sstate := ssUnconnected
 
@@ -129,7 +131,8 @@ func (p *Peer) Handle(ctx context.Context) error {
 				return ctx.Err()
 			}
 			// Send a best-effort Router Down before returning
-			if _, err := p.Send(p.Transport.NewRDPacket(aurp.ErrCodeNormalClose)); err != nil {
+			lastRISent = p.Transport.NewRDPacket(aurp.ErrCodeNormalClose)
+			if _, err := p.Send(lastRISent); err != nil {
 				log.Printf("Couldn't send RD packet: %v", err)
 			}
 			return ctx.Err()
@@ -207,9 +210,9 @@ func (p *Peer) Handle(ctx context.Context) error {
 				// still in Wait For RI-Rsp
 
 			case rsUnconnected:
-				// If sstate != ssUnconnected, send a null RI-Upd to check
-				// that the sender side is also unconnected
-				if sstate != ssUnconnected && time.Since(lastSend) > sendRetryTimer {
+				// Data receiver is unconnected. If data sender is connected,
+				// send a null RI-Upd to check if the sender is also unconnected
+				if sstate == ssConnected && time.Since(lastSend) > sendRetryTimer {
 					if sendRetries >= sendRetryLimit {
 						log.Printf("AURP Peer: Send retry limit reached while probing sender connect, closing connection")
 					}
@@ -219,11 +222,12 @@ func (p *Peer) Handle(ctx context.Context) error {
 					events := aurp.EventTuples{{
 						EventCode: aurp.EventCodeNull,
 					}}
-					if _, err := p.Send(p.Transport.NewRIUpdPacket(events)); err != nil {
+					lastRISent = p.Transport.NewRIUpdPacket(events)
+					if _, err := p.Send(lastRISent); err != nil {
 						log.Printf("AURP Peer: Couldn't send RI-Upd packet: %v", err)
 						return err
 					}
-					sstate = ssWaitForRIAck1
+					sstate = ssWaitForRIUpdAck
 				}
 
 				if p.Reconnect {
@@ -254,19 +258,27 @@ func (p *Peer) Handle(ctx context.Context) error {
 				}
 				// TODO: is there a routing update to send?
 
-			case ssWaitForRIAck1:
+			case ssWaitForRIRspAck, ssWaitForRIUpdAck:
 				if time.Since(lastSend) <= sendRetryTimer {
 					break
 				}
-				// TODO: Re-send RI-Rsp
-
-			case ssWaitForRIAck2:
-				if time.Since(lastSend) <= sendRetryTimer {
-					break
+				if lastRISent == nil {
+					log.Print("AURP Peer: sender retry: lastRISent = nil?")
+					continue
 				}
-				// TODO: Re-send RI-Upd
+				if sendRetries >= sendRetryLimit {
+					log.Printf("AURP Peer: Send retry limit reached, closing connection")
+					sstate = ssUnconnected
+					continue
+				}
+				sendRetries++
+				lastSend = time.Now()
+				if _, err := p.Send(lastRISent); err != nil {
+					log.Printf("AURP Peer: Couldn't re-send %T: %v", lastRISent, err)
+					return err
+				}
 
-			case ssWaitForRIAck3:
+			case ssWaitForRDAck:
 				if time.Since(lastSend) <= sendRetryTimer {
 					break
 				}
@@ -355,11 +367,12 @@ func (p *Peer) Handle(ctx context.Context) error {
 					},
 				}
 				p.Transport.LocalSeq = 1
-				if _, err := p.Send(p.Transport.NewRIRspPacket(aurp.RoutingFlagLast, nets)); err != nil {
+				lastRISent = p.Transport.NewRIRspPacket(aurp.RoutingFlagLast, nets)
+				if _, err := p.Send(lastRISent); err != nil {
 					log.Printf("AURP Peer: Couldn't send RI-Rsp packet: %v", err)
 					return err
 				}
-				sstate = ssWaitForRIAck1
+				sstate = ssWaitForRIRspAck
 
 			case *aurp.RIRspPacket:
 				if rstate != rsWaitForRIRsp {
@@ -391,13 +404,13 @@ func (p *Peer) Handle(ctx context.Context) error {
 
 			case *aurp.RIAckPacket:
 				switch sstate {
-				case ssWaitForRIAck1:
+				case ssWaitForRIRspAck:
 					// We sent an RI-Rsp, this is the RI-Ack we expected.
 
-				case ssWaitForRIAck2:
+				case ssWaitForRIUpdAck:
 					// We sent an RI-Upd, this is the RI-Ack we expected.
 
-				case ssWaitForRIAck3:
+				case ssWaitForRDAck:
 					// We sent an RD... Why are we here?
 					continue
 
