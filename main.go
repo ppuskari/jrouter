@@ -422,7 +422,7 @@ func main() {
 			continue
 		}
 
-		log.Printf("AURP: Got %T", pkt)
+		log.Printf("AURP: Got %T from %v", pkt, dh.SourceDI)
 
 		// Existing peer?
 		ra := udpAddrFromNet(raddr)
