@@ -419,6 +419,7 @@ func (p *Peer) Handle(ctx context.Context) error {
 				}
 
 				sstate = ssConnected
+				sendRetries = 0
 
 				// If SZI flag is set, send ZI-Rsp (transaction)
 				// TODO: split ZI-Rsp packets similarly to ZIP Replies
