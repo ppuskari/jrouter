@@ -33,7 +33,7 @@ const (
 	tickleRetryLimit   = 10
 	sendRetryTimer     = 10 * time.Second
 	sendRetryLimit     = 5
-	reconnectTimer     = 1 * time.Minute
+	reconnectTimer     = 10 * time.Minute
 	updateTimer        = 10 * time.Second
 )
 
