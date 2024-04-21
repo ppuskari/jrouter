@@ -78,6 +78,7 @@ func ParseDomainHeader(b []byte) (DomainHeader, []byte, error) {
 
 // DomainIdentifier is the byte representation of a domain identifier.
 type DomainIdentifier interface {
+	fmt.Stringer
 	io.WriterTo
 }
 
@@ -149,7 +150,7 @@ func parseDomainIdentifier(b []byte) (DomainIdentifier, []byte, error) {
 		if lf != 7 {
 			return nil, b, fmt.Errorf("incorrect length %d for IP domain identifier", lf)
 		}
-		return IPDomainIdentifier(b[5:8]), b[8:], nil
+		return IPDomainIdentifier(b[4:8]), b[8:], nil
 
 	default:
 		return nil, b, fmt.Errorf("unknown domain identifier authority %d", b[1])
