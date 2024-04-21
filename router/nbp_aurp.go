@@ -71,7 +71,7 @@ func (rtr *Router) HandleNBPInAURP(peer *Peer, ddpkt *ddp.ExtPacket) error {
 	if tuple.Zone != "*" && tuple.Zone != "" {
 		dstEth = atalk.MulticastAddr(tuple.Zone)
 	}
-	if err := rtr.sendEtherTalkDDP(dstEth, ddpkt); err != nil {
+	if err := rtr.SendEtherTalkDDP(dstEth, ddpkt); err != nil {
 		return err
 	}
 

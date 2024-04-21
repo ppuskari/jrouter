@@ -382,7 +382,7 @@ func main() {
 			return
 		}
 
-		log.Printf("AURP: Got %T from %v", pkt, dh.SourceDI)
+		log.Printf("AURP: Got %T from %v (%v)", pkt, raddr, dh.SourceDI)
 
 		// Existing peer?
 		ra := udpAddrFromNet(raddr)
@@ -480,20 +480,8 @@ func main() {
 				continue
 			}
 
-			outFrame, err := ethertalk.AppleTalk(myHWAddr, *ddpkt)
-			if err != nil {
-				log.Printf("DDP/AURP: couldn't create output frame: %v", err)
-				continue
-			}
-			outFrame.Dst = dstEth
-
-			outFrameRaw, err := ethertalk.Marshal(*outFrame)
-			if err != nil {
-				log.Printf("DDP/AURP: couldn't marshal output frame: %v", err)
-				continue
-			}
-			if err := pcapHandle.WritePacketData(outFrameRaw); err != nil {
-				log.Printf("DDP/AURP: couldn't write output frame to device: %v", err)
+			if err := rooter.SendEtherTalkDDP(dstEth, ddpkt); err != nil {
+				log.Printf("DDP/AURP: couldn't send Ethertalk out: %v", err)
 			}
 			continue
 

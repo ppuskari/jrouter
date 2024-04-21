@@ -32,7 +32,7 @@ type Router struct {
 	ZoneTable  *ZoneTable
 }
 
-func (rtr *Router) sendEtherTalkDDP(dstEth ethernet.Addr, pkt *ddp.ExtPacket) error {
+func (rtr *Router) SendEtherTalkDDP(dstEth ethernet.Addr, pkt *ddp.ExtPacket) error {
 	outFrame, err := ethertalk.AppleTalk(rtr.MyHWAddr, *pkt)
 	if err != nil {
 		return err

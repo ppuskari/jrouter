@@ -22,7 +22,6 @@ import (
 	"gitea.drjosh.dev/josh/jrouter/atalk/aep"
 	"github.com/sfiera/multitalk/pkg/ddp"
 	"github.com/sfiera/multitalk/pkg/ethernet"
-	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
 
 func (rtr *Router) HandleAEP(src ethernet.Addr, ddpkt *ddp.ExtPacket) error {
@@ -48,16 +47,7 @@ func (rtr *Router) HandleAEP(src ethernet.Addr, ddpkt *ddp.ExtPacket) error {
 		ddpkt.DstSocket, ddpkt.SrcSocket = ddpkt.SrcSocket, ddpkt.DstSocket
 		ddpkt.Data[0] = byte(aep.EchoReply)
 
-		ethFrame, err := ethertalk.AppleTalk(rtr.MyHWAddr, *ddpkt)
-		if err != nil {
-			return err
-		}
-		ethFrame.Dst = src
-		ethFrameRaw, err := ethertalk.Marshal(*ethFrame)
-		if err != nil {
-			return err
-		}
-		return rtr.PcapHandle.WritePacketData(ethFrameRaw)
+		return rtr.SendEtherTalkDDP(src, ddpkt)
 
 	default:
 		return fmt.Errorf("invalid AEP function %d", ep.Function)

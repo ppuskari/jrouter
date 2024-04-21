@@ -47,7 +47,7 @@ func (rtr *Router) HandleNBP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 			return err
 		}
 		log.Print("NBP: Replying to LkUp with LkUp-Reply for myself")
-		return rtr.sendEtherTalkDDP(srcHWAddr, outDDP)
+		return rtr.SendEtherTalkDDP(srcHWAddr, outDDP)
 
 	case nbp.FunctionBrRq:
 		// There must be 1!
@@ -80,16 +80,7 @@ func (rtr *Router) HandleNBP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 				outDDP.DstNode = 0xFF // Broadcast node address within the dest network
 				outDDP.Data = nbpRaw
 
-				outFrame, err := ethertalk.AppleTalk(rtr.MyHWAddr, outDDP)
-				if err != nil {
-					return err
-				}
-				outFrame.Dst = ethDst
-				outFrameRaw, err := ethertalk.Marshal(*outFrame)
-				if err != nil {
-					return err
-				}
-				if err := rtr.PcapHandle.WritePacketData(outFrameRaw); err != nil {
+				if err := rtr.SendEtherTalkDDP(ethDst, &outDDP); err != nil {
 					return err
 				}
 
@@ -102,7 +93,7 @@ func (rtr *Router) HandleNBP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 					continue
 				}
 				log.Print("NBP: Replying to BrRq with LkUp-Reply for myself")
-				if err := rtr.sendEtherTalkDDP(srcHWAddr, outDDP2); err != nil {
+				if err := rtr.SendEtherTalkDDP(srcHWAddr, outDDP2); err != nil {
 					return err
 				}
 

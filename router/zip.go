@@ -92,7 +92,7 @@ func (rtr *Router) HandleZIP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 			if err != nil {
 				return err
 			}
-			respDDP := ddp.ExtPacket{
+			respDDP := &ddp.ExtPacket{
 				ExtHeader: ddp.ExtHeader{
 					Size:      uint16(len(ddpBody)) + atalk.DDPExtHeaderSize,
 					Cksum:     0,
@@ -106,16 +106,7 @@ func (rtr *Router) HandleZIP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 				},
 				Data: ddpBody,
 			}
-			outFrame, err := ethertalk.AppleTalk(rtr.MyHWAddr, respDDP)
-			if err != nil {
-				return err
-			}
-			outFrame.Dst = srcHWAddr
-			outFrameRaw, err := ethertalk.Marshal(*outFrame)
-			if err != nil {
-				return err
-			}
-			return rtr.PcapHandle.WritePacketData(outFrameRaw)
+			return rtr.SendEtherTalkDDP(srcHWAddr, respDDP)
 
 		case *atp.TResp:
 			return fmt.Errorf("TODO: support handling ZIP ATP replies?")
@@ -140,7 +131,7 @@ func (rtr *Router) HandleZIP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 				if err != nil {
 					return fmt.Errorf("couldn't marshal %T: %w", resp, err)
 				}
-				outDDP := ddp.ExtPacket{
+				outDDP := &ddp.ExtPacket{
 					ExtHeader: ddp.ExtHeader{
 						Size:      uint16(len(respRaw)) + atalk.DDPExtHeaderSize,
 						Cksum:     0,
@@ -154,21 +145,7 @@ func (rtr *Router) HandleZIP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 					},
 					Data: respRaw,
 				}
-
-				outFrame, err := ethertalk.AppleTalk(rtr.MyHWAddr, outDDP)
-				if err != nil {
-					return fmt.Errorf("couldn't create EtherTalk frame: %w", err)
-				}
-				// Unicast reply.
-				outFrame.Dst = srcHWAddr
-				outFrameRaw, err := ethertalk.Marshal(*outFrame)
-				if err != nil {
-					return fmt.Errorf("couldn't marshal EtherTalk frame: %w", err)
-				}
-				if err := rtr.PcapHandle.WritePacketData(outFrameRaw); err != nil {
-					return fmt.Errorf("couldn't write packet data: %w", err)
-				}
-				return nil
+				return rtr.SendEtherTalkDDP(srcHWAddr, outDDP)
 			}
 
 			// Inside AppleTalk SE, pp 8-11:
@@ -268,7 +245,7 @@ func (rtr *Router) HandleZIP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 			// assigned to the node's network. In these cases,
 			// if the request was sent via a broadcast, the
 			// routers should respond with a broadcast."
-			outDDP := ddp.ExtPacket{
+			outDDP := &ddp.ExtPacket{
 				ExtHeader: ddp.ExtHeader{
 					Size:      uint16(len(respRaw)) + atalk.DDPExtHeaderSize,
 					Cksum:     0,
@@ -289,22 +266,13 @@ func (rtr *Router) HandleZIP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 				outDDP.DstNode = 0xFF
 			}
 
-			outFrame, err := ethertalk.AppleTalk(rtr.MyHWAddr, outDDP)
-			if err != nil {
-				return fmt.Errorf("couldn't create EtherTalk frame: %w", err)
+			// If it's a broadcast packet, broadcast it. Otherwise don't
+			dstEth := ethertalk.AppleTalkBroadcast
+			if outDDP.DstNode != 0xFF {
+				dstEth = srcHWAddr
 			}
-			// If it's a broadcast packet, broadcast it. Otherwise don't?
-			if outDDP.DstNet != 0x0000 || outDDP.DstNode != 0xFF {
-				outFrame.Dst = srcHWAddr
-			}
-			outFrameRaw, err := ethertalk.Marshal(*outFrame)
-			if err != nil {
-				return fmt.Errorf("couldn't marshal EtherTalk frame: %w", err)
-			}
-			if err := rtr.PcapHandle.WritePacketData(outFrameRaw); err != nil {
-				return fmt.Errorf("couldn't write packet data: %w", err)
-			}
-			return nil
+
+			return rtr.SendEtherTalkDDP(dstEth, outDDP)
 
 		default:
 			return fmt.Errorf("TODO: handle type %T", zipkt)
