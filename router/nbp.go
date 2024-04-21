@@ -46,6 +46,7 @@ func (rtr *Router) HandleNBP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 		if err != nil || outDDP == nil {
 			return err
 		}
+		log.Print("NBP: Replying to LkUp with LkUp-Reply for myself")
 		return rtr.sendEtherTalkDDP(srcHWAddr, outDDP)
 
 	case nbp.FunctionBrRq:
@@ -100,6 +101,7 @@ func (rtr *Router) HandleNBP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 				if outDDP2 == nil {
 					continue
 				}
+				log.Print("NBP: Replying to BrRq with LkUp-Reply for myself")
 				if err := rtr.sendEtherTalkDDP(srcHWAddr, outDDP2); err != nil {
 					return err
 				}

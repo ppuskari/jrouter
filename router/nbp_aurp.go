@@ -80,6 +80,7 @@ func (rtr *Router) HandleNBPInAURP(peer *Peer, ddpkt *ddp.ExtPacket) error {
 	if err != nil || outDDP == nil {
 		return err
 	}
+	log.Print("NBP/DDP/AURP: Replying to BrRq with LkUp-Reply for myself")
 	outDDPRaw, err := ddp.ExtMarshal(*outDDP)
 	if err != nil {
 		return err
