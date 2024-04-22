@@ -341,7 +341,7 @@ func main() {
 					}
 
 				case 6: // The ZIS (zone information socket / ZIP socket)
-					if err := rooter.HandleZIP(ethFrame.Src, ddpkt); err != nil {
+					if err := rooter.HandleZIP(ctx, ethFrame.Src, ddpkt); err != nil {
 						log.Printf("ZIP: couldn't handle: %v", err)
 					}
 
@@ -474,13 +474,7 @@ func main() {
 			}
 
 			// Note: resolving AARP can block
-			dstEth, err := aarpMachine.Resolve(ctx, ddp.Addr{Network: ddpkt.DstNet, Node: ddpkt.DstNode})
-			if err != nil {
-				log.Printf("DDP/AURP: couldn't resolve DDP dest %d.%d to an Ethernet address", ddpkt.DstNet, ddpkt.DstNode)
-				continue
-			}
-
-			if err := rooter.SendEtherTalkDDP(dstEth, ddpkt); err != nil {
+			if err := rooter.SendEtherTalkDDP(ctx, ddpkt); err != nil {
 				log.Printf("DDP/AURP: couldn't send Ethertalk out: %v", err)
 			}
 			continue

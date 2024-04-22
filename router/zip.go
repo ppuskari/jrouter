@@ -17,6 +17,7 @@
 package router
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -28,7 +29,7 @@ import (
 	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
 
-func (rtr *Router) HandleZIP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) error {
+func (rtr *Router) HandleZIP(ctx context.Context, srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) error {
 	switch ddpkt.Proto {
 	case ddp.ProtoATP:
 		atpkt, err := atp.UnmarshalPacket(ddpkt.Data)
@@ -106,7 +107,7 @@ func (rtr *Router) HandleZIP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 				},
 				Data: ddpBody,
 			}
-			return rtr.SendEtherTalkDDP(srcHWAddr, respDDP)
+			return rtr.sendEtherTalkDDP(srcHWAddr, respDDP)
 
 		case *atp.TResp:
 			return fmt.Errorf("TODO: support handling ZIP ATP replies?")
@@ -145,7 +146,7 @@ func (rtr *Router) HandleZIP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 					},
 					Data: respRaw,
 				}
-				return rtr.SendEtherTalkDDP(srcHWAddr, outDDP)
+				return rtr.sendEtherTalkDDP(srcHWAddr, outDDP)
 			}
 
 			// Inside AppleTalk SE, pp 8-11:
@@ -272,7 +273,7 @@ func (rtr *Router) HandleZIP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 				dstEth = srcHWAddr
 			}
 
-			return rtr.SendEtherTalkDDP(dstEth, outDDP)
+			return rtr.sendEtherTalkDDP(dstEth, outDDP)
 
 		default:
 			return fmt.Errorf("TODO: handle type %T", zipkt)

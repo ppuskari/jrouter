@@ -17,6 +17,9 @@
 package router
 
 import (
+	"context"
+
+	"gitea.drjosh.dev/josh/jrouter/atalk"
 	"github.com/google/gopacket/pcap"
 	"github.com/sfiera/multitalk/pkg/ddp"
 	"github.com/sfiera/multitalk/pkg/ethernet"
@@ -24,15 +27,36 @@ import (
 )
 
 type Router struct {
-	Config     *Config
-	PcapHandle *pcap.Handle
-	MyHWAddr   ethernet.Addr
-	MyDDPAddr  ddp.Addr
-	RouteTable *RoutingTable
-	ZoneTable  *ZoneTable
+	Config      *Config
+	PcapHandle  *pcap.Handle
+	MyHWAddr    ethernet.Addr
+	MyDDPAddr   ddp.Addr
+	AARPMachine *AARPMachine
+	RouteTable  *RoutingTable
+	ZoneTable   *ZoneTable
 }
 
-func (rtr *Router) SendEtherTalkDDP(dstEth ethernet.Addr, pkt *ddp.ExtPacket) error {
+func (rtr *Router) SendEtherTalkDDP(ctx context.Context, pkt *ddp.ExtPacket) error {
+	dstEth := ethertalk.AppleTalkBroadcast
+	if pkt.DstNode != 0xFF {
+		de, err := rtr.AARPMachine.Resolve(ctx, ddp.Addr{Network: pkt.DstNet, Node: pkt.DstNode})
+		if err != nil {
+			return err
+		}
+		dstEth = de
+	}
+	return rtr.sendEtherTalkDDP(dstEth, pkt)
+}
+
+func (rtr *Router) BroadcastEtherTalkDDP(pkt *ddp.ExtPacket) error {
+	return rtr.sendEtherTalkDDP(ethertalk.AppleTalkBroadcast, pkt)
+}
+
+func (rtr *Router) ZoneMulticastEtherTalkDDP(zone string, pkt *ddp.ExtPacket) error {
+	return rtr.sendEtherTalkDDP(atalk.MulticastAddr(zone), pkt)
+}
+
+func (rtr *Router) sendEtherTalkDDP(dstEth ethernet.Addr, pkt *ddp.ExtPacket) error {
 	outFrame, err := ethertalk.AppleTalk(rtr.MyHWAddr, *pkt)
 	if err != nil {
 		return err

@@ -20,6 +20,7 @@ import (
 	"math/bits"
 
 	"github.com/sfiera/multitalk/pkg/ethernet"
+	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
 
 // Inside AppleTalk, appendix D
@@ -96,6 +97,10 @@ func ToUpper(s string) string {
 }
 
 func MulticastAddr(zone string) ethernet.Addr {
+	if zone == "" || zone == "*" {
+		return ethertalk.AppleTalkBroadcast
+	}
+
 	// Inside AppleTalk, pp 3-10 and pp 8-18
 	h := Checksum(ToUpper(zone))
 	return ethernet.Addr{0x09, 0x00, 0x07, 0x00, 0x00, byte(h % 0xFD)}

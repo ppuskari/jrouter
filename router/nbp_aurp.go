@@ -20,10 +20,8 @@ import (
 	"fmt"
 	"log"
 
-	"gitea.drjosh.dev/josh/jrouter/atalk"
 	"gitea.drjosh.dev/josh/jrouter/atalk/nbp"
 	"github.com/sfiera/multitalk/pkg/ddp"
-	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
 
 func (rtr *Router) HandleNBPInAURP(peer *Peer, ddpkt *ddp.ExtPacket) error {
@@ -67,11 +65,7 @@ func (rtr *Router) HandleNBPInAURP(peer *Peer, ddpkt *ddp.ExtPacket) error {
 	ddpkt.DstNode = 0xFF // Broadcast node address within the dest network
 	ddpkt.Data = nbpRaw
 
-	dstEth := ethertalk.AppleTalkBroadcast
-	if tuple.Zone != "*" && tuple.Zone != "" {
-		dstEth = atalk.MulticastAddr(tuple.Zone)
-	}
-	if err := rtr.SendEtherTalkDDP(dstEth, ddpkt); err != nil {
+	if err := rtr.ZoneMulticastEtherTalkDDP(tuple.Zone, ddpkt); err != nil {
 		return err
 	}
 
