@@ -24,7 +24,6 @@ import (
 	"gitea.drjosh.dev/josh/jrouter/atalk/nbp"
 	"github.com/sfiera/multitalk/pkg/ddp"
 	"github.com/sfiera/multitalk/pkg/ethernet"
-	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
 
 func (rtr *Router) HandleNBP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) error {
@@ -53,11 +52,6 @@ func (rtr *Router) HandleNBP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 		// There must be 1!
 		tuple := &nbpkt.Tuples[0]
 
-		ethDst := ethertalk.AppleTalkBroadcast
-		if tuple.Zone != "*" && tuple.Zone != "" {
-			ethDst = atalk.MulticastAddr(tuple.Zone)
-		}
-
 		zones := rtr.ZoneTable.LookupName(tuple.Zone)
 		for _, z := range zones {
 			if z.Local {
@@ -77,10 +71,11 @@ func (rtr *Router) HandleNBP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 
 				outDDP := *ddpkt
 				outDDP.Size = uint16(len(nbpRaw)) + atalk.DDPExtHeaderSize
-				outDDP.DstNode = 0xFF // Broadcast node address within the dest network
+				outDDP.DstNet = 0x0000 // Local network broadcast
+				outDDP.DstNode = 0xFF  // Broadcast node address within the dest network
 				outDDP.Data = nbpRaw
 
-				if err := rtr.sendEtherTalkDDP(ethDst, &outDDP); err != nil {
+				if err := rtr.ZoneMulticastEtherTalkDDP(tuple.Zone, &outDDP); err != nil {
 					return err
 				}
 
