@@ -131,7 +131,7 @@ func (rtr *Router) HandleNBP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 					SrcNode:   ddpkt.SrcNode,
 					SrcSocket: ddpkt.SrcSocket,
 					DstNet:    z.Network,
-					DstNode:   0x00, // Router node address for the dest network
+					DstNode:   0x00, // Any router for the dest network
 					DstSocket: 2,
 					Proto:     ddp.ProtoNBP,
 				},
