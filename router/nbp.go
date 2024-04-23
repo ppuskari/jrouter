@@ -80,6 +80,7 @@ func (rtr *Router) HandleNBP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 						DstNet:    0x0000, // Local network broadcast
 						DstNode:   0xFF,   // Broadcast node address within the dest network
 						DstSocket: 2,
+						Proto:     ddp.ProtoNBP,
 					},
 					Data: nbpRaw,
 				}
@@ -132,6 +133,7 @@ func (rtr *Router) HandleNBP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 					DstNet:    z.Network,
 					DstNode:   0x01, // Router node address for the dest network
 					DstSocket: 2,
+					Proto:     ddp.ProtoNBP,
 				},
 				Data: nbpRaw,
 			}
