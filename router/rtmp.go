@@ -24,6 +24,7 @@ import (
 
 	"gitea.drjosh.dev/josh/jrouter/atalk"
 	"gitea.drjosh.dev/josh/jrouter/atalk/rtmp"
+	"gitea.drjosh.dev/josh/jrouter/status"
 	"github.com/google/gopacket/pcap"
 	"github.com/sfiera/multitalk/pkg/aarp"
 	"github.com/sfiera/multitalk/pkg/ddp"
@@ -41,6 +42,11 @@ type RTMPMachine struct {
 
 // Run executes the machine.
 func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket) error {
+	ctx, setStatus, done := status.AddSimpleItem(ctx, "RTMP")
+	defer done()
+
+	setStatus("Awaiting DDP address assignment")
+
 	// Await local address assignment before doing anything
 	<-m.AARP.Assigned()
 	myAddr, ok := m.AARP.Address()
@@ -48,10 +54,14 @@ func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket)
 		return fmt.Errorf("AARP machine closed Assigned channel but Address is not valid")
 	}
 
+	setStatus("Initial RTMP Data broadcast")
+
 	// Initial broadcast
 	if err := m.broadcastData(myAddr); err != nil {
 		log.Printf("RTMP: Couldn't broadcast Data: %v", err)
 	}
+
+	setStatus("Packet loop")
 
 	bcastTicker := time.NewTicker(10 * time.Second)
 	defer bcastTicker.Stop()
