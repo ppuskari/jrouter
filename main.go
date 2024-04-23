@@ -36,6 +36,7 @@ import (
 
 	"gitea.drjosh.dev/josh/jrouter/aurp"
 	"gitea.drjosh.dev/josh/jrouter/router"
+	"gitea.drjosh.dev/josh/jrouter/status"
 
 	"github.com/google/gopacket/pcap"
 	"github.com/sfiera/multitalk/pkg/ddp"
@@ -102,7 +103,13 @@ func main() {
 	defer cancel()
 	ctx, _ := signal.NotifyContext(cctx, os.Interrupt)
 
-	// Open PCAP session
+	// --------------------------------- HTTP ---------------------------------
+	http.HandleFunc("/status", status.Handle)
+	go func() {
+		log.Print(http.ListenAndServe(":9459", nil))
+	}()
+
+	// --------------------------------- Pcap ---------------------------------
 	// First check the interface
 	iface, err := net.InterfaceByName(cfg.EtherTalk.Device)
 	if err != nil {
@@ -129,6 +136,12 @@ func main() {
 	}
 	defer pcapHandle.Close()
 
+	// -------------------------------- Tables --------------------------------
+	routes := router.NewRoutingTable()
+	zones := router.NewZoneTable()
+	zones.Upsert(cfg.EtherTalk.NetStart, cfg.EtherTalk.ZoneName, true)
+
+	// -------------------------------- Peers ---------------------------------
 	// Wait until all peer handlers have finished before closing the port
 	var handlersWG sync.WaitGroup
 	defer func() {
@@ -143,11 +156,6 @@ func main() {
 			p.Handle(ctx)
 		}()
 	}
-
-	// -------------------------------- Tables --------------------------------
-	routes := router.NewRoutingTable()
-	zones := router.NewZoneTable()
-	zones.Upsert(cfg.EtherTalk.NetStart, cfg.EtherTalk.ZoneName, true)
 
 	// ------------------------- Configured peer setup ------------------------
 	if cfg.PeerListURL != "" {
