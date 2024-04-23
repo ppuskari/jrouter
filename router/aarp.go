@@ -18,11 +18,13 @@ package router
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"math/rand/v2"
 	"sync"
 	"time"
 
+	"gitea.drjosh.dev/josh/jrouter/status"
 	"github.com/google/gopacket/pcap"
 	"github.com/sfiera/multitalk/pkg/aarp"
 	"github.com/sfiera/multitalk/pkg/ddp"
@@ -85,6 +87,11 @@ func (a *AARPMachine) Assigned() <-chan struct{} {
 
 // Run executes the machine.
 func (a *AARPMachine) Run(ctx context.Context, incomingCh <-chan *ethertalk.Packet) error {
+	ctx, setStatus, done := status.AddSimpleItem(ctx, "AARP")
+	defer done()
+
+	setStatus("Initialising")
+
 	// Initialise our DDP address with a preferred address (first network.1)
 	a.mu.Lock()
 	a.probes = 0
@@ -109,6 +116,8 @@ func (a *AARPMachine) Run(ctx context.Context, incomingCh <-chan *ethertalk.Pack
 				a.mu.Unlock()
 				close(a.assignedCh)
 				ticker.Stop()
+
+				setStatus(fmt.Sprintf("Assigned address %d.%d", a.myAddr.Proto.Network, a.myAddr.Proto.Node))
 				continue
 			}
 
@@ -119,6 +128,8 @@ func (a *AARPMachine) Run(ctx context.Context, incomingCh <-chan *ethertalk.Pack
 			if err := a.probe(); err != nil {
 				log.Printf("Couldn't broadcast a Probe: %v", err)
 			}
+
+			setStatus(fmt.Sprintf("Probed %d times", a.probes))
 
 		case ethFrame, ok := <-incomingCh:
 			if !ok {
