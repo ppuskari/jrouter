@@ -235,8 +235,9 @@ func main() {
 		PcapHandle: pcapHandle,
 		MyHWAddr:   myHWAddr,
 		// MyDDPAddr: ...,
-		RouteTable: routes,
-		ZoneTable:  zones,
+		AARPMachine: aarpMachine,
+		RouteTable:  routes,
+		ZoneTable:   zones,
 	}
 
 	// ---------------------- Raw AppleTalk/AARP inbound ----------------------
