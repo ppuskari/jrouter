@@ -143,12 +143,11 @@ func main() {
 	zones.Upsert(cfg.EtherTalk.NetStart, cfg.EtherTalk.ZoneName, true)
 
 	// -------------------------------- Peers ---------------------------------
-	// Wait until all peer handlers have finished before closing the port
-	var handlersWG sync.WaitGroup
+	var wg sync.WaitGroup
 	goPeerHandler := func(p *router.Peer) {
-		handlersWG.Add(1)
+		wg.Add(1)
 		go func() {
-			defer handlersWG.Done()
+			defer wg.Done()
 			p.Handle(ctx)
 		}()
 	}
@@ -241,7 +240,10 @@ func main() {
 	}
 
 	// ---------------------- Raw AppleTalk/AARP inbound ----------------------
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
+
 		ctx, setStatus, done := status.AddSimpleItem(ctx, "EtherTalk inbound")
 		defer done()
 
@@ -366,7 +368,10 @@ func main() {
 	}()
 
 	// ----------------------------- AURP inbound -----------------------------
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
+
 		ctx, setStatus, done := status.AddSimpleItem(ctx, "AURP inbound")
 		defer done()
 		setStatus("Running")
@@ -500,7 +505,7 @@ func main() {
 	}()
 
 	// -------------------------------- Close ---------------------------------
-	handlersWG.Wait()
+	wg.Wait()
 }
 
 // Hashable net.UDPAddr
