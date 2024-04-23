@@ -106,7 +106,7 @@ func (p *Peer) Handle(ctx context.Context) error {
 
 	lastReconnect := time.Now()
 	lastHeardFrom := time.Now()
-	lastSend := time.Now()
+	lastSend := time.Now() // TODO: clarify use of lastSend / sendRetries
 	lastUpdate := time.Now()
 	sendRetries := 0
 
@@ -433,6 +433,19 @@ func (p *Peer) Handle(ctx context.Context) error {
 				}
 
 				// TODO: Continue sending next RI-Rsp (streamed)?
+
+				if rstate == rsUnconnected {
+					// Receiver is unconnected, but their receiver sent us an
+					// RI-Ack for something
+					// Try to reconnect?
+					lastSend = time.Now()
+					sendRetries = 0
+					if _, err := p.Send(p.Transport.NewOpenReqPacket(nil)); err != nil {
+						log.Printf("AURP Peer: Couldn't send Open-Req packet: %v", err)
+						return err
+					}
+					rstate = rsWaitForOpenRsp
+				}
 
 			case *aurp.RIUpdPacket:
 				// TODO: Integrate info into route table
