@@ -96,6 +96,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Couldn't listen on udp4:387: %v", err)
 	}
+	defer ln.Close()
 	log.Printf("Listening on %v", ln.LocalAddr())
 
 	log.Println("Press ^C or send SIGINT to stop the router gracefully")
@@ -144,11 +145,6 @@ func main() {
 	// -------------------------------- Peers ---------------------------------
 	// Wait until all peer handlers have finished before closing the port
 	var handlersWG sync.WaitGroup
-	defer func() {
-		log.Print("Waiting for handlers to return...")
-		handlersWG.Wait()
-		ln.Close()
-	}()
 	goPeerHandler := func(p *router.Peer) {
 		handlersWG.Add(1)
 		go func() {
@@ -370,136 +366,141 @@ func main() {
 	}()
 
 	// ----------------------------- AURP inbound -----------------------------
-	ctx, setStatus, done := status.AddSimpleItem(ctx, "AURP inbound")
-	defer done()
-	setStatus("Running")
+	go func() {
+		ctx, setStatus, done := status.AddSimpleItem(ctx, "AURP inbound")
+		defer done()
+		setStatus("Running")
 
-	for {
-		if ctx.Err() != nil {
-			return
-		}
-		ln.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-		pktbuf := make([]byte, 4096)
-		pktlen, raddr, readErr := ln.ReadFromUDP(pktbuf)
-
-		var operr *net.OpError
-		if errors.As(readErr, &operr) && operr.Timeout() {
-			continue
-		}
-
-		// log.Printf("AURP: Received packet of length %d from %v", pktlen, raddr)
-
-		dh, pkt, parseErr := aurp.ParsePacket(pktbuf[:pktlen])
-		if parseErr != nil {
-			log.Printf("AURP: Failed to parse packet: %v", parseErr)
-			continue
-		}
-		if readErr != nil {
-			log.Printf("AURP: Failed to read packet: %v", readErr)
-			return
-		}
-
-		log.Printf("AURP: Got %T from %v (%v)", pkt, raddr, dh.SourceDI)
-
-		// Existing peer?
-		ra := udpAddrFromNet(raddr)
-		pr := peers[ra]
-		if pr == nil {
-			// New peer!
-			pr = &router.Peer{
-				Config: cfg,
-				Transport: &aurp.Transport{
-					LocalDI:     localDI,
-					RemoteDI:    dh.SourceDI, // platinum rule
-					LocalConnID: nextConnID,
-				},
-				UDPConn:      ln,
-				RemoteAddr:   raddr,
-				RecieveCh:    make(chan aurp.Packet, 1024),
-				RoutingTable: routes,
-				ZoneTable:    zones,
-				Reconnect:    false,
-			}
-			aurp.Inc(&nextConnID)
-			peers[ra] = pr
-			goPeerHandler(pr)
-		}
-
-		switch dh.PacketType {
-		case aurp.PacketTypeRouting:
-			// It's AURP routing data.
-			// Pass the packet to the goroutine in charge of this peer.
-			select {
-			case pr.RecieveCh <- pkt:
-				// That's it for us.
-
-			case <-ctx.Done():
+		for {
+			if ctx.Err() != nil {
 				return
 			}
-			continue
+			ln.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+			pktbuf := make([]byte, 4096)
+			pktlen, raddr, readErr := ln.ReadFromUDP(pktbuf)
 
-		case aurp.PacketTypeAppleTalk:
-			apkt, ok := pkt.(*aurp.AppleTalkPacket)
-			if !ok {
-				log.Printf("AURP: Got %T but domain header packet type was %v ?", pkt, dh.PacketType)
+			var operr *net.OpError
+			if errors.As(readErr, &operr) && operr.Timeout() {
 				continue
 			}
 
-			// Route or otherwise handle the encapsulated AppleTalk traffic
-			ddpkt := new(ddp.ExtPacket)
-			if err := ddp.ExtUnmarshal(apkt.Data, ddpkt); err != nil {
-				log.Printf("AURP: Couldn't unmarshal encapsulated DDP packet: %v", err)
+			// log.Printf("AURP: Received packet of length %d from %v", pktlen, raddr)
+
+			dh, pkt, parseErr := aurp.ParsePacket(pktbuf[:pktlen])
+			if parseErr != nil {
+				log.Printf("AURP: Failed to parse packet: %v", parseErr)
 				continue
 			}
-			log.Printf("DDP/AURP: Got %d.%d.%d -> %d.%d.%d proto %d data len %d",
-				ddpkt.SrcNet, ddpkt.SrcNode, ddpkt.SrcSocket,
-				ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket,
-				ddpkt.Proto, len(ddpkt.Data))
-
-			// "Route" the packet
-			// Since for now there's only one local network, the routing
-			// decision is pretty easy
-			// TODO: Fix this to support other AppleTalk routers
-			if ddpkt.DstNet < cfg.EtherTalk.NetStart || ddpkt.DstNet > cfg.EtherTalk.NetEnd {
-				log.Print("DDP/AURP: dropping packet not addressed to our EtherTalk range")
-				continue
+			if readErr != nil {
+				log.Printf("AURP: Failed to read packet: %v", readErr)
+				return
 			}
 
-			// Check and adjust the Hop Count
-			// Note the ddp package doesn't make this simple
-			hopCount := (ddpkt.Size & 0x3C00) >> 10
-			if hopCount >= 15 {
-				log.Printf("DDP/AURP: hop count exceeded (%d >= 15)", hopCount)
-				continue
-			}
-			hopCount++
-			ddpkt.Size &^= 0x3C00
-			ddpkt.Size |= hopCount << 10
+			log.Printf("AURP: Got %T from %v (%v)", pkt, raddr, dh.SourceDI)
 
-			// Is it addressed to me? Is it NBP?
-			if ddpkt.DstNode == 0 { // Node 0 = the router for the network
-				if ddpkt.DstSocket != 2 {
-					// Something else?? TODO
-					log.Printf("DDP/AURP: I don't have anything 'listening' on socket %d", ddpkt.DstSocket)
+			// Existing peer?
+			ra := udpAddrFromNet(raddr)
+			pr := peers[ra]
+			if pr == nil {
+				// New peer!
+				pr = &router.Peer{
+					Config: cfg,
+					Transport: &aurp.Transport{
+						LocalDI:     localDI,
+						RemoteDI:    dh.SourceDI, // platinum rule
+						LocalConnID: nextConnID,
+					},
+					UDPConn:      ln,
+					RemoteAddr:   raddr,
+					RecieveCh:    make(chan aurp.Packet, 1024),
+					RoutingTable: routes,
+					ZoneTable:    zones,
+					Reconnect:    false,
+				}
+				aurp.Inc(&nextConnID)
+				peers[ra] = pr
+				goPeerHandler(pr)
+			}
+
+			switch dh.PacketType {
+			case aurp.PacketTypeRouting:
+				// It's AURP routing data.
+				// Pass the packet to the goroutine in charge of this peer.
+				select {
+				case pr.RecieveCh <- pkt:
+					// That's it for us.
+
+				case <-ctx.Done():
+					return
+				}
+				continue
+
+			case aurp.PacketTypeAppleTalk:
+				apkt, ok := pkt.(*aurp.AppleTalkPacket)
+				if !ok {
+					log.Printf("AURP: Got %T but domain header packet type was %v ?", pkt, dh.PacketType)
 					continue
 				}
-				// It's NBP
-				if err := rooter.HandleNBPInAURP(pr, ddpkt); err != nil {
-					log.Printf("NBP/DDP/AURP: %v", err)
+
+				// Route or otherwise handle the encapsulated AppleTalk traffic
+				ddpkt := new(ddp.ExtPacket)
+				if err := ddp.ExtUnmarshal(apkt.Data, ddpkt); err != nil {
+					log.Printf("AURP: Couldn't unmarshal encapsulated DDP packet: %v", err)
+					continue
+				}
+				log.Printf("DDP/AURP: Got %d.%d.%d -> %d.%d.%d proto %d data len %d",
+					ddpkt.SrcNet, ddpkt.SrcNode, ddpkt.SrcSocket,
+					ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket,
+					ddpkt.Proto, len(ddpkt.Data))
+
+				// "Route" the packet
+				// Since for now there's only one local network, the routing
+				// decision is pretty easy
+				// TODO: Fix this to support other AppleTalk routers
+				if ddpkt.DstNet < cfg.EtherTalk.NetStart || ddpkt.DstNet > cfg.EtherTalk.NetEnd {
+					log.Print("DDP/AURP: dropping packet not addressed to our EtherTalk range")
+					continue
+				}
+
+				// Check and adjust the Hop Count
+				// Note the ddp package doesn't make this simple
+				hopCount := (ddpkt.Size & 0x3C00) >> 10
+				if hopCount >= 15 {
+					log.Printf("DDP/AURP: hop count exceeded (%d >= 15)", hopCount)
+					continue
+				}
+				hopCount++
+				ddpkt.Size &^= 0x3C00
+				ddpkt.Size |= hopCount << 10
+
+				// Is it addressed to me? Is it NBP?
+				if ddpkt.DstNode == 0 { // Node 0 = the router for the network
+					if ddpkt.DstSocket != 2 {
+						// Something else?? TODO
+						log.Printf("DDP/AURP: I don't have anything 'listening' on socket %d", ddpkt.DstSocket)
+						continue
+					}
+					// It's NBP
+					if err := rooter.HandleNBPInAURP(pr, ddpkt); err != nil {
+						log.Printf("NBP/DDP/AURP: %v", err)
+					}
+					continue
+				}
+
+				// Note: resolving AARP can block
+				if err := rooter.SendEtherTalkDDP(ctx, ddpkt); err != nil {
+					log.Printf("DDP/AURP: couldn't send Ethertalk out: %v", err)
 				}
 				continue
-			}
 
-			// Note: resolving AARP can block
-			if err := rooter.SendEtherTalkDDP(ctx, ddpkt); err != nil {
-				log.Printf("DDP/AURP: couldn't send Ethertalk out: %v", err)
+			default:
+				log.Printf("AURP: Got unknown packet type %v", dh.PacketType)
 			}
-			continue
-
-		default:
-			log.Printf("AURP: Got unknown packet type %v", dh.PacketType)
 		}
-	}
+	}()
+
+	// -------------------------------- Close ---------------------------------
+	handlersWG.Wait()
 }
 
 // Hashable net.UDPAddr
