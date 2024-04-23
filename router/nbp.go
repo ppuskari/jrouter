@@ -70,11 +70,19 @@ func (rtr *Router) HandleNBP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 					return fmt.Errorf("couldn't marshal LkUp: %v", err)
 				}
 
-				outDDP := *ddpkt
-				outDDP.Size = uint16(len(nbpRaw)) + atalk.DDPExtHeaderSize
-				outDDP.DstNet = 0x0000 // Local network broadcast
-				outDDP.DstNode = 0xFF  // Broadcast node address within the dest network
-				outDDP.Data = nbpRaw
+				outDDP := ddp.ExtPacket{
+					ExtHeader: ddp.ExtHeader{
+						Size:      atalk.DDPExtHeaderSize + uint16(len(nbpRaw)),
+						Cksum:     0,
+						SrcNet:    ddpkt.SrcNet,
+						SrcNode:   ddpkt.SrcNode,
+						SrcSocket: ddpkt.SrcSocket,
+						DstNet:    0x0000, // Local network broadcast
+						DstNode:   0xFF,   // Broadcast node address within the dest network
+						DstSocket: 2,
+					},
+					Data: nbpRaw,
+				}
 
 				log.Printf("NBP: zone multicasting LkUp for tuple %v", tuple)
 				if err := rtr.ZoneMulticastEtherTalkDDP(tuple.Zone, &outDDP); err != nil {
@@ -114,11 +122,19 @@ func (rtr *Router) HandleNBP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 				return fmt.Errorf("couldn't marshal FwdReq: %v", err)
 			}
 
-			outDDP := *ddpkt
-			outDDP.Size = uint16(len(nbpRaw)) + atalk.DDPExtHeaderSize
-			outDDP.DstNet = z.Network
-			outDDP.DstNode = 0x00 // Router node address for the dest network
-			outDDP.Data = nbpRaw
+			outDDP := ddp.ExtPacket{
+				ExtHeader: ddp.ExtHeader{
+					Size:      atalk.DDPExtHeaderSize + uint16(len(nbpRaw)),
+					Cksum:     0,
+					SrcNet:    ddpkt.SrcNet,
+					SrcNode:   ddpkt.SrcNode,
+					SrcSocket: ddpkt.SrcSocket,
+					DstNet:    z.Network,
+					DstNode:   0x01, // Router node address for the dest network
+					DstSocket: 2,
+				},
+				Data: nbpRaw,
+			}
 
 			outDDPRaw, err := ddp.ExtMarshal(outDDP)
 			if err != nil {
