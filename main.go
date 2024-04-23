@@ -246,6 +246,11 @@ func main() {
 
 	// ---------------------- Raw AppleTalk/AARP inbound ----------------------
 	go func() {
+		ctx, setStatus, done := status.AddSimpleItem(ctx, "EtherTalk inbound")
+		defer done()
+
+		setStatus("Running")
+
 		for {
 			if ctx.Err() != nil {
 				return
@@ -365,6 +370,10 @@ func main() {
 	}()
 
 	// ----------------------------- AURP inbound -----------------------------
+	ctx, setStatus, done := status.AddSimpleItem(ctx, "AURP inbound")
+	defer done()
+	setStatus("Running")
+
 	for {
 		if ctx.Err() != nil {
 			return
