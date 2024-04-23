@@ -30,6 +30,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -49,6 +50,9 @@ var hasPortRE = regexp.MustCompile(`:\d+$`)
 var configFilePath = flag.String("config", "jrouter.yaml", "Path to configuration file to use")
 
 func main() {
+	// For some reason it occasionally panics and the panics have no traceback?
+	debug.SetTraceback("all")
+
 	flag.Parse()
 	log.Println("jrouter")
 
