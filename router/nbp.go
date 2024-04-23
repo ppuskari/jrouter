@@ -53,6 +53,7 @@ func (rtr *Router) HandleNBP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 		tuple := &nbpkt.Tuples[0]
 
 		zones := rtr.ZoneTable.LookupName(tuple.Zone)
+
 		for _, z := range zones {
 			if z.Local {
 				// If it's for the local zone, translate it to a LkUp and broadcast it back
@@ -75,6 +76,7 @@ func (rtr *Router) HandleNBP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 				outDDP.DstNode = 0xFF  // Broadcast node address within the dest network
 				outDDP.Data = nbpRaw
 
+				log.Printf("NBP: zone multicasting LkUp for tuple %v", tuple)
 				if err := rtr.ZoneMulticastEtherTalkDDP(tuple.Zone, &outDDP); err != nil {
 					return err
 				}
@@ -122,6 +124,8 @@ func (rtr *Router) HandleNBP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 			if err != nil {
 				return err
 			}
+
+			log.Printf("NBP: Sending FwdReq to %v for tuple %v", peer.RemoteAddr, tuple)
 
 			if _, err := peer.Send(peer.Transport.NewAppleTalkPacket(outDDPRaw)); err != nil {
 				return fmt.Errorf("sending FwdReq on to peer: %w", err)
