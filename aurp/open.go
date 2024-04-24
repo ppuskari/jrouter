@@ -109,12 +109,13 @@ func parseOptionTuple(p []byte) (OptionTuple, []byte, error) {
 		return OptionTuple{}, p, fmt.Errorf("insufficient input length %d for option tuple", len(p))
 	}
 	olen := int(p[0]) + 1
+	p = p[1:]
 	if len(p) < olen {
 		return OptionTuple{}, p, fmt.Errorf("insufficient input for option tuple data length %d", olen)
 	}
 	return OptionTuple{
-		Type: OptionType(p[1]),
-		Data: p[2:olen],
+		Type: OptionType(p[0]),
+		Data: p[1:olen],
 	}, p[olen:], nil
 }
 

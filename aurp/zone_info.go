@@ -65,9 +65,9 @@ func parseZIReqPacket(p []byte) (*ZIReqPacket, error) {
 		return nil, fmt.Errorf("odd number of bytes %d for networks", len(p))
 	}
 	c := len(p) / 2
-	ns := make([]ddp.Network, 0, c)
+	ns := make([]ddp.Network, c)
 	for i := range c {
-		ns[i] = ddp.Network(binary.BigEndian.Uint16(p[i*2:][:2]))
+		ns[i] = ddp.Network(binary.BigEndian.Uint16(p[2*i:][:2]))
 	}
 	return &ZIReqPacket{
 		Subcode:  SubcodeZoneInfoReq,
