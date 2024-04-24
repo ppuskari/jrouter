@@ -1,0 +1,7 @@
+go test fuzz v1
+bool(false)
+bool(false)
+byte('\a')
+uint16(4)
+uint32(87)
+[]byte("0000\x00\x00\x00\x00\x00\x00\x00\x00")

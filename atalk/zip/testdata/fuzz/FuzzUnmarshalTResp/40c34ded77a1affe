@@ -1,0 +1,7 @@
+go test fuzz v1
+bool(false)
+bool(true)
+byte('\x00')
+uint16(5)
+uint32(0)
+[]byte("Y\xdbI\x04\xaa")

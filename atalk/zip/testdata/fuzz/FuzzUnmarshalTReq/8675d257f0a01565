@@ -1,0 +1,7 @@
+go test fuzz v1
+bool(false)
+byte('D')
+byte('$')
+uint16(0)
+uint32(59)
+[]byte("b\xd3\xf4{\n:\xd9")
