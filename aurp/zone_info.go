@@ -378,7 +378,7 @@ func parseZoneTuples(p []byte) (ZoneTuples, error) {
 				return nil, fmt.Errorf("optimized zone tuple offset %d out of range", offset)
 			}
 			nameLen := fromFirst[offset]
-			if len(fromFirst) < int(nameLen) {
+			if len(fromFirst[offset+1:]) < int(nameLen) {
 				return nil, fmt.Errorf("insufficient remaining input length %d for zone name of length %d", len(p), nameLen)
 			}
 			zt.Name = string(fromFirst[offset+1:][:nameLen])
