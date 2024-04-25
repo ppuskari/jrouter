@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/user"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -38,8 +39,14 @@ var (
 		}
 		return fmt.Sprintf("%s (uid=%s)", user.Username, user.Uid)
 	}()
-	exepath, _ = os.Executable()
-	startTime  = time.Now()
+	exepath, exename = func() (string, string) {
+		exe, _ := os.Executable()
+		if exe == "" {
+			return "(unknown)", "(unknown)"
+		}
+		return exe, filepath.Base(exe)
+	}()
+	startTime = time.Now()
 
 	rootItem = &simpleItem{
 		baseItem: baseItem{
@@ -63,6 +70,7 @@ type statusData struct {
 	Build        string
 	Hostname     string
 	Username     string
+	ExeName      string
 	ExePath      string
 	PID          int
 	Compiler     string
@@ -191,6 +199,7 @@ func Handle(w http.ResponseWriter, r *http.Request) {
 		Build:        "TODO",
 		Hostname:     hostname,
 		Username:     username,
+		ExeName:      exename,
 		ExePath:      exepath,
 		PID:          os.Getpid(),
 		Compiler:     runtime.Compiler,
