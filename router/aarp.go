@@ -56,7 +56,7 @@ Status: {{.Status}}<br/>
 			<td>{{$entry.HWAddr}}</td>
 			<td>{{if $entry.Valid}}✅{{else}}❌{{end}}</td>
 			<td>{{$entry.LastUpdatedAgo}}</td>
-			<td>{{if $entry.Resolving}}⌚️{{else}}✅{{end}}</td>
+			<td>{{if $entry.Resolving}}⌚️{{else}}💤{{end}}</td>
 		</tr>
 {{end}}
 	</tbody>
