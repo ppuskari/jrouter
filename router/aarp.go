@@ -39,6 +39,28 @@ const (
 	aarpRequestTimeout    = 10 * time.Second
 )
 
+const aarpStatusTemplate = `
+Status: {{.Status}}<br/>
+<table>
+	<thead><tr>
+		<th>DDP addr</th>
+		<th>Ethernet addr</th>
+		<th>Last updated</th>
+		<th>Being resolved?</th>
+	</tr></thead>
+	<tbody>
+{{range $key, $entry := .AMT}}
+		<tr>
+			<td>{{$key.Network}}.{{$key.Node}}</td>
+			<td>{{$entry.HWAddr}}</td>
+			<td>{{$entry.LastUpdated}}</td>
+			<td>{{if $entry.Resolving}}Resolving...{{else}}Resolved{{end}}</td>
+		</tr>
+{{end}}
+	</tbody>
+</table>
+`
+
 // AARPMachine maintains both an Address Mapping Table and handles AARP packets
 // (sending and receiving requests, responses, and probes). This process assumes
 // a particular network range rather than using the startup range, since this
@@ -53,6 +75,7 @@ type AARPMachine struct {
 	// probes, so this mutex is not used to enforce a single writer, only
 	// consistent reads
 	mu         sync.RWMutex
+	statusMsg  string
 	myAddr     aarp.AddrPair
 	probes     int
 	assigned   bool
@@ -85,15 +108,26 @@ func (a *AARPMachine) Assigned() <-chan struct{} {
 	return a.assignedCh
 }
 
+func (a *AARPMachine) status(ctx context.Context) (any, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return struct {
+		Status string
+		AMT    map[ddp.Addr]AMTEntry
+	}{
+		Status: a.statusMsg,
+		AMT:    a.addressMappingTable.Dump(),
+	}, nil
+}
+
 // Run executes the machine.
 func (a *AARPMachine) Run(ctx context.Context, incomingCh <-chan *ethertalk.Packet) error {
-	ctx, setStatus, done := status.AddSimpleItem(ctx, "AARP")
+	ctx, done := status.AddItem(ctx, "AARP", aarpStatusTemplate, a.status)
 	defer done()
-
-	setStatus("Initialising")
 
 	// Initialise our DDP address with a preferred address (first network.1)
 	a.mu.Lock()
+	a.statusMsg = "Initialising"
 	a.probes = 0
 	a.myAddr.Proto = ddp.Addr{
 		Network: ddp.Network(a.cfg.EtherTalk.NetStart),
@@ -112,24 +146,22 @@ func (a *AARPMachine) Run(ctx context.Context, incomingCh <-chan *ethertalk.Pack
 		case <-ticker.C:
 			if a.probes >= 10 {
 				a.mu.Lock()
+				a.statusMsg = fmt.Sprintf("Assigned address %d.%d", a.myAddr.Proto.Network, a.myAddr.Proto.Node)
 				a.assigned = true
 				a.mu.Unlock()
 				close(a.assignedCh)
 				ticker.Stop()
-
-				setStatus(fmt.Sprintf("Assigned address %d.%d", a.myAddr.Proto.Network, a.myAddr.Proto.Node))
 				continue
 			}
 
 			a.mu.Lock()
+			a.statusMsg = fmt.Sprintf("Probed %d times", a.probes)
 			a.probes++
 			a.mu.Unlock()
 
 			if err := a.probe(); err != nil {
 				log.Printf("Couldn't broadcast a Probe: %v", err)
 			}
-
-			setStatus(fmt.Sprintf("Probed %d times", a.probes))
 
 		case ethFrame, ok := <-incomingCh:
 			if !ok {
@@ -310,18 +342,38 @@ func (a *AARPMachine) request(ddpAddr ddp.Addr) error {
 	return a.pcapHandle.WritePacketData(reqFrameRaw)
 }
 
-type amtEntry struct {
-	hwAddr     ethernet.Addr
-	last       time.Time
-	updated    chan struct{}
-	requesting bool
+// AMTEntry is an entry in an address mapping table.
+type AMTEntry struct {
+	// The hardware address that the entry maps to.
+	HWAddr ethernet.Addr
+
+	// The last time this entry was updated.
+	LastUpdated time.Time
+
+	// Whether the address is being resolved.
+	Resolving bool
+
+	// Closed when this entry is updated.
+	updated chan struct{}
 }
 
 // addressMappingTable implements a concurrent-safe Address Mapping Table for
 // AppleTalk (DDP) addresses to Ethernet hardware addresses.
 type addressMappingTable struct {
 	mu    sync.Mutex
-	table map[ddp.Addr]*amtEntry
+	table map[ddp.Addr]*AMTEntry
+}
+
+// Dump returns a copy of the table at a point in time.
+func (t *addressMappingTable) Dump() map[ddp.Addr]AMTEntry {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	table := make(map[ddp.Addr]AMTEntry, len(t.table))
+	for k, v := range t.table {
+		table[k] = *v
+	}
+	return table
 }
 
 // Learn adds or updates an AMT entry.
@@ -329,22 +381,22 @@ func (t *addressMappingTable) Learn(ddpAddr ddp.Addr, hwAddr ethernet.Addr) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.table == nil {
-		t.table = make(map[ddp.Addr]*amtEntry)
+		t.table = make(map[ddp.Addr]*AMTEntry)
 	}
 	oldEnt := t.table[ddpAddr]
 	if oldEnt == nil {
-		t.table[ddpAddr] = &amtEntry{
-			hwAddr:     hwAddr,
-			last:       time.Now(),
-			updated:    make(chan struct{}),
-			requesting: false,
+		t.table[ddpAddr] = &AMTEntry{
+			HWAddr:      hwAddr,
+			LastUpdated: time.Now(),
+			updated:     make(chan struct{}),
+			Resolving:   false,
 		}
 		return
 	}
 
-	oldEnt.hwAddr = hwAddr
-	oldEnt.last = time.Now()
-	oldEnt.requesting = false
+	oldEnt.HWAddr = hwAddr
+	oldEnt.LastUpdated = time.Now()
+	oldEnt.Resolving = false
 	close(oldEnt.updated)
 	oldEnt.updated = make(chan struct{})
 }
@@ -356,25 +408,25 @@ func (t *addressMappingTable) lookupOrWait(ddpAddr ddp.Addr) (ethernet.Addr, <-c
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.table == nil {
-		t.table = make(map[ddp.Addr]*amtEntry)
+		t.table = make(map[ddp.Addr]*AMTEntry)
 	}
 	ent := t.table[ddpAddr]
 	if ent == nil {
 		ch := make(chan struct{})
-		t.table[ddpAddr] = &amtEntry{
-			updated:    ch,
-			requesting: true,
+		t.table[ddpAddr] = &AMTEntry{
+			updated:   ch,
+			Resolving: true,
 		}
 		return ethernet.Addr{}, ch, true
 	}
-	if time.Since(ent.last) >= maxAMTEntryAge {
-		if ent.requesting {
-			return ent.hwAddr, ent.updated, false
+	if time.Since(ent.LastUpdated) >= maxAMTEntryAge {
+		if ent.Resolving {
+			return ent.HWAddr, ent.updated, false
 		}
-		ent.requesting = true
-		return ent.hwAddr, ent.updated, true
+		ent.Resolving = true
+		return ent.HWAddr, ent.updated, true
 	}
-	return ent.hwAddr, nil, false
+	return ent.HWAddr, nil, false
 }
 
 func (t *addressMappingTable) requestingStopped(ddpAddr ddp.Addr) {
@@ -387,5 +439,5 @@ func (t *addressMappingTable) requestingStopped(ddpAddr ddp.Addr) {
 	if ent == nil {
 		return
 	}
-	ent.requesting = false
+	ent.Resolving = false
 }
