@@ -53,7 +53,7 @@ const routingTableTemplate = `
 		<th>Network range</th>
 		<th>Extended?</th>
 		<th>Distance</th>
-		<th>Last seen<th>
+		<th>Last seen</th>
 		<th>Port</th>
 	</tr></thead>
 	<tbody>
