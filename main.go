@@ -313,7 +313,7 @@ func main() {
 		ctx, setStatus, done := status.AddSimpleItem(ctx, "EtherTalk inbound")
 		defer done()
 
-		setStatus("Running")
+		setStatus(fmt.Sprintf("Listening on %s", cfg.EtherTalk.Device))
 
 		for {
 			if ctx.Err() != nil {
@@ -440,7 +440,7 @@ func main() {
 
 		ctx, setStatus, done := status.AddSimpleItem(ctx, "AURP inbound")
 		defer done()
-		setStatus("Running")
+		setStatus(fmt.Sprintf("Listening on UDP port %d", cfg.ListenPort))
 
 		for {
 			if ctx.Err() != nil {
