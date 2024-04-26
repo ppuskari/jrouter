@@ -36,12 +36,18 @@ const (
 )
 
 func (f Function) String() string {
-	return map[Function]string{
-		FunctionBrRq:      "BrRq",
-		FunctionLkUp:      "LkUp",
-		FunctionLkUpReply: "LkUp-Reply",
-		FunctionFwdReq:    "FwdReq",
-	}[f]
+	switch f {
+	case FunctionBrRq:
+		return "BrRq"
+	case FunctionLkUp:
+		return "LkUp"
+	case FunctionLkUpReply:
+		return "LkUp-Reply"
+	case FunctionFwdReq:
+		return "FwdReq"
+	default:
+		return "unknown"
+	}
 }
 
 // Packet represents an NBP packet.

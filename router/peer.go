@@ -48,13 +48,20 @@ const (
 )
 
 func (rs receiverState) String() string {
-	return map[receiverState]string{
-		rsUnconnected:      "unconnected",
-		rsConnected:        "connected",
-		rsWaitForOpenRsp:   "waiting for Open-Rsp",
-		rsWaitForRIRsp:     "waiting for RI-Rsp",
-		rsWaitForTickleAck: "waiting for Tickle-Ack",
-	}[rs]
+	switch rs {
+	case rsUnconnected:
+		return "unconnected"
+	case rsConnected:
+		return "connected"
+	case rsWaitForOpenRsp:
+		return "waiting for Open-Rsp"
+	case rsWaitForRIRsp:
+		return "waiting for RI-Rsp"
+	case rsWaitForTickleAck:
+		return "waiting for Tickle-Ack"
+	default:
+		return "unknown"
+	}
 }
 
 type senderState int
@@ -68,13 +75,20 @@ const (
 )
 
 func (ss senderState) String() string {
-	return map[senderState]string{
-		ssUnconnected:     "unconnected",
-		ssConnected:       "connected",
-		ssWaitForRIRspAck: "waiting for RI-Ack for RI-Rsp",
-		ssWaitForRIUpdAck: "waiting for RI-Ack for RI-Upd",
-		ssWaitForRDAck:    "waiting for RI-Ack for RD",
-	}[ss]
+	switch ss {
+	case ssUnconnected:
+		return "unconnected"
+	case ssConnected:
+		return "connected"
+	case ssWaitForRIRspAck:
+		return "waiting for RI-Ack for RI-Rsp"
+	case ssWaitForRIUpdAck:
+		return "waiting for RI-Ack for RI-Upd"
+	case ssWaitForRDAck:
+		return "waiting for RI-Ack for RD"
+	default:
+		return "unknown"
+	}
 }
 
 type Peer struct {
