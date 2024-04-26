@@ -70,6 +70,27 @@ const routingTableTemplate = `
 </table>
 `
 
+const zoneTableTemplate = `
+<table>
+	<thead><tr>
+		<th>Network</th>
+		<th>Name</th>
+		<th>Local</th>
+		<th>Last seen</th>
+	</tr></thead>
+	<tbody>
+{{range $zone := . }}
+	<tr>
+		<td>{{$zone.Network}}</td>
+		<td>{{$zone.Name}}</td>
+		<td>{{if $zone.Local}}✅{{else}}❌{{end}}</td>
+		<td>{{$zone.LastSeenAgo}}</td>
+	</tr>
+{{end}}
+	</tbody>
+</table>
+`
+
 var hasPortRE = regexp.MustCompile(`:\d+$`)
 
 var configFilePath = flag.String("config", "jrouter.yaml", "Path to configuration file to use")
@@ -168,17 +189,23 @@ func main() {
 
 	// -------------------------------- Tables --------------------------------
 	routes := router.NewRoutingTable()
-	_, done := status.AddItem(ctx, "Routing table", routingTableTemplate, func(context.Context) (any, error) {
+	status.AddItem(ctx, "Routing table", routingTableTemplate, func(context.Context) (any, error) {
 		rs := routes.Dump()
 		slices.SortFunc(rs, func(ra, rb router.Route) int {
 			return cmp.Compare(ra.NetStart, rb.NetStart)
 		})
 		return rs, nil
 	})
-	defer done()
 
 	zones := router.NewZoneTable()
 	zones.Upsert(cfg.EtherTalk.NetStart, cfg.EtherTalk.ZoneName, true)
+	status.AddItem(ctx, "Zone table", zoneTableTemplate, func(context.Context) (any, error) {
+		zs := zones.Dump()
+		slices.SortFunc(zs, func(za, zb router.Zone) int {
+			return cmp.Compare(za.Name, zb.Name)
+		})
+		return zs, nil
+	})
 
 	// -------------------------------- Peers ---------------------------------
 	var wg sync.WaitGroup

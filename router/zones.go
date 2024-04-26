@@ -17,6 +17,7 @@
 package router
 
 import (
+	"fmt"
 	"slices"
 	"sort"
 	"sync"
@@ -34,6 +35,13 @@ type Zone struct {
 	LastSeen time.Time
 }
 
+func (z Zone) LastSeenAgo() string {
+	if z.LastSeen.IsZero() {
+		return "never"
+	}
+	return fmt.Sprintf("%v ago", time.Since(z.LastSeen).Truncate(time.Millisecond))
+}
+
 type zoneKey struct {
 	network ddp.Network
 	name    string
@@ -48,6 +56,16 @@ func NewZoneTable() *ZoneTable {
 	return &ZoneTable{
 		zones: make(map[zoneKey]*Zone),
 	}
+}
+
+func (zt *ZoneTable) Dump() []Zone {
+	zt.mu.Lock()
+	defer zt.mu.Unlock()
+	zs := make([]Zone, 0, len(zt.zones))
+	for _, z := range zt.zones {
+		zs = append(zs, *z)
+	}
+	return zs
 }
 
 func (zt *ZoneTable) Upsert(network ddp.Network, name string, local bool) {
