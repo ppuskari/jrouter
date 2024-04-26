@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
 type RIReqPacket struct {
@@ -115,15 +117,15 @@ func parseNetworkTuples(p []byte) (NetworkTuples, error) {
 
 type NetworkTuple struct {
 	Extended   bool
-	RangeStart uint16
+	RangeStart ddp.Network
 	Distance   uint8
-	RangeEnd   uint16
+	RangeEnd   ddp.Network
 	// 0x00 for extended tuples
 }
 
 func (nt *NetworkTuple) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
-	a.write16(nt.RangeStart)
+	a.write16(uint16(nt.RangeStart))
 	if !nt.Extended {
 		// non-extended tuple
 		a.write8(nt.Distance)
@@ -131,7 +133,7 @@ func (nt *NetworkTuple) WriteTo(w io.Writer) (int64, error) {
 	}
 	// extended tuple
 	a.write8(nt.Distance | 0x80)
-	a.write16(nt.RangeEnd)
+	a.write16(uint16(nt.RangeEnd))
 	a.write8(0x00)
 	return a.ret()
 }
@@ -142,7 +144,7 @@ func parseNetworkTuple(p []byte) (NetworkTuple, []byte, error) {
 	}
 
 	var nt NetworkTuple
-	nt.RangeStart = binary.BigEndian.Uint16(p[:2])
+	nt.RangeStart = ddp.Network(binary.BigEndian.Uint16(p[:2]))
 	nt.RangeEnd = nt.RangeStart
 	nt.Distance = p[2]
 	nt.Extended = nt.Distance&0x80 != 0
@@ -156,7 +158,7 @@ func parseNetworkTuple(p []byte) (NetworkTuple, []byte, error) {
 	}
 
 	nt.Distance &^= 0x80
-	nt.RangeEnd = binary.BigEndian.Uint16(p[3:5])
+	nt.RangeEnd = ddp.Network(binary.BigEndian.Uint16(p[3:5]))
 	return nt, p[6:], nil
 }
 
@@ -188,15 +190,15 @@ func parseEventTuples(p []byte) (EventTuples, error) {
 type EventTuple struct {
 	EventCode  EventCode
 	Extended   bool
-	RangeStart uint16
+	RangeStart ddp.Network
 	Distance   uint8
-	RangeEnd   uint16
+	RangeEnd   ddp.Network
 }
 
 func (et *EventTuple) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
 	a.write8(uint8(et.EventCode))
-	a.write16(et.RangeStart)
+	a.write16(uint16(et.RangeStart))
 	if !et.Extended {
 		// non-extended tuple
 		a.write8(et.Distance)
@@ -204,7 +206,7 @@ func (et *EventTuple) WriteTo(w io.Writer) (int64, error) {
 	}
 	// extended tuple
 	a.write8(et.Distance | 0x80)
-	a.write16(et.RangeEnd)
+	a.write16(uint16(et.RangeEnd))
 	return a.ret()
 }
 
@@ -215,7 +217,7 @@ func parseEventTuple(p []byte) (EventTuple, []byte, error) {
 
 	var et EventTuple
 	et.EventCode = EventCode(p[0])
-	et.RangeStart = binary.BigEndian.Uint16(p[1:3])
+	et.RangeStart = ddp.Network(binary.BigEndian.Uint16(p[1:3]))
 	et.RangeEnd = et.RangeStart
 	et.Distance = p[3]
 	et.Extended = et.Distance&0x80 != 0
@@ -229,28 +231,48 @@ func parseEventTuple(p []byte) (EventTuple, []byte, error) {
 	}
 
 	et.Distance &^= 0x80
-	et.RangeEnd = binary.BigEndian.Uint16(p[4:6])
+	et.RangeEnd = ddp.Network(binary.BigEndian.Uint16(p[4:6]))
 	return et, p[6:], nil
 }
 
 type EventCode uint8
 
 const (
+	// Null event
 	EventCodeNull EventCode = 0
-	EventCodeNA   EventCode = 1
-	EventCodeND   EventCode = 2
-	EventCodeNRC  EventCode = 3
-	EventCodeNDC  EventCode = 4
-	EventCodeZC   EventCode = 5
+
+	// Network added event
+	EventCodeNA EventCode = 1
+
+	// Network deleted event
+	EventCodeND EventCode = 2
+
+	// Network route change event
+	EventCodeNRC EventCode = 3
+
+	// Network distance change event
+	EventCodeNDC EventCode = 4
+
+	// Network zone change event
+	// Note: "The ZC event tuple is not yet defined."
+	EventCodeZC EventCode = 5
 )
 
 func (ec EventCode) String() string {
-	return map[EventCode]string{
-		EventCodeNull: "null",
-		EventCodeNA:   "network added",
-		EventCodeND:   "network deleted",
-		EventCodeNRC:  "network route change",
-		EventCodeNDC:  "network distance change",
-		EventCodeZC:   "zone name change",
-	}[ec]
+	switch ec {
+	case EventCodeNull:
+		return "null"
+	case EventCodeNA:
+		return "network added"
+	case EventCodeND:
+		return "network deleted"
+	case EventCodeNRC:
+		return "network route change"
+	case EventCodeNDC:
+		return "network distance change"
+	case EventCodeZC:
+		return "zone name change"
+	default:
+		return "unknown"
+	}
 }

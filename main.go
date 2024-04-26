@@ -91,6 +91,27 @@ const zoneTableTemplate = `
 </table>
 `
 
+const peerTableTemplate = `
+<table>
+	<thead><tr>
+		<th>Configured addr</th>
+		<th>Remote addr</th>
+		<th>Receiver state</th>
+		<th>Sender state</th>
+	</tr></thead>
+	<tbody>
+{{range $peer := . }}
+	<tr>
+		<td>{{$peer.ConfiguredAddr}}</td>
+		<td>{{$peer.RemoteAddr}}</td>
+		<td>{{$peer.ReceiverState}}</td>
+		<td>{{$peer.SenderState}}</td>
+	</tr>
+{{end}}
+	</tbody>
+</table>
+`
+
 var hasPortRE = regexp.MustCompile(`:\d+$`)
 
 var configFilePath = flag.String("config", "jrouter.yaml", "Path to configuration file to use")
@@ -135,12 +156,6 @@ func main() {
 	log.Printf("Using %v as local domain identifier", localIP)
 
 	log.Printf("EtherTalk configuration: %+v", cfg.EtherTalk)
-
-	peers := make(map[udpAddr]*router.Peer)
-	var nextConnID uint16
-	for nextConnID == 0 {
-		nextConnID = uint16(rand.IntN(0x10000))
-	}
 
 	ln, err := net.ListenUDP("udp4", &net.UDPAddr{Port: int(cfg.ListenPort)})
 	if err != nil {
@@ -208,6 +223,23 @@ func main() {
 	})
 
 	// -------------------------------- Peers ---------------------------------
+	var peersMu sync.Mutex
+	peers := make(map[udpAddr]*router.Peer)
+	status.AddItem(ctx, "AURP Peers", peerTableTemplate, func(context.Context) (any, error) {
+		peersMu.Lock()
+		peerInfo := make([]*router.Peer, 0, len(peers))
+		for _, p := range peers {
+			peerInfo = append(peerInfo, p)
+		}
+		peersMu.Unlock()
+		return peerInfo, nil
+	})
+
+	var nextConnID uint16
+	for nextConnID == 0 {
+		nextConnID = uint16(rand.IntN(0x10000))
+	}
+
 	var wg sync.WaitGroup
 	goPeerHandler := func(p *router.Peer) {
 		wg.Add(1)
@@ -267,15 +299,17 @@ func main() {
 				RemoteDI:    aurp.IPDomainIdentifier(raddr.IP),
 				LocalConnID: nextConnID,
 			},
-			UDPConn:      ln,
-			RemoteAddr:   raddr,
-			RecieveCh:    make(chan aurp.Packet, 1024),
-			RoutingTable: routes,
-			ZoneTable:    zones,
-			Reconnect:    true,
+			UDPConn:        ln,
+			ConfiguredAddr: peerStr,
+			RemoteAddr:     raddr,
+			ReceiveCh:      make(chan aurp.Packet, 1024),
+			RoutingTable:   routes,
+			ZoneTable:      zones,
 		}
 		aurp.Inc(&nextConnID)
+		peersMu.Lock()
 		peers[udpAddrFromNet(raddr)] = peer
+		peersMu.Unlock()
 		goPeerHandler(peer)
 	}
 
@@ -471,8 +505,14 @@ func main() {
 
 			// Existing peer?
 			ra := udpAddrFromNet(raddr)
+			peersMu.Lock()
 			pr := peers[ra]
 			if pr == nil {
+				if !cfg.OpenPeering {
+					log.Printf("AURP: Got packet from %v but it's not in my config and open peering is disabled; dropping the packet", raddr)
+					peersMu.Unlock()
+					continue
+				}
 				// New peer!
 				pr = &router.Peer{
 					Config: cfg,
@@ -483,22 +523,22 @@ func main() {
 					},
 					UDPConn:      ln,
 					RemoteAddr:   raddr,
-					RecieveCh:    make(chan aurp.Packet, 1024),
+					ReceiveCh:    make(chan aurp.Packet, 1024),
 					RoutingTable: routes,
 					ZoneTable:    zones,
-					Reconnect:    false,
 				}
 				aurp.Inc(&nextConnID)
 				peers[ra] = pr
 				goPeerHandler(pr)
 			}
+			peersMu.Unlock()
 
 			switch dh.PacketType {
 			case aurp.PacketTypeRouting:
 				// It's AURP routing data.
 				// Pass the packet to the goroutine in charge of this peer.
 				select {
-				case pr.RecieveCh <- pkt:
+				case pr.ReceiveCh <- pkt:
 					// That's it for us.
 
 				case <-ctx.Done():

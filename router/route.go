@@ -101,12 +101,36 @@ func (rt *RoutingTable) DeletePeer(peer *Peer) {
 	}
 }
 
-func (rt *RoutingTable) UpsertRoute(extended bool, netStart, netEnd ddp.Network, peer *Peer, metric uint8) error {
+func (rt *RoutingTable) DeletePeerNetwork(peer *Peer, network ddp.Network) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+
+	for route := range rt.routes {
+		if route.Peer == peer && route.NetStart == network {
+			delete(rt.routes, route)
+		}
+	}
+}
+
+func (rt *RoutingTable) UpdateRouteDistance(peer *Peer, network ddp.Network, distance uint8) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+
+	for route := range rt.routes {
+		if route.Peer == peer && route.NetStart == network {
+			route.Distance = distance
+			route.LastSeen = time.Now()
+		}
+	}
+}
+
+func (rt *RoutingTable) InsertRoute(peer *Peer, extended bool, netStart, netEnd ddp.Network, metric uint8) error {
 	if netStart > netEnd {
 		return fmt.Errorf("invalid network range [%d, %d]", netStart, netEnd)
 	}
-
-	// TODO: handle the Update part of "Upsert"
+	if netStart != netEnd && !extended {
+		return fmt.Errorf("invalid network range [%d, %d] for nonextended network", netStart, netEnd)
+	}
 
 	r := &Route{
 		Extended: extended,

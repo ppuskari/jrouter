@@ -21,6 +21,7 @@ import (
 	"context"
 	"log"
 	"net"
+	"sync"
 	"time"
 
 	"gitea.drjosh.dev/josh/jrouter/aurp"
@@ -37,69 +38,122 @@ const (
 	updateTimer        = 10 * time.Second
 )
 
-type receiverState int
+type ReceiverState int
 
 const (
-	rsUnconnected receiverState = iota
-	rsConnected
-	rsWaitForOpenRsp
-	rsWaitForRIRsp
-	rsWaitForTickleAck
+	ReceiverUnconnected ReceiverState = iota
+	ReceiverConnected
+	ReceiverWaitForOpenRsp
+	ReceiverWaitForRIRsp
+	ReceiverWaitForTickleAck
 )
 
-func (rs receiverState) String() string {
+func (rs ReceiverState) String() string {
 	switch rs {
-	case rsUnconnected:
+	case ReceiverUnconnected:
 		return "unconnected"
-	case rsConnected:
+	case ReceiverConnected:
 		return "connected"
-	case rsWaitForOpenRsp:
+	case ReceiverWaitForOpenRsp:
 		return "waiting for Open-Rsp"
-	case rsWaitForRIRsp:
+	case ReceiverWaitForRIRsp:
 		return "waiting for RI-Rsp"
-	case rsWaitForTickleAck:
+	case ReceiverWaitForTickleAck:
 		return "waiting for Tickle-Ack"
 	default:
 		return "unknown"
 	}
 }
 
-type senderState int
+type SenderState int
 
 const (
-	ssUnconnected senderState = iota
-	ssConnected
-	ssWaitForRIRspAck
-	ssWaitForRIUpdAck
-	ssWaitForRDAck
+	SenderUnconnected SenderState = iota
+	SenderConnected
+	SenderWaitForRIRspAck
+	SenderWaitForRIUpdAck
+	SenderWaitForRDAck
 )
 
-func (ss senderState) String() string {
+func (ss SenderState) String() string {
 	switch ss {
-	case ssUnconnected:
+	case SenderUnconnected:
 		return "unconnected"
-	case ssConnected:
+	case SenderConnected:
 		return "connected"
-	case ssWaitForRIRspAck:
+	case SenderWaitForRIRspAck:
 		return "waiting for RI-Ack for RI-Rsp"
-	case ssWaitForRIUpdAck:
+	case SenderWaitForRIUpdAck:
 		return "waiting for RI-Ack for RI-Upd"
-	case ssWaitForRDAck:
+	case SenderWaitForRDAck:
 		return "waiting for RI-Ack for RD"
 	default:
 		return "unknown"
 	}
 }
 
+// Peer handles the peering with a peer AURP router.
 type Peer struct {
-	Config       *Config
-	Transport    *aurp.Transport
-	UDPConn      *net.UDPConn
-	RemoteAddr   *net.UDPAddr
-	RecieveCh    chan aurp.Packet
+	// Whole router config.
+	Config *Config
+
+	// AURP-Tr state for producing packets.
+	Transport *aurp.Transport
+
+	// Connection to reply to packets on.
+	UDPConn *net.UDPConn
+
+	// The string that appeared in the config file / peer list file (with a
+	// ":387" appended as necessary).
+	// May be empty if this peer was not configured (it connected to us).
+	ConfiguredAddr string
+
+	// The resolved address of the peer.
+	RemoteAddr *net.UDPAddr
+
+	// Incoming packet channel.
+	ReceiveCh chan aurp.Packet
+
+	// Routing table (the peer will add/remove/update routes)
 	RoutingTable *RoutingTable
-	ZoneTable    *ZoneTable
-	Reconnect    bool
+
+	// Zone table (the peer will add/remove/update zones)
+	ZoneTable *ZoneTable
+
+	mu     sync.RWMutex
+	rstate ReceiverState
+	sstate SenderState
+}
+
+func (p *Peer) ReceiverState() ReceiverState {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.rstate
+}
+
+func (p *Peer) SenderState() SenderState {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.sstate
+}
+
+func (p *Peer) setRState(rstate ReceiverState) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.rstate = rstate
+}
+
+func (p *Peer) setSState(sstate SenderState) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.sstate = sstate
+}
+
+func (p *Peer) disconnect() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.rstate = ReceiverUnconnected
+	p.sstate = SenderUnconnected
 }
 
 // Send encodes and sends pkt to the remote host.
@@ -126,8 +180,7 @@ func (p *Peer) Handle(ctx context.Context) error {
 
 	var lastRISent aurp.Packet
 
-	rstate := rsUnconnected
-	sstate := ssUnconnected
+	p.disconnect()
 
 	// Write an Open-Req packet
 	if _, err := p.Send(p.Transport.NewOpenReqPacket(nil)); err != nil {
@@ -135,12 +188,12 @@ func (p *Peer) Handle(ctx context.Context) error {
 		return err
 	}
 
-	rstate = rsWaitForOpenRsp
+	p.setRState(ReceiverWaitForOpenRsp)
 
 	for {
 		select {
 		case <-ctx.Done():
-			if sstate == ssUnconnected {
+			if p.sstate == SenderUnconnected {
 				// Return immediately
 				return ctx.Err()
 			}
@@ -152,14 +205,14 @@ func (p *Peer) Handle(ctx context.Context) error {
 			return ctx.Err()
 
 		case <-rticker.C:
-			switch rstate {
-			case rsWaitForOpenRsp:
+			switch p.rstate {
+			case ReceiverWaitForOpenRsp:
 				if time.Since(lastSend) <= sendRetryTimer {
 					break
 				}
 				if sendRetries >= sendRetryLimit {
 					log.Printf("AURP Peer: Send retry limit reached while waiting for Open-Rsp, closing connection")
-					rstate = rsUnconnected
+					p.setRState(ReceiverUnconnected)
 					break
 				}
 
@@ -171,7 +224,7 @@ func (p *Peer) Handle(ctx context.Context) error {
 					return err
 				}
 
-			case rsConnected:
+			case ReceiverConnected:
 				// Check LHFT, send tickle?
 				if time.Since(lastHeardFrom) <= lastHeardFromTimer {
 					break
@@ -180,17 +233,17 @@ func (p *Peer) Handle(ctx context.Context) error {
 					log.Printf("AURP Peer: Couldn't send Tickle: %v", err)
 					return err
 				}
-				rstate = rsWaitForTickleAck
+				p.setRState(ReceiverWaitForTickleAck)
 				sendRetries = 0
 				lastSend = time.Now()
 
-			case rsWaitForTickleAck:
+			case ReceiverWaitForTickleAck:
 				if time.Since(lastSend) <= sendRetryTimer {
 					break
 				}
 				if sendRetries >= tickleRetryLimit {
 					log.Printf("AURP Peer: Send retry limit reached while waiting for Tickle-Ack, closing connection")
-					rstate = rsUnconnected
+					p.setRState(ReceiverUnconnected)
 					p.RoutingTable.DeletePeer(p)
 					break
 				}
@@ -203,13 +256,13 @@ func (p *Peer) Handle(ctx context.Context) error {
 				}
 				// still in Wait For Tickle-Ack
 
-			case rsWaitForRIRsp:
+			case ReceiverWaitForRIRsp:
 				if time.Since(lastSend) <= sendRetryTimer {
 					break
 				}
 				if sendRetries >= sendRetryLimit {
 					log.Printf("AURP Peer: Send retry limit reached while waiting for RI-Rsp, closing connection")
-					rstate = rsUnconnected
+					p.setRState(ReceiverUnconnected)
 					p.RoutingTable.DeletePeer(p)
 					break
 				}
@@ -223,10 +276,10 @@ func (p *Peer) Handle(ctx context.Context) error {
 				}
 				// still in Wait For RI-Rsp
 
-			case rsUnconnected:
+			case ReceiverUnconnected:
 				// Data receiver is unconnected. If data sender is connected,
 				// send a null RI-Upd to check if the sender is also unconnected
-				if sstate == ssConnected && time.Since(lastSend) > sendRetryTimer {
+				if p.sstate == SenderConnected && time.Since(lastSend) > sendRetryTimer {
 					if sendRetries >= sendRetryLimit {
 						log.Printf("AURP Peer: Send retry limit reached while probing sender connect, closing connection")
 					}
@@ -241,14 +294,23 @@ func (p *Peer) Handle(ctx context.Context) error {
 						log.Printf("AURP Peer: Couldn't send RI-Upd packet: %v", err)
 						return err
 					}
-					sstate = ssWaitForRIUpdAck
+					p.setSState(SenderWaitForRIUpdAck)
 				}
 
-				if p.Reconnect {
+				if p.ConfiguredAddr != "" {
 					// Periodically try to reconnect, if this peer is in the config file
 					if time.Since(lastReconnect) <= reconnectTimer {
 						break
 					}
+
+					// In case it's a DNS name, re-resolve it before reconnecting
+					raddr, err := net.ResolveUDPAddr("udp4", p.ConfiguredAddr)
+					if err != nil {
+						log.Printf("couldn't resolve UDP address, skipping: %v", err)
+						break
+					}
+					log.Printf("AURP Peer: resolved %q to %v", p.ConfiguredAddr, raddr)
+					p.RemoteAddr = raddr
 
 					lastReconnect = time.Now()
 					sendRetries = 0
@@ -257,22 +319,22 @@ func (p *Peer) Handle(ctx context.Context) error {
 						log.Printf("AURP Peer: Couldn't send Open-Req packet: %v", err)
 						return err
 					}
-					rstate = rsWaitForOpenRsp
+					p.setRState(ReceiverWaitForOpenRsp)
 				}
 			}
 
 		case <-sticker.C:
-			switch sstate {
-			case ssUnconnected:
+			switch p.sstate {
+			case SenderUnconnected:
 				// Do nothing
 
-			case ssConnected:
+			case SenderConnected:
 				if time.Since(lastUpdate) <= updateTimer {
 					break
 				}
 				// TODO: is there a routing update to send?
 
-			case ssWaitForRIRspAck, ssWaitForRIUpdAck:
+			case SenderWaitForRIRspAck, SenderWaitForRIUpdAck:
 				if time.Since(lastSend) <= sendRetryTimer {
 					break
 				}
@@ -282,7 +344,7 @@ func (p *Peer) Handle(ctx context.Context) error {
 				}
 				if sendRetries >= sendRetryLimit {
 					log.Printf("AURP Peer: Send retry limit reached, closing connection")
-					sstate = ssUnconnected
+					p.setSState(SenderUnconnected)
 					continue
 				}
 				sendRetries++
@@ -292,20 +354,20 @@ func (p *Peer) Handle(ctx context.Context) error {
 					return err
 				}
 
-			case ssWaitForRDAck:
+			case SenderWaitForRDAck:
 				if time.Since(lastSend) <= sendRetryTimer {
 					break
 				}
-				sstate = ssUnconnected
+				p.setSState(SenderUnconnected)
 			}
 
-		case pkt := <-p.RecieveCh:
+		case pkt := <-p.ReceiveCh:
 			lastHeardFrom = time.Now()
 
 			switch pkt := pkt.(type) {
 			case *aurp.OpenReqPacket:
-				if sstate != ssUnconnected {
-					log.Printf("AURP Peer: Open-Req received but sender state is not unconnected (was %v)", sstate)
+				if p.sstate != SenderUnconnected {
+					log.Printf("AURP Peer: Open-Req received but sender state is not unconnected (was %v)", p.sstate)
 				}
 
 				// The peer tells us their connection ID in Open-Req.
@@ -332,32 +394,32 @@ func (p *Peer) Handle(ctx context.Context) error {
 					return err
 				}
 				if orsp.RateOrErrCode >= 0 {
-					sstate = ssConnected
+					p.setSState(SenderConnected)
 				}
 
 				// If receiver is unconnected, commence connecting
-				if rstate == rsUnconnected {
+				if p.rstate == ReceiverUnconnected {
 					lastSend = time.Now()
 					sendRetries = 0
 					if _, err := p.Send(p.Transport.NewOpenReqPacket(nil)); err != nil {
 						log.Printf("AURP Peer: Couldn't send Open-Req packet: %v", err)
 						return err
 					}
-					rstate = rsWaitForOpenRsp
+					p.setRState(ReceiverWaitForOpenRsp)
 				}
 
 			case *aurp.OpenRspPacket:
-				if rstate != rsWaitForOpenRsp {
-					log.Printf("AURP Peer: Received Open-Rsp but was not waiting for one (receiver state was %v)", rstate)
+				if p.rstate != ReceiverWaitForOpenRsp {
+					log.Printf("AURP Peer: Received Open-Rsp but was not waiting for one (receiver state was %v)", p.rstate)
 				}
 				if pkt.RateOrErrCode < 0 {
 					// It's an error code.
 					log.Printf("AURP Peer: Open-Rsp error code from peer %v: %d", p.RemoteAddr.IP, pkt.RateOrErrCode)
-					rstate = rsUnconnected
+					p.setRState(ReceiverUnconnected)
 					break
 				}
 				//log.Printf("AURP Peer: Data receiver is connected!")
-				rstate = rsConnected
+				p.setRState(ReceiverConnected)
 
 				// Send an RI-Req
 				sendRetries = 0
@@ -365,18 +427,18 @@ func (p *Peer) Handle(ctx context.Context) error {
 					log.Printf("AURP Peer: Couldn't send RI-Req packet: %v", err)
 					return err
 				}
-				rstate = rsWaitForRIRsp
+				p.setRState(ReceiverWaitForRIRsp)
 
 			case *aurp.RIReqPacket:
-				if sstate != ssConnected {
-					log.Printf("AURP Peer: Received RI-Req but was not expecting one (sender state was %v)", sstate)
+				if p.sstate != SenderConnected {
+					log.Printf("AURP Peer: Received RI-Req but was not expecting one (sender state was %v)", p.sstate)
 				}
 
 				nets := aurp.NetworkTuples{
 					{
 						Extended:   true,
-						RangeStart: uint16(p.Config.EtherTalk.NetStart),
-						RangeEnd:   uint16(p.Config.EtherTalk.NetEnd),
+						RangeStart: p.Config.EtherTalk.NetStart,
+						RangeEnd:   p.Config.EtherTalk.NetEnd,
 						Distance:   0,
 					},
 				}
@@ -386,21 +448,21 @@ func (p *Peer) Handle(ctx context.Context) error {
 					log.Printf("AURP Peer: Couldn't send RI-Rsp packet: %v", err)
 					return err
 				}
-				sstate = ssWaitForRIRspAck
+				p.setSState(SenderWaitForRIRspAck)
 
 			case *aurp.RIRspPacket:
-				if rstate != rsWaitForRIRsp {
-					log.Printf("Received RI-Rsp but was not waiting for one (receiver state was %v)", rstate)
+				if p.rstate != ReceiverWaitForRIRsp {
+					log.Printf("Received RI-Rsp but was not waiting for one (receiver state was %v)", p.rstate)
 				}
 
 				log.Printf("AURP Peer: Learned about these networks: %v", pkt.Networks)
 
 				for _, nt := range pkt.Networks {
-					p.RoutingTable.UpsertRoute(
+					p.RoutingTable.InsertRoute(
+						p,
 						nt.Extended,
 						ddp.Network(nt.RangeStart),
 						ddp.Network(nt.RangeEnd),
-						p,
 						nt.Distance+1,
 					)
 				}
@@ -413,26 +475,26 @@ func (p *Peer) Handle(ctx context.Context) error {
 				}
 				if pkt.Flags&aurp.RoutingFlagLast != 0 {
 					// No longer waiting for an RI-Rsp
-					rstate = rsConnected
+					p.setRState(ReceiverConnected)
 				}
 
 			case *aurp.RIAckPacket:
-				switch sstate {
-				case ssWaitForRIRspAck:
+				switch p.sstate {
+				case SenderWaitForRIRspAck:
 					// We sent an RI-Rsp, this is the RI-Ack we expected.
 
-				case ssWaitForRIUpdAck:
+				case SenderWaitForRIUpdAck:
 					// We sent an RI-Upd, this is the RI-Ack we expected.
 
-				case ssWaitForRDAck:
+				case SenderWaitForRDAck:
 					// We sent an RD... Why are we here?
 					continue
 
 				default:
-					log.Printf("AURP Peer: Received RI-Ack but was not waiting for one (sender state was %v)", sstate)
+					log.Printf("AURP Peer: Received RI-Ack but was not waiting for one (sender state was %v)", p.sstate)
 				}
 
-				sstate = ssConnected
+				p.setSState(SenderConnected)
 				sendRetries = 0
 
 				// If SZI flag is set, send ZI-Rsp (transaction)
@@ -448,7 +510,7 @@ func (p *Peer) Handle(ctx context.Context) error {
 
 				// TODO: Continue sending next RI-Rsp (streamed)?
 
-				if rstate == rsUnconnected {
+				if p.rstate == ReceiverUnconnected {
 					// Receiver is unconnected, but their receiver sent us an
 					// RI-Ack for something
 					// Try to reconnect?
@@ -458,23 +520,58 @@ func (p *Peer) Handle(ctx context.Context) error {
 						log.Printf("AURP Peer: Couldn't send Open-Req packet: %v", err)
 						return err
 					}
-					rstate = rsWaitForOpenRsp
+					p.setRState(ReceiverWaitForOpenRsp)
 				}
 
 			case *aurp.RIUpdPacket:
-				// TODO: Integrate info into route table
+
+				var ackFlag aurp.RoutingFlag
+
 				for _, et := range pkt.Events {
 					log.Printf("AURP Peer: RI-Upd event %v", et)
+					switch et.EventCode {
+					case aurp.EventCodeNull:
+						// Do nothing except respond with RI-Ack
+
+					case aurp.EventCodeNA:
+						if err := p.RoutingTable.InsertRoute(
+							p,
+							et.Extended,
+							et.RangeStart,
+							et.RangeEnd,
+							et.Distance+1,
+						); err != nil {
+							log.Printf("AURP Peer: couldn't insert route: %v", err)
+						}
+						ackFlag = aurp.RoutingFlagSendZoneInfo
+
+					case aurp.EventCodeND:
+						p.RoutingTable.DeletePeerNetwork(p, et.RangeStart)
+
+					case aurp.EventCodeNDC:
+						p.RoutingTable.UpdateRouteDistance(p, et.RangeStart, et.Distance+1)
+
+					case aurp.EventCodeNRC:
+						// "An exterior router sends a Network Route Change
+						// (NRC) event if the path to an exported network
+						// through its local internet changes to a path through
+						// a tunneling port, causing split-horizoned processing
+						// to eliminate that network’s routing information."
+						p.RoutingTable.DeletePeerNetwork(p, et.RangeStart)
+
+					case aurp.EventCodeZC:
+						// "This event is reserved for future use."
+					}
 				}
 
-				if _, err := p.Send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, 0)); err != nil {
+				if _, err := p.Send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, ackFlag)); err != nil {
 					log.Printf("AURP Peer: Couldn't send RI-Ack: %v", err)
 					return err
 				}
 
 			case *aurp.RDPacket:
-				if rstate == rsUnconnected || rstate == rsWaitForOpenRsp {
-					log.Printf("AURP Peer: Received RD but was not expecting one (receiver state was %v)", rstate)
+				if p.rstate == ReceiverUnconnected || p.rstate == ReceiverWaitForOpenRsp {
+					log.Printf("AURP Peer: Received RD but was not expecting one (receiver state was %v)", p.rstate)
 				}
 
 				log.Printf("AURP Peer: Router Down: error code %d %s", pkt.ErrorCode, pkt.ErrorCode)
@@ -486,8 +583,7 @@ func (p *Peer) Handle(ctx context.Context) error {
 					return err
 				}
 				// Connections closed
-				rstate = rsUnconnected
-				sstate = ssUnconnected
+				p.disconnect()
 
 			case *aurp.ZIReqPacket:
 				// TODO: split ZI-Rsp packets similarly to ZIP Replies
@@ -529,10 +625,10 @@ func (p *Peer) Handle(ctx context.Context) error {
 				}
 
 			case *aurp.TickleAckPacket:
-				if rstate != rsWaitForTickleAck {
-					log.Printf("AURP Peer: Received Tickle-Ack but was not waiting for one (receiver state was %v)", rstate)
+				if p.rstate != ReceiverWaitForTickleAck {
+					log.Printf("AURP Peer: Received Tickle-Ack but was not waiting for one (receiver state was %v)", p.rstate)
 				}
-				rstate = rsConnected
+				p.setRState(ReceiverConnected)
 			}
 		}
 	}
