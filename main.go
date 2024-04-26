@@ -236,7 +236,17 @@ func main() {
 			}
 		}()
 		slices.SortFunc(peerInfo, func(pa, pb *router.Peer) int {
-			return cmp.Compare(pa.ConfiguredAddr, pb.ConfiguredAddr)
+			return cmp.Or(
+				-cmp.Compare(
+					bool2Int(pa.ReceiverState() == router.ReceiverConnected),
+					bool2Int(pb.ReceiverState() == router.ReceiverConnected),
+				),
+				-cmp.Compare(
+					bool2Int(pa.SenderState() == router.SenderConnected),
+					bool2Int(pb.SenderState() == router.SenderConnected),
+				),
+				cmp.Compare(pa.ConfiguredAddr, pb.ConfiguredAddr),
+			)
 		})
 		return peerInfo, nil
 	})
@@ -638,4 +648,11 @@ func (u udpAddr) toNet() *net.UDPAddr {
 		IP:   u.ipv4[:],
 		Port: int(u.port),
 	}
+}
+
+func bool2Int(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
