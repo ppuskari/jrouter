@@ -35,6 +35,13 @@ type Route struct {
 	LastSeen time.Time
 }
 
+func (r Route) LastSeenAgo() string {
+	if r.LastSeen.IsZero() {
+		return "never"
+	}
+	return fmt.Sprintf("%v ago", time.Since(r.LastSeen).Truncate(time.Millisecond))
+}
+
 type RoutingTable struct {
 	mu     sync.Mutex
 	routes map[*Route]struct{}
@@ -44,6 +51,17 @@ func NewRoutingTable() *RoutingTable {
 	return &RoutingTable{
 		routes: make(map[*Route]struct{}),
 	}
+}
+
+func (rt *RoutingTable) Dump() []Route {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+
+	table := make([]Route, 0, len(rt.routes))
+	for r := range rt.routes {
+		table = append(table, *r)
+	}
+	return table
 }
 
 func (rt *RoutingTable) LookupRoute(network ddp.Network) *Route {

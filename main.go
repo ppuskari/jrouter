@@ -45,6 +45,27 @@ import (
 	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
 
+const routingTableTemplate = `
+<table>
+	<thead><tr>
+		<th>Network range</th>
+		<th>Extended?</th>
+		<th>Distance</th>
+		<th>Last seen<th>
+	</tr></thead>
+	<tbody>
+{{range $route := . }}
+	<tr>
+		<td>{{$route.NetStart}}{{if not (eq $route.NetStart $route.NetEnd)}} - {{$route.NetEnd}}{{end}}</td>
+		<td>{{if $route.Extended}}✅{{else}}❌{{end}}</td>
+		<td>{{$route.Distance}}</td>
+		<td>{{$route.LastSeenAgo}}</td>
+	</tr>
+{{end}}
+	</tbody>
+</table>
+`
+
 var hasPortRE = regexp.MustCompile(`:\d+$`)
 
 var configFilePath = flag.String("config", "jrouter.yaml", "Path to configuration file to use")
@@ -143,6 +164,11 @@ func main() {
 
 	// -------------------------------- Tables --------------------------------
 	routes := router.NewRoutingTable()
+	_, done := status.AddItem(ctx, "Routing table", routingTableTemplate, func(context.Context) (any, error) {
+		return routes.Dump(), nil
+	})
+	defer done()
+
 	zones := router.NewZoneTable()
 	zones.Upsert(cfg.EtherTalk.NetStart, cfg.EtherTalk.ZoneName, true)
 
