@@ -226,7 +226,7 @@ func (m *RTMPMachine) dataPackets(myAddr ddp.Addr) []*rtmp.DataPacket {
 			Extended:   rt.Extended,
 			RangeStart: rt.NetStart,
 			RangeEnd:   rt.NetEnd,
-			Distance:   rt.Distance + 1,
+			Distance:   rt.Distance,
 		})
 	}
 	// "The first tuple in RTMP Data packets sent on extended

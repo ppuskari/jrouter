@@ -387,7 +387,7 @@ func (p *Peer) Handle(ctx context.Context) error {
 						ddp.Network(nt.RangeStart),
 						ddp.Network(nt.RangeEnd),
 						p,
-						nt.Distance,
+						nt.Distance+1,
 					)
 				}
 

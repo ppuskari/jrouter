@@ -18,6 +18,7 @@ package main
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -31,6 +32,7 @@ import (
 	"os/signal"
 	"regexp"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -52,6 +54,7 @@ const routingTableTemplate = `
 		<th>Extended?</th>
 		<th>Distance</th>
 		<th>Last seen<th>
+		<th>Port</th>
 	</tr></thead>
 	<tbody>
 {{range $route := . }}
@@ -60,6 +63,7 @@ const routingTableTemplate = `
 		<td>{{if $route.Extended}}✅{{else}}❌{{end}}</td>
 		<td>{{$route.Distance}}</td>
 		<td>{{$route.LastSeenAgo}}</td>
+		<td>{{if $route.Peer}}{{$route.Peer.RemoteAddr}}{{else}}-{{end}}</td>
 	</tr>
 {{end}}
 	</tbody>
@@ -165,7 +169,11 @@ func main() {
 	// -------------------------------- Tables --------------------------------
 	routes := router.NewRoutingTable()
 	_, done := status.AddItem(ctx, "Routing table", routingTableTemplate, func(context.Context) (any, error) {
-		return routes.Dump(), nil
+		rs := routes.Dump()
+		slices.SortFunc(rs, func(ra, rb router.Route) int {
+			return cmp.Compare(ra.NetStart, rb.NetStart)
+		})
+		return rs, nil
 	})
 	defer done()
 
