@@ -45,6 +45,7 @@ Status: {{.Status}}<br/>
 	<thead><tr>
 		<th>DDP addr</th>
 		<th>Ethernet addr</th>
+		<th>Valid?
 		<th>Last updated</th>
 		<th>Being resolved?</th>
 	</tr></thead>
@@ -53,8 +54,9 @@ Status: {{.Status}}<br/>
 		<tr>
 			<td>{{$key.Network}}.{{$key.Node}}</td>
 			<td>{{$entry.HWAddr}}</td>
-			<td>{{$entry.LastUpdated}}</td>
-			<td>{{if $entry.Resolving}}Resolving...{{else}}Resolved{{end}}</td>
+			<td>{{if $entry.Valid}}✅{{else}}❌{{end}}</td>
+			<td>{{$entry.LastUpdatedAgo}}</td>
+			<td>{{if $entry.Resolving}}⌚️{{else}}✅{{end}}</td>
 		</tr>
 {{end}}
 	</tbody>
@@ -357,6 +359,20 @@ type AMTEntry struct {
 	updated chan struct{}
 }
 
+// Valid reports if the entry is valid.
+func (e *AMTEntry) Valid() bool {
+	return e != nil && time.Since(e.LastUpdated) < maxAMTEntryAge
+}
+
+// LastUpdatedAgo is a friendly string reporting how long ago the entry was
+// updated/resolved.
+func (e *AMTEntry) LastUpdatedAgo() string {
+	if e == nil || e.LastUpdated.IsZero() {
+		return "never"
+	}
+	return fmt.Sprintf("%v ago", time.Since(e.LastUpdated).Truncate(time.Millisecond))
+}
+
 // addressMappingTable implements a concurrent-safe Address Mapping Table for
 // AppleTalk (DDP) addresses to Ethernet hardware addresses.
 type addressMappingTable struct {
@@ -419,7 +435,7 @@ func (t *addressMappingTable) lookupOrWait(ddpAddr ddp.Addr) (ethernet.Addr, <-c
 		}
 		return ethernet.Addr{}, ch, true
 	}
-	if time.Since(ent.LastUpdated) >= maxAMTEntryAge {
+	if !ent.Valid() {
 		if ent.Resolving {
 			return ent.HWAddr, ent.updated, false
 		}
