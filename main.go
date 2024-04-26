@@ -226,12 +226,18 @@ func main() {
 	var peersMu sync.Mutex
 	peers := make(map[udpAddr]*router.Peer)
 	status.AddItem(ctx, "AURP Peers", peerTableTemplate, func(context.Context) (any, error) {
-		peersMu.Lock()
-		peerInfo := make([]*router.Peer, 0, len(peers))
-		for _, p := range peers {
-			peerInfo = append(peerInfo, p)
-		}
-		peersMu.Unlock()
+		var peerInfo []*router.Peer
+		func() {
+			peersMu.Lock()
+			defer peersMu.Unlock()
+			peerInfo = make([]*router.Peer, 0, len(peers))
+			for _, p := range peers {
+				peerInfo = append(peerInfo, p)
+			}
+		}()
+		slices.SortFunc(peerInfo, func(pa, pb *router.Peer) int {
+			return cmp.Compare(pa.ConfiguredAddr, pb.ConfiguredAddr)
+		})
 		return peerInfo, nil
 	})
 
