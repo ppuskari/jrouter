@@ -7,6 +7,7 @@ Home-grown alternative implementation of Apple Internet Router 3.0
 * Full compatibility with Apple Internet Router 3.0
 * Function on modern operating systems
 * EtherTalk support
+* Be observable (there's a HTTP server with a `/status` page)
 
 TashTalk could be a stretch goal, if I can acquire one!
 
@@ -21,16 +22,14 @@ Things I plan to fix Real Soon Now:
   You can now configure a different Ethernet address for the EtherTalk
   interface. I haven't tested it with netatalk or tashrouter on the same
   host, but I think using a distinct Ethernet address would help them coexist.
-* It doesn't do any of the required packet splitting to keep packets under the
-  AppleTalk size limits. ~~In particular ZIP GetZoneList Replies are incorrect
-  when the zone list would exceed the limit.~~ GetZoneList is now fixed, but
-  various others need fixing.
-* It logs a lot and has no other monitoring or observability capability. I plan
-  to add a Prometheus metrics endpoint and at least add log levels / verbosity
-  flag.
-* The AURP implementation is strictly incomplete, and lost connections with
-  configured peers aren't re-established after some backoff. This won't be too
-  difficult.
+* It currently ignores other AppleTalk routers on the EtherTalk side. This is
+  the next main thing to implement to make it work with e.g. netatalk.
+* Some packet types need splitting to fit within limits. Some of these aren't
+  implemented yet (mainly encapsulated).
+* I plan to add a Prometheus metrics endpoint and at least add log levels /
+  verbosity config.
+* The AURP implementation is mostly there, but not fully complete. The main
+  thing missing is sequence number checking.
 
 Things I plan to fix At Some Point:
 
@@ -40,7 +39,7 @@ Things I plan to fix At Some Point:
 
 ## How to use
 
-WARNING: It Barely Works™
+WARNING: It Sorta Works™
 
 First, set up a `jrouter.yaml` (use the one in this repo as an example).
 
