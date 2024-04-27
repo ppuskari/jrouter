@@ -410,10 +410,14 @@ func main() {
 					ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket,
 					ddpkt.Proto, len(ddpkt.Data))
 
-				// Glean address info for AMT
-				srcAddr := ddp.Addr{Network: ddpkt.SrcNet, Node: ddpkt.SrcNode}
-				aarpMachine.Learn(srcAddr, ethFrame.Src)
-				// log.Printf("DDP: Gleaned that %d.%d -> %v", srcAddr.Network, srcAddr.Node, ethFrame.Src)
+				// Glean address info for AMT, but only if SrcNet is our net
+				// (If it's not our net, then it was routed from elsewhere, and
+				// we'd be filling the AMT with entries for a router.)
+				if ddpkt.SrcNet >= cfg.EtherTalk.NetStart && ddpkt.SrcNet <= cfg.EtherTalk.NetEnd {
+					srcAddr := ddp.Addr{Network: ddpkt.SrcNet, Node: ddpkt.SrcNode}
+					aarpMachine.Learn(srcAddr, ethFrame.Src)
+					// log.Printf("DDP: Gleaned that %d.%d -> %v", srcAddr.Network, srcAddr.Node, ethFrame.Src)
+				}
 
 				// Packet for us? First, who am I?
 				myAddr, ok := aarpMachine.Address()
