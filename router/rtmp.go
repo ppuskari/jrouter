@@ -159,14 +159,30 @@ func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket)
 					}
 
 				case rtmp.FunctionLoopProbe:
-					log.Printf("RTMP: TODO: handle Loop Probes")
+					log.Print("RTMP: TODO: handle Loop Probes")
 
 				}
 
 			case ddp.ProtoRTMPResp:
 				// It's a peer router on the AppleTalk network!
-				// TODO: integrate this information with the routing table?
 				log.Print("RTMP: Got Response or Data")
+				dataPkt, err := rtmp.UnmarshalDataPacket(pkt.Data)
+				if err != nil {
+					log.Printf("RTMP: Couldn't unmarshal RTMP Data packet: %v", err)
+					break
+				}
+				peer := &EtherTalkPeer{
+					PcapHandle: m.PcapHandle,
+					MyHWAddr:   m.AARP.myAddr.Hardware,
+					AARP:       m.AARP,
+					PeerAddr:   dataPkt.RouterAddr,
+				}
+
+				for _, rt := range dataPkt.NetworkTuples {
+					if err := m.RoutingTable.UpsertEthRoute(peer, rt.Extended, rt.RangeStart, rt.RangeEnd, rt.Distance+1); err != nil {
+						log.Printf("RTMP: Couldn't upsert EtherTalk route: %v", err)
+					}
+				}
 
 			default:
 				log.Printf("RTMP: invalid DDP type %d on socket 1", pkt.Proto)

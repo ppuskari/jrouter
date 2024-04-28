@@ -24,15 +24,18 @@ import (
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
-// const maxRouteAge = 10 * time.Minute // TODO: confirm
+const maxRouteAge = 10 * time.Minute // TODO: confirm
 
 type Route struct {
 	Extended bool
 	NetStart ddp.Network
 	NetEnd   ddp.Network
-	Peer     *Peer
 	Distance uint8
 	LastSeen time.Time
+
+	// Exactly one of the following should be set
+	AURPPeer      *AURPPeer
+	EtherTalkPeer *EtherTalkPeer
 }
 
 func (r Route) LastSeenAgo() string {
@@ -70,15 +73,13 @@ func (rt *RoutingTable) LookupRoute(network ddp.Network) *Route {
 
 	var bestRoute *Route
 	for r := range rt.routes {
-		if r.Peer == nil {
-			continue
-		}
 		if network < r.NetStart || network > r.NetEnd {
 			continue
 		}
-		// if time.Since(r.LastSeen) > maxRouteAge {
-		// 	continue
-		// }
+		// Exclude EtherTalk routes that are too old
+		if r.EtherTalkPeer != nil && time.Since(r.LastSeen) > maxRouteAge {
+			continue
+		}
 		if bestRoute == nil {
 			bestRoute = r
 			continue
@@ -90,41 +91,65 @@ func (rt *RoutingTable) LookupRoute(network ddp.Network) *Route {
 	return bestRoute
 }
 
-func (rt *RoutingTable) DeletePeer(peer *Peer) {
+func (rt *RoutingTable) DeleteAURPPeer(peer *AURPPeer) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
 	for route := range rt.routes {
-		if route.Peer == peer {
+		if route.AURPPeer == peer {
 			delete(rt.routes, route)
 		}
 	}
 }
 
-func (rt *RoutingTable) DeletePeerNetwork(peer *Peer, network ddp.Network) {
+func (rt *RoutingTable) DeleteAURPPeerNetwork(peer *AURPPeer, network ddp.Network) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
 	for route := range rt.routes {
-		if route.Peer == peer && route.NetStart == network {
+		if route.AURPPeer == peer && route.NetStart == network {
 			delete(rt.routes, route)
 		}
 	}
 }
 
-func (rt *RoutingTable) UpdateRouteDistance(peer *Peer, network ddp.Network, distance uint8) {
+func (rt *RoutingTable) UpdateAURPRouteDistance(peer *AURPPeer, network ddp.Network, distance uint8) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
 	for route := range rt.routes {
-		if route.Peer == peer && route.NetStart == network {
+		if route.AURPPeer == peer && route.NetStart == network {
 			route.Distance = distance
 			route.LastSeen = time.Now()
 		}
 	}
 }
 
-func (rt *RoutingTable) InsertRoute(peer *Peer, extended bool, netStart, netEnd ddp.Network, metric uint8) error {
+func (rt *RoutingTable) UpsertEthRoute(peer *EtherTalkPeer, extended bool, netStart, netEnd ddp.Network, metric uint8) error {
+	if netStart > netEnd {
+		return fmt.Errorf("invalid network range [%d, %d]", netStart, netEnd)
+	}
+	if netStart != netEnd && !extended {
+		return fmt.Errorf("invalid network range [%d, %d] for nonextended network", netStart, netEnd)
+	}
+
+	r := &Route{
+		Extended:      extended,
+		NetStart:      netStart,
+		NetEnd:        netEnd,
+		Distance:      metric,
+		LastSeen:      time.Now(),
+		EtherTalkPeer: peer,
+	}
+
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	// TODO: update if present rather than insert
+	rt.routes[r] = struct{}{}
+	return nil
+}
+
+func (rt *RoutingTable) InsertAURPRoute(peer *AURPPeer, extended bool, netStart, netEnd ddp.Network, metric uint8) error {
 	if netStart > netEnd {
 		return fmt.Errorf("invalid network range [%d, %d]", netStart, netEnd)
 	}
@@ -136,9 +161,9 @@ func (rt *RoutingTable) InsertRoute(peer *Peer, extended bool, netStart, netEnd 
 		Extended: extended,
 		NetStart: netStart,
 		NetEnd:   netEnd,
-		Peer:     peer,
 		Distance: metric,
 		LastSeen: time.Now(),
+		AURPPeer: peer,
 	}
 
 	rt.mu.Lock()
@@ -152,12 +177,10 @@ func (rt *RoutingTable) ValidRoutes() []*Route {
 	defer rt.mu.Unlock()
 	valid := make([]*Route, 0, len(rt.routes))
 	for r := range rt.routes {
-		if r.Peer == nil {
+		// Exclude EtherTalk routes that are too old
+		if r.EtherTalkPeer != nil && time.Since(r.LastSeen) > maxRouteAge {
 			continue
 		}
-		// if time.Since(r.LastSeen) > maxRouteAge {
-		// 	continue
-		// }
 		valid = append(valid, r)
 	}
 	return valid

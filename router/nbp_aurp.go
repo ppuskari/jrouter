@@ -24,7 +24,7 @@ import (
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
-func (rtr *Router) HandleNBPInAURP(peer *Peer, ddpkt *ddp.ExtPacket) error {
+func (rtr *Router) HandleNBPInAURP(peer *AURPPeer, ddpkt *ddp.ExtPacket) error {
 	if ddpkt.Proto != ddp.ProtoNBP {
 		return fmt.Errorf("invalid DDP type %d on socket 2", ddpkt.Proto)
 	}

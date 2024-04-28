@@ -224,18 +224,18 @@ func main() {
 
 	// -------------------------------- Peers ---------------------------------
 	var peersMu sync.Mutex
-	peers := make(map[udpAddr]*router.Peer)
+	peers := make(map[udpAddr]*router.AURPPeer)
 	status.AddItem(ctx, "AURP Peers", peerTableTemplate, func(context.Context) (any, error) {
-		var peerInfo []*router.Peer
+		var peerInfo []*router.AURPPeer
 		func() {
 			peersMu.Lock()
 			defer peersMu.Unlock()
-			peerInfo = make([]*router.Peer, 0, len(peers))
+			peerInfo = make([]*router.AURPPeer, 0, len(peers))
 			for _, p := range peers {
 				peerInfo = append(peerInfo, p)
 			}
 		}()
-		slices.SortFunc(peerInfo, func(pa, pb *router.Peer) int {
+		slices.SortFunc(peerInfo, func(pa, pb *router.AURPPeer) int {
 			return cmp.Or(
 				-cmp.Compare(
 					bool2Int(pa.ReceiverState() == router.ReceiverConnected),
@@ -257,7 +257,7 @@ func main() {
 	}
 
 	var wg sync.WaitGroup
-	goPeerHandler := func(p *router.Peer) {
+	goPeerHandler := func(p *router.AURPPeer) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -308,7 +308,7 @@ func main() {
 			continue
 		}
 
-		peer := &router.Peer{
+		peer := &router.AURPPeer{
 			Config: cfg,
 			Transport: &aurp.Transport{
 				LocalDI:     localDI,
@@ -434,18 +434,29 @@ func main() {
 				// TODO: more generic routing
 				if ddpkt.DstNet != 0 && !(ddpkt.DstNet >= cfg.EtherTalk.NetStart && ddpkt.DstNet <= cfg.EtherTalk.NetEnd) {
 					// Is it for a network in the routing table?
-					rt := routes.LookupRoute(ddpkt.DstNet)
-					if rt == nil {
+					route := routes.LookupRoute(ddpkt.DstNet)
+					if route == nil {
 						log.Printf("DDP: no route for network %d", ddpkt.DstNet)
 						continue
 					}
 
-					// Encap ethPacket.Payload into an AURP packet
-					log.Printf("DDP: forwarding to AURP peer %v", rt.Peer.RemoteAddr)
-					if _, err := rt.Peer.Send(rt.Peer.Transport.NewAppleTalkPacket(ethFrame.Payload)); err != nil {
-						log.Printf("DDP: Couldn't forward packet to AURP peer: %v", err)
-					}
+					switch {
+					case route.AURPPeer != nil:
+						// Encap ethPacket.Payload into an AURP packet
+						log.Printf("DDP: forwarding to AURP peer %v", route.AURPPeer.RemoteAddr)
+						if _, err := route.AURPPeer.Send(route.AURPPeer.Transport.NewAppleTalkPacket(ethFrame.Payload)); err != nil {
+							log.Printf("DDP: Couldn't forward packet to AURP peer: %v", err)
+						}
 
+					case route.EtherTalkPeer != nil:
+						// Route payload to another router over EtherTalk
+						// TODO: this is unlikely because we currenly only support 1 EtherTalk port
+						log.Printf("DDP: forwarding to EtherTalk peer %v", route.EtherTalkPeer.PeerAddr)
+						// Note: resolving AARP can block
+						if err := route.EtherTalkPeer.Forward(ctx, ddpkt); err != nil {
+							log.Printf("DDP: Couldn't forward packet to EtherTalk peer: %v", err)
+						}
+					}
 					continue
 				}
 
@@ -534,7 +545,7 @@ func main() {
 					continue
 				}
 				// New peer!
-				pr = &router.Peer{
+				pr = &router.AURPPeer{
 					Config: cfg,
 					Transport: &aurp.Transport{
 						LocalDI:     localDI,
@@ -584,14 +595,7 @@ func main() {
 					ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket,
 					ddpkt.Proto, len(ddpkt.Data))
 
-				// "Route" the packet
-				// Since for now there's only one local network, the routing
-				// decision is pretty easy
-				// TODO: Fix this to support other AppleTalk routers
-				if ddpkt.DstNet < cfg.EtherTalk.NetStart || ddpkt.DstNet > cfg.EtherTalk.NetEnd {
-					log.Print("DDP/AURP: dropping packet not addressed to our EtherTalk range")
-					continue
-				}
+				// Route the packet
 
 				// Check and adjust the Hop Count
 				// Note the ddp package doesn't make this simple
@@ -604,8 +608,44 @@ func main() {
 				ddpkt.Size &^= 0x3C00
 				ddpkt.Size |= hopCount << 10
 
+				if ddpkt.DstNet < cfg.EtherTalk.NetStart || ddpkt.DstNet > cfg.EtherTalk.NetEnd {
+					// Is it a network in the routing table?
+					route := routes.LookupRoute(ddpkt.DstNet)
+					if route == nil {
+						log.Printf("DDP/AURP: no route for packet (dstnet %d); dropping packet", ddpkt.DstNet)
+						break
+					}
+
+					switch {
+					case route.AURPPeer != nil:
+						// Routing between AURP peers... bit weird but OK
+						log.Printf("DDP/AURP: forwarding to AURP peer %v", route.AURPPeer.RemoteAddr)
+						outPkt, err := ddp.ExtMarshal(*ddpkt)
+						if err != nil {
+							log.Printf("DDP/AURP: Couldn't re-marshal packet: %v", err)
+							break
+						}
+						if _, err := route.AURPPeer.Send(route.AURPPeer.Transport.NewAppleTalkPacket(outPkt)); err != nil {
+							log.Printf("DDP/AURP: Couldn't forward packet to AURP peer: %v", err)
+						}
+
+					case route.EtherTalkPeer != nil:
+						// AURP peer -> EtherTalk peer
+						// Note: resolving AARP can block
+						log.Printf("DDP/AURP: forwarding to EtherTalk peer %v", route.EtherTalkPeer.PeerAddr)
+						if err := route.EtherTalkPeer.Forward(ctx, ddpkt); err != nil {
+							log.Printf("DDP/AURP: Couldn't forward packet to EtherTalk peer: %v", err)
+						}
+
+					default:
+						log.Print("DDP/AURP: no forwarding mechanism for route; dropping packet")
+
+					}
+					continue
+				}
+
 				// Is it addressed to me? Is it NBP?
-				if ddpkt.DstNode == 0 { // Node 0 = the router for the network
+				if ddpkt.DstNode == 0 { // Node 0 = any router for the network = me
 					if ddpkt.DstSocket != 2 {
 						// Something else?? TODO
 						log.Printf("DDP/AURP: I don't have anything 'listening' on socket %d", ddpkt.DstSocket)

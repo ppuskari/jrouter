@@ -92,8 +92,8 @@ func (ss SenderState) String() string {
 	}
 }
 
-// Peer handles the peering with a peer AURP router.
-type Peer struct {
+// AURPPeer handles the peering with a peer AURP router.
+type AURPPeer struct {
 	// Whole router config.
 	Config *Config
 
@@ -125,31 +125,31 @@ type Peer struct {
 	sstate SenderState
 }
 
-func (p *Peer) ReceiverState() ReceiverState {
+func (p *AURPPeer) ReceiverState() ReceiverState {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.rstate
 }
 
-func (p *Peer) SenderState() SenderState {
+func (p *AURPPeer) SenderState() SenderState {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.sstate
 }
 
-func (p *Peer) setRState(rstate ReceiverState) {
+func (p *AURPPeer) setRState(rstate ReceiverState) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.rstate = rstate
 }
 
-func (p *Peer) setSState(sstate SenderState) {
+func (p *AURPPeer) setSState(sstate SenderState) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.sstate = sstate
 }
 
-func (p *Peer) disconnect() {
+func (p *AURPPeer) disconnect() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.rstate = ReceiverUnconnected
@@ -157,7 +157,7 @@ func (p *Peer) disconnect() {
 }
 
 // Send encodes and sends pkt to the remote host.
-func (p *Peer) Send(pkt aurp.Packet) (int, error) {
+func (p *AURPPeer) Send(pkt aurp.Packet) (int, error) {
 	var b bytes.Buffer
 	if _, err := pkt.WriteTo(&b); err != nil {
 		return 0, err
@@ -166,7 +166,7 @@ func (p *Peer) Send(pkt aurp.Packet) (int, error) {
 	return p.UDPConn.WriteToUDP(b.Bytes(), p.RemoteAddr)
 }
 
-func (p *Peer) Handle(ctx context.Context) error {
+func (p *AURPPeer) Handle(ctx context.Context) error {
 	rticker := time.NewTicker(1 * time.Second)
 	defer rticker.Stop()
 	sticker := time.NewTicker(1 * time.Second)
@@ -244,7 +244,7 @@ func (p *Peer) Handle(ctx context.Context) error {
 				if sendRetries >= tickleRetryLimit {
 					log.Printf("AURP Peer: Send retry limit reached while waiting for Tickle-Ack, closing connection")
 					p.setRState(ReceiverUnconnected)
-					p.RoutingTable.DeletePeer(p)
+					p.RoutingTable.DeleteAURPPeer(p)
 					break
 				}
 
@@ -263,7 +263,7 @@ func (p *Peer) Handle(ctx context.Context) error {
 				if sendRetries >= sendRetryLimit {
 					log.Printf("AURP Peer: Send retry limit reached while waiting for RI-Rsp, closing connection")
 					p.setRState(ReceiverUnconnected)
-					p.RoutingTable.DeletePeer(p)
+					p.RoutingTable.DeleteAURPPeer(p)
 					break
 				}
 
@@ -458,7 +458,7 @@ func (p *Peer) Handle(ctx context.Context) error {
 				log.Printf("AURP Peer: Learned about these networks: %v", pkt.Networks)
 
 				for _, nt := range pkt.Networks {
-					p.RoutingTable.InsertRoute(
+					p.RoutingTable.InsertAURPRoute(
 						p,
 						nt.Extended,
 						ddp.Network(nt.RangeStart),
@@ -534,7 +534,7 @@ func (p *Peer) Handle(ctx context.Context) error {
 						// Do nothing except respond with RI-Ack
 
 					case aurp.EventCodeNA:
-						if err := p.RoutingTable.InsertRoute(
+						if err := p.RoutingTable.InsertAURPRoute(
 							p,
 							et.Extended,
 							et.RangeStart,
@@ -546,10 +546,10 @@ func (p *Peer) Handle(ctx context.Context) error {
 						ackFlag = aurp.RoutingFlagSendZoneInfo
 
 					case aurp.EventCodeND:
-						p.RoutingTable.DeletePeerNetwork(p, et.RangeStart)
+						p.RoutingTable.DeleteAURPPeerNetwork(p, et.RangeStart)
 
 					case aurp.EventCodeNDC:
-						p.RoutingTable.UpdateRouteDistance(p, et.RangeStart, et.Distance+1)
+						p.RoutingTable.UpdateAURPRouteDistance(p, et.RangeStart, et.Distance+1)
 
 					case aurp.EventCodeNRC:
 						// "An exterior router sends a Network Route Change
@@ -557,7 +557,7 @@ func (p *Peer) Handle(ctx context.Context) error {
 						// through its local internet changes to a path through
 						// a tunneling port, causing split-horizoned processing
 						// to eliminate that network’s routing information."
-						p.RoutingTable.DeletePeerNetwork(p, et.RangeStart)
+						p.RoutingTable.DeleteAURPPeerNetwork(p, et.RangeStart)
 
 					case aurp.EventCodeZC:
 						// "This event is reserved for future use."
@@ -575,7 +575,7 @@ func (p *Peer) Handle(ctx context.Context) error {
 				}
 
 				log.Printf("AURP Peer: Router Down: error code %d %s", pkt.ErrorCode, pkt.ErrorCode)
-				p.RoutingTable.DeletePeer(p)
+				p.RoutingTable.DeleteAURPPeer(p)
 
 				// Respond with RI-Ack
 				if _, err := p.Send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, 0)); err != nil {

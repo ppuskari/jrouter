@@ -110,7 +110,7 @@ func (rtr *Router) HandleNBP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 			if route == nil {
 				return fmt.Errorf("no route for network %d", z.Network)
 			}
-			peer := route.Peer
+			peer := route.AURPPeer
 			if peer == nil {
 				return fmt.Errorf("nil peer for route for network %d", z.Network)
 			}
