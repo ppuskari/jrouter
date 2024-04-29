@@ -63,7 +63,7 @@ const routingTableTemplate = `
 		<td>{{if $route.Extended}}✅{{else}}❌{{end}}</td>
 		<td>{{$route.Distance}}</td>
 		<td>{{$route.LastSeenAgo}}</td>
-		<td>{{if $route.Peer}}{{$route.Peer.RemoteAddr}}{{else}}-{{end}}</td>
+		<td>{{if $route.AURPPeer}}{{$route.AURPPeer.RemoteAddr}}{{else if $route.EtherTalkPeer}}{{$route.EtherTalkPeer.PeerAddr.Network}}.{{$route.EtherTalkPeer.PeerAddr.Node}}{{else}}-{{end}}</td>
 	</tr>
 {{end}}
 	</tbody>
