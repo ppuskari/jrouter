@@ -31,6 +31,7 @@ type Route struct {
 	NetStart ddp.Network
 	NetEnd   ddp.Network
 	Distance uint8
+
 	LastSeen time.Time
 
 	// Exactly one of the following should be set
@@ -133,6 +134,29 @@ func (rt *RoutingTable) UpsertEthRoute(peer *EtherTalkPeer, extended bool, netSt
 		return fmt.Errorf("invalid network range [%d, %d] for nonextended network", netStart, netEnd)
 	}
 
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+
+	// Update?
+	for r := range rt.routes {
+		if r.EtherTalkPeer != peer {
+			continue
+		}
+		if r.Extended != extended {
+			continue
+		}
+		if r.NetStart != netStart {
+			continue
+		}
+		if r.NetEnd != netEnd {
+			continue
+		}
+		r.Distance = metric
+		r.LastSeen = time.Now()
+		return nil
+	}
+
+	// Insert.
 	r := &Route{
 		Extended:      extended,
 		NetStart:      netStart,
@@ -141,10 +165,6 @@ func (rt *RoutingTable) UpsertEthRoute(peer *EtherTalkPeer, extended bool, netSt
 		LastSeen:      time.Now(),
 		EtherTalkPeer: peer,
 	}
-
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
-	// TODO: update if present rather than insert
 	rt.routes[r] = struct{}{}
 	return nil
 }

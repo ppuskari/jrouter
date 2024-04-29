@@ -456,6 +456,9 @@ func main() {
 						if err := route.EtherTalkPeer.Forward(ctx, ddpkt); err != nil {
 							log.Printf("DDP: Couldn't forward packet to EtherTalk peer: %v", err)
 						}
+
+					default:
+						log.Print("DDP: no forwarding mechanism for route; dropping packet")
 					}
 					continue
 				}
