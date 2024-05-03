@@ -101,7 +101,7 @@ func Unmarshal(data []byte) (*Packet, error) {
 		t := Tuple{
 			Network:    ddp.Network(binary.BigEndian.Uint16(data[:2])),
 			Node:       ddp.Node(data[2]),
-			Socket:     data[3],
+			Socket:     ddp.Socket(data[3]),
 			Enumerator: data[4],
 		}
 		data = data[5:]
@@ -128,7 +128,7 @@ func Unmarshal(data []byte) (*Packet, error) {
 type Tuple struct {
 	Network    ddp.Network
 	Node       ddp.Node
-	Socket     uint8
+	Socket     ddp.Socket
 	Enumerator uint8
 	Object     string // length-prefixed
 	Type       string // length-prefixed
@@ -147,7 +147,7 @@ func (t *Tuple) writeTo(b *bytes.Buffer) error {
 	}
 	write16(b, t.Network)
 	b.WriteByte(byte(t.Node))
-	b.WriteByte(t.Socket)
+	b.WriteByte(byte(t.Socket))
 	b.WriteByte(t.Enumerator)
 	b.WriteByte(byte(len(t.Object)))
 	b.WriteString(t.Object)

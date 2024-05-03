@@ -358,6 +358,7 @@ func main() {
 		RTMPMachine:     rtmpMachine,
 		Router:          rooter,
 	}
+	rooter.Ports = append(rooter.Ports, etherTalkPort)
 	routes.InsertEtherTalkDirect(etherTalkPort)
 	for _, az := range etherTalkPort.AvailableZones {
 		zones.Upsert(etherTalkPort.NetStart, az, etherTalkPort)
@@ -468,26 +469,34 @@ func main() {
 					log.Printf("AURP: Couldn't unmarshal encapsulated DDP packet: %v", err)
 					continue
 				}
-				log.Printf("DDP/AURP: Got %d.%d.%d -> %d.%d.%d proto %d data len %d",
-					ddpkt.SrcNet, ddpkt.SrcNode, ddpkt.SrcSocket,
-					ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket,
-					ddpkt.Proto, len(ddpkt.Data))
+				// log.Printf("DDP/AURP: Got %d.%d.%d -> %d.%d.%d proto %d data len %d",
+				// 	ddpkt.SrcNet, ddpkt.SrcNode, ddpkt.SrcSocket,
+				// 	ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket,
+				// 	ddpkt.Proto, len(ddpkt.Data))
 
 				// Is it addressed to me?
-				if ddpkt.DstNode == 0 { // Node 0 = any router for the network = me
+				var localPort *router.EtherTalkPort
+				for _, port := range rooter.Ports {
+					if ddpkt.DstNet >= port.NetStart && ddpkt.DstNet <= port.NetEnd {
+						localPort = port
+						break
+					}
+				}
+				if ddpkt.DstNode == 0 && localPort != nil { // Node 0 = any router for the network = me
 					// Is it NBP? FwdReq needs translating.
 					if ddpkt.DstSocket != 2 {
 						// Something else?? TODO
 						log.Printf("DDP/AURP: I don't have anything 'listening' on socket %d", ddpkt.DstSocket)
 						continue
 					}
-					// It's NBP
-					if err := rooter.HandleNBPInAURP(ctx, pr, ddpkt); err != nil {
+					// It's NBP, specifically it should be a FwdReq
+					if err := rooter.HandleNBPFromAURP(ctx, ddpkt); err != nil {
 						log.Printf("NBP/DDP/AURP: %v", err)
 					}
+					continue
 				}
 
-				// Route the packet
+				// Route the packet!
 				if err := rooter.Forward(ctx, ddpkt); err != nil {
 					log.Printf("DDP/AURP: Couldn't route packet: %v", err)
 				}

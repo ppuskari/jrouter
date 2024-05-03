@@ -84,10 +84,10 @@ func (port *EtherTalkPort) Serve(ctx context.Context) {
 				log.Printf("Couldn't unmarshal DDP packet: %v", err)
 				continue
 			}
-			log.Printf("DDP: src (%d.%d s %d) dst (%d.%d s %d) proto %d data len %d",
-				ddpkt.SrcNet, ddpkt.SrcNode, ddpkt.SrcSocket,
-				ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket,
-				ddpkt.Proto, len(ddpkt.Data))
+			// log.Printf("DDP: src (%d.%d s %d) dst (%d.%d s %d) proto %d data len %d",
+			// 	ddpkt.SrcNet, ddpkt.SrcNode, ddpkt.SrcSocket,
+			// 	ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket,
+			// 	ddpkt.Proto, len(ddpkt.Data))
 
 			// Glean address info for AMT, but only if SrcNet is our net
 			// (If it's not our net, then it was routed from elsewhere, and
@@ -103,6 +103,7 @@ func (port *EtherTalkPort) Serve(ctx context.Context) {
 			if !ok {
 				continue
 			}
+			port.MyAddr = myAddr.Proto
 
 			// Our network?
 			// "The network number 0 is reserved to mean unknown; by default

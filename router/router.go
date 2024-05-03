@@ -27,6 +27,7 @@ type Router struct {
 	Config     *Config
 	RouteTable *RouteTable
 	ZoneTable  *ZoneTable
+	Ports      []*EtherTalkPort
 }
 
 // Forward routes a packet towards the right destination.
