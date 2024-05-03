@@ -29,10 +29,10 @@ import (
 //const maxZoneAge = 10 * time.Minute // TODO: confirm
 
 type Zone struct {
-	Network  ddp.Network
-	Name     string
-	Local    bool
-	LastSeen time.Time
+	Network   ddp.Network
+	Name      string
+	LocalPort *EtherTalkPort // nil if remote (local to another router)
+	LastSeen  time.Time
 }
 
 func (z Zone) LastSeenAgo() string {
@@ -68,21 +68,21 @@ func (zt *ZoneTable) Dump() []Zone {
 	return zs
 }
 
-func (zt *ZoneTable) Upsert(network ddp.Network, name string, local bool) {
+func (zt *ZoneTable) Upsert(network ddp.Network, name string, localPort *EtherTalkPort) {
 	zt.mu.Lock()
 	defer zt.mu.Unlock()
 	key := zoneKey{network, name}
 	z := zt.zones[key]
 	if z != nil {
-		z.Local = local
+		z.LocalPort = localPort
 		z.LastSeen = time.Now()
 		return
 	}
 	zt.zones[key] = &Zone{
-		Network:  network,
-		Name:     name,
-		Local:    local,
-		LastSeen: time.Now(),
+		Network:   network,
+		Name:      name,
+		LocalPort: localPort,
+		LastSeen:  time.Now(),
 	}
 }
 
@@ -116,29 +116,29 @@ func (zt *ZoneTable) LookupName(name string) []*Zone {
 	return zs
 }
 
-func (zt *ZoneTable) LocalNames() []string {
-	zt.mu.Lock()
-	seen := make(map[string]struct{})
-	zs := make([]string, 0, len(zt.zones))
-	for _, z := range zt.zones {
-		// if time.Since(z.LastSeen) > maxZoneAge {
-		// 	continue
-		// }
-		if !z.Local {
-			continue
-		}
-		if _, s := seen[z.Name]; s {
-			continue
-		}
-		seen[z.Name] = struct{}{}
-		zs = append(zs, z.Name)
+// func (zt *ZoneTable) LocalNames() []string {
+// 	zt.mu.Lock()
+// 	seen := make(map[string]struct{})
+// 	zs := make([]string, 0, len(zt.zones))
+// 	for _, z := range zt.zones {
+// 		// if time.Since(z.LastSeen) > maxZoneAge {
+// 		// 	continue
+// 		// }
+// 		if z.Local != nil {
+// 			continue
+// 		}
+// 		if _, s := seen[z.Name]; s {
+// 			continue
+// 		}
+// 		seen[z.Name] = struct{}{}
+// 		zs = append(zs, z.Name)
 
-	}
-	zt.mu.Unlock()
+// 	}
+// 	zt.mu.Unlock()
 
-	sort.Strings(zs)
-	return zs
-}
+// 	sort.Strings(zs)
+// 	return zs
+// }
 
 func (zt *ZoneTable) AllNames() []string {
 	zt.mu.Lock()

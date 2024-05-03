@@ -17,14 +17,14 @@
 package router
 
 import (
+	"context"
 	"fmt"
 
 	"gitea.drjosh.dev/josh/jrouter/atalk/aep"
 	"github.com/sfiera/multitalk/pkg/ddp"
-	"github.com/sfiera/multitalk/pkg/ethernet"
 )
 
-func (rtr *Router) HandleAEP(src ethernet.Addr, ddpkt *ddp.ExtPacket) error {
+func (rtr *Router) HandleAEP(ctx context.Context, ddpkt *ddp.ExtPacket) error {
 	if ddpkt.Proto != ddp.ProtoAEP {
 		return fmt.Errorf("invalid DDP type %d on socket 4", ddpkt.Proto)
 	}
@@ -47,7 +47,7 @@ func (rtr *Router) HandleAEP(src ethernet.Addr, ddpkt *ddp.ExtPacket) error {
 		ddpkt.DstSocket, ddpkt.SrcSocket = ddpkt.SrcSocket, ddpkt.DstSocket
 		ddpkt.Data[0] = byte(aep.EchoReply)
 
-		return rtr.sendEtherTalkDDP(src, ddpkt)
+		return rtr.Forward(ctx, ddpkt)
 
 	default:
 		return fmt.Errorf("invalid AEP function %d", ep.Function)

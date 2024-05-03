@@ -115,7 +115,7 @@ type AURPPeer struct {
 	ReceiveCh chan aurp.Packet
 
 	// Routing table (the peer will add/remove/update routes)
-	RoutingTable *RoutingTable
+	RoutingTable *RouteTable
 
 	// Zone table (the peer will add/remove/update zones)
 	ZoneTable *ZoneTable
@@ -123,6 +123,15 @@ type AURPPeer struct {
 	mu     sync.RWMutex
 	rstate ReceiverState
 	sstate SenderState
+}
+
+func (p *AURPPeer) Forward(ddpkt *ddp.ExtPacket) error {
+	outPkt, err := ddp.ExtMarshal(*ddpkt)
+	if err != nil {
+		return err
+	}
+	_, err = p.Send(p.Transport.NewAppleTalkPacket(outPkt))
+	return err
 }
 
 func (p *AURPPeer) ReceiverState() ReceiverState {
@@ -596,7 +605,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 			case *aurp.ZIRspPacket:
 				log.Printf("AURP Peer: Learned about these zones: %v", pkt.Zones)
 				for _, zt := range pkt.Zones {
-					p.ZoneTable.Upsert(ddp.Network(zt.Network), zt.Name, false)
+					p.ZoneTable.Upsert(ddp.Network(zt.Network), zt.Name, nil)
 				}
 
 			case *aurp.GDZLReqPacket:

@@ -23,7 +23,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"math/rand/v2"
 	"net"
@@ -44,7 +43,6 @@ import (
 	"github.com/google/gopacket/pcap"
 	"github.com/sfiera/multitalk/pkg/ddp"
 	"github.com/sfiera/multitalk/pkg/ethernet"
-	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
 
 const routingTableTemplate = `
@@ -159,10 +157,10 @@ func main() {
 
 	ln, err := net.ListenUDP("udp4", &net.UDPAddr{Port: int(cfg.ListenPort)})
 	if err != nil {
-		log.Fatalf("Couldn't listen on udp4:387: %v", err)
+		log.Fatalf("AURP: Couldn't listen on udp4:387: %v", err)
 	}
 	defer ln.Close()
-	log.Printf("Listening on %v", ln.LocalAddr())
+	log.Printf("AURP: Listening on %v", ln.LocalAddr())
 
 	log.Println("Press ^C or send SIGINT to stop the router gracefully")
 	cctx, cancel := context.WithCancel(context.Background())
@@ -203,7 +201,7 @@ func main() {
 	defer pcapHandle.Close()
 
 	// -------------------------------- Tables --------------------------------
-	routes := router.NewRoutingTable()
+	routes := router.NewRouteTable()
 	status.AddItem(ctx, "Routing table", routingTableTemplate, func(context.Context) (any, error) {
 		rs := routes.Dump()
 		slices.SortFunc(rs, func(ra, rb router.Route) int {
@@ -213,7 +211,6 @@ func main() {
 	})
 
 	zones := router.NewZoneTable()
-	zones.Upsert(cfg.EtherTalk.NetStart, cfg.EtherTalk.ZoneName, true)
 	status.AddItem(ctx, "Zone table", zoneTableTemplate, func(context.Context) (any, error) {
 		zs := zones.Dump()
 		slices.SortFunc(zs, func(za, zb router.Zone) int {
@@ -331,28 +328,39 @@ func main() {
 
 	// --------------------------------- AARP ---------------------------------
 	aarpMachine := router.NewAARPMachine(cfg, pcapHandle, myHWAddr)
-	aarpCh := make(chan *ethertalk.Packet, 1024)
-	go aarpMachine.Run(ctx, aarpCh)
+	go aarpMachine.Run(ctx)
 
 	// --------------------------------- RTMP ---------------------------------
 	rtmpMachine := &router.RTMPMachine{
-		AARP:         aarpMachine,
+		AARPMachine:  aarpMachine,
 		Config:       cfg,
 		PcapHandle:   pcapHandle,
 		RoutingTable: routes,
+		IncomingCh:   make(chan *ddp.ExtPacket, 1024),
 	}
-	rtmpCh := make(chan *ddp.ExtPacket, 1024)
-	go rtmpMachine.Run(ctx, rtmpCh)
+	go rtmpMachine.Run(ctx)
 
 	// -------------------------------- Router --------------------------------
 	rooter := &router.Router{
 		Config:     cfg,
-		PcapHandle: pcapHandle,
-		MyHWAddr:   myHWAddr,
-		// MyDDPAddr: ...,
-		AARPMachine: aarpMachine,
-		RouteTable:  routes,
-		ZoneTable:   zones,
+		RouteTable: routes,
+		ZoneTable:  zones,
+	}
+
+	etherTalkPort := &router.EtherTalkPort{
+		EthernetAddr:    myHWAddr,
+		NetStart:        cfg.EtherTalk.NetStart,
+		NetEnd:          cfg.EtherTalk.NetEnd,
+		DefaultZoneName: cfg.EtherTalk.ZoneName,
+		AvailableZones:  []string{cfg.EtherTalk.ZoneName},
+		PcapHandle:      pcapHandle,
+		AARPMachine:     aarpMachine,
+		RTMPMachine:     rtmpMachine,
+		Router:          rooter,
+	}
+	routes.InsertEtherTalkDirect(etherTalkPort)
+	for _, az := range etherTalkPort.AvailableZones {
+		zones.Upsert(etherTalkPort.NetStart, az, etherTalkPort)
 	}
 
 	// ---------------------- Raw AppleTalk/AARP inbound ----------------------
@@ -360,145 +368,12 @@ func main() {
 	go func() {
 		defer wg.Done()
 
-		ctx, setStatus, done := status.AddSimpleItem(ctx, "EtherTalk inbound")
-		defer done()
+		ctx, setStatus, _ := status.AddSimpleItem(ctx, "EtherTalk inbound")
+		defer setStatus("EtherTalk Serve goroutine exited!")
 
 		setStatus(fmt.Sprintf("Listening on %s", cfg.EtherTalk.Device))
 
-		for {
-			if ctx.Err() != nil {
-				return
-			}
-
-			rawPkt, _, err := pcapHandle.ReadPacketData()
-			if errors.Is(err, pcap.NextErrorTimeoutExpired) {
-				continue
-			}
-			if errors.Is(err, io.EOF) || errors.Is(err, pcap.NextErrorNoMorePackets) {
-				return
-			}
-			if err != nil {
-				log.Printf("Couldn't read AppleTalk / AARP packet data: %v", err)
-				return
-			}
-
-			ethFrame := new(ethertalk.Packet)
-			if err := ethertalk.Unmarshal(rawPkt, ethFrame); err != nil {
-				log.Printf("Couldn't unmarshal EtherTalk frame: %v", err)
-				continue
-			}
-
-			// Ignore if sent by me
-			if ethFrame.Src == myHWAddr {
-				continue
-			}
-
-			switch ethFrame.SNAPProto {
-			case ethertalk.AARPProto:
-				// log.Print("Got an AARP frame")
-				aarpCh <- ethFrame
-
-			case ethertalk.AppleTalkProto:
-				// log.Print("Got an AppleTalk frame")
-				ddpkt := new(ddp.ExtPacket)
-				if err := ddp.ExtUnmarshal(ethFrame.Payload, ddpkt); err != nil {
-					log.Printf("Couldn't unmarshal DDP packet: %v", err)
-					continue
-				}
-				log.Printf("DDP: src (%d.%d s %d) dst (%d.%d s %d) proto %d data len %d",
-					ddpkt.SrcNet, ddpkt.SrcNode, ddpkt.SrcSocket,
-					ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket,
-					ddpkt.Proto, len(ddpkt.Data))
-
-				// Glean address info for AMT, but only if SrcNet is our net
-				// (If it's not our net, then it was routed from elsewhere, and
-				// we'd be filling the AMT with entries for a router.)
-				if ddpkt.SrcNet >= cfg.EtherTalk.NetStart && ddpkt.SrcNet <= cfg.EtherTalk.NetEnd {
-					srcAddr := ddp.Addr{Network: ddpkt.SrcNet, Node: ddpkt.SrcNode}
-					aarpMachine.Learn(srcAddr, ethFrame.Src)
-					// log.Printf("DDP: Gleaned that %d.%d -> %v", srcAddr.Network, srcAddr.Node, ethFrame.Src)
-				}
-
-				// Packet for us? First, who am I?
-				myAddr, ok := aarpMachine.Address()
-				if !ok {
-					continue
-				}
-				rooter.MyDDPAddr = myAddr.Proto
-
-				// Our network?
-				// "The network number 0 is reserved to mean unknown; by default
-				// it specifies the local network to which the node is
-				// connected. Packets whose destination network number is 0 are
-				// addressed to a node on the local network."
-				// TODO: more generic routing
-				if ddpkt.DstNet != 0 && !(ddpkt.DstNet >= cfg.EtherTalk.NetStart && ddpkt.DstNet <= cfg.EtherTalk.NetEnd) {
-					// Is it for a network in the routing table?
-					route := routes.LookupRoute(ddpkt.DstNet)
-					if route == nil {
-						log.Printf("DDP: no route for network %d", ddpkt.DstNet)
-						continue
-					}
-
-					switch {
-					case route.AURPPeer != nil:
-						// Encap ethPacket.Payload into an AURP packet
-						log.Printf("DDP: forwarding to AURP peer %v", route.AURPPeer.RemoteAddr)
-						if _, err := route.AURPPeer.Send(route.AURPPeer.Transport.NewAppleTalkPacket(ethFrame.Payload)); err != nil {
-							log.Printf("DDP: Couldn't forward packet to AURP peer: %v", err)
-						}
-
-					case route.EtherTalkPeer != nil:
-						// Route payload to another router over EtherTalk
-						// TODO: this is unlikely because we currenly only support 1 EtherTalk port
-						log.Printf("DDP: forwarding to EtherTalk peer %v", route.EtherTalkPeer.PeerAddr)
-						// Note: resolving AARP can block
-						if err := route.EtherTalkPeer.Forward(ctx, ddpkt); err != nil {
-							log.Printf("DDP: Couldn't forward packet to EtherTalk peer: %v", err)
-						}
-
-					default:
-						log.Print("DDP: no forwarding mechanism for route; dropping packet")
-					}
-					continue
-				}
-
-				// To me?
-				// "Node ID 0 indicates any router on the network"- I'm a router
-				// "node ID $FF indicates either a network-wide or zone-specific
-				// broadcast"- that's relevant
-				if ddpkt.DstNode != 0 && ddpkt.DstNode != 0xff && ddpkt.DstNode != myAddr.Proto.Node {
-					continue
-				}
-
-				switch ddpkt.DstSocket {
-				case 1: // The RTMP socket
-					rtmpCh <- ddpkt
-
-				case 2: // The NIS (name information socket / NBP socket)
-					if err := rooter.HandleNBP(ethFrame.Src, ddpkt); err != nil {
-						log.Printf("NBP: Couldn't handle: %v", err)
-					}
-
-				case 4: // The AEP socket
-					if err := rooter.HandleAEP(ethFrame.Src, ddpkt); err != nil {
-						log.Printf("AEP: Couldn't handle: %v", err)
-					}
-
-				case 6: // The ZIS (zone information socket / ZIP socket)
-					if err := rooter.HandleZIP(ctx, ethFrame.Src, ddpkt); err != nil {
-						log.Printf("ZIP: couldn't handle: %v", err)
-					}
-
-				default:
-					log.Printf("DDP: No handler for socket %d", ddpkt.DstSocket)
-				}
-
-			default:
-				log.Printf("Read unknown packet %s -> %s with payload %x", ethFrame.Src, ethFrame.Dst, ethFrame.Payload)
-
-			}
-		}
+		etherTalkPort.Serve(ctx)
 	}()
 
 	// ----------------------------- AURP inbound -----------------------------
@@ -598,74 +473,24 @@ func main() {
 					ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket,
 					ddpkt.Proto, len(ddpkt.Data))
 
-				// Route the packet
-
-				// Check and adjust the Hop Count
-				// Note the ddp package doesn't make this simple
-				hopCount := (ddpkt.Size & 0x3C00) >> 10
-				if hopCount >= 15 {
-					log.Printf("DDP/AURP: hop count exceeded (%d >= 15)", hopCount)
-					continue
-				}
-				hopCount++
-				ddpkt.Size &^= 0x3C00
-				ddpkt.Size |= hopCount << 10
-
-				if ddpkt.DstNet < cfg.EtherTalk.NetStart || ddpkt.DstNet > cfg.EtherTalk.NetEnd {
-					// Is it a network in the routing table?
-					route := routes.LookupRoute(ddpkt.DstNet)
-					if route == nil {
-						log.Printf("DDP/AURP: no route for packet (dstnet %d); dropping packet", ddpkt.DstNet)
-						break
-					}
-
-					switch {
-					case route.AURPPeer != nil:
-						// Routing between AURP peers... bit weird but OK
-						log.Printf("DDP/AURP: forwarding to AURP peer %v", route.AURPPeer.RemoteAddr)
-						outPkt, err := ddp.ExtMarshal(*ddpkt)
-						if err != nil {
-							log.Printf("DDP/AURP: Couldn't re-marshal packet: %v", err)
-							break
-						}
-						if _, err := route.AURPPeer.Send(route.AURPPeer.Transport.NewAppleTalkPacket(outPkt)); err != nil {
-							log.Printf("DDP/AURP: Couldn't forward packet to AURP peer: %v", err)
-						}
-
-					case route.EtherTalkPeer != nil:
-						// AURP peer -> EtherTalk peer
-						// Note: resolving AARP can block
-						log.Printf("DDP/AURP: forwarding to EtherTalk peer %v", route.EtherTalkPeer.PeerAddr)
-						if err := route.EtherTalkPeer.Forward(ctx, ddpkt); err != nil {
-							log.Printf("DDP/AURP: Couldn't forward packet to EtherTalk peer: %v", err)
-						}
-
-					default:
-						log.Print("DDP/AURP: no forwarding mechanism for route; dropping packet")
-
-					}
-					continue
-				}
-
-				// Is it addressed to me? Is it NBP?
+				// Is it addressed to me?
 				if ddpkt.DstNode == 0 { // Node 0 = any router for the network = me
+					// Is it NBP? FwdReq needs translating.
 					if ddpkt.DstSocket != 2 {
 						// Something else?? TODO
 						log.Printf("DDP/AURP: I don't have anything 'listening' on socket %d", ddpkt.DstSocket)
 						continue
 					}
 					// It's NBP
-					if err := rooter.HandleNBPInAURP(pr, ddpkt); err != nil {
+					if err := rooter.HandleNBPInAURP(ctx, pr, ddpkt); err != nil {
 						log.Printf("NBP/DDP/AURP: %v", err)
 					}
-					continue
 				}
 
-				// Note: resolving AARP can block
-				if err := rooter.SendEtherTalkDDP(ctx, ddpkt); err != nil {
-					log.Printf("DDP/AURP: couldn't send Ethertalk out: %v", err)
+				// Route the packet
+				if err := rooter.Forward(ctx, ddpkt); err != nil {
+					log.Printf("DDP/AURP: Couldn't route packet: %v", err)
 				}
-				continue
 
 			default:
 				log.Printf("AURP: Got unknown packet type %v", dh.PacketType)

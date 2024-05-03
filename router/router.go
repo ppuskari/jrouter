@@ -18,53 +18,50 @@ package router
 
 import (
 	"context"
+	"fmt"
 
-	"gitea.drjosh.dev/josh/jrouter/atalk"
-	"github.com/google/gopacket/pcap"
 	"github.com/sfiera/multitalk/pkg/ddp"
-	"github.com/sfiera/multitalk/pkg/ethernet"
-	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
 
 type Router struct {
-	Config      *Config
-	PcapHandle  *pcap.Handle
-	MyHWAddr    ethernet.Addr
-	MyDDPAddr   ddp.Addr
-	AARPMachine *AARPMachine
-	RouteTable  *RoutingTable
-	ZoneTable   *ZoneTable
+	Config     *Config
+	RouteTable *RouteTable
+	ZoneTable  *ZoneTable
 }
 
-func (rtr *Router) SendEtherTalkDDP(ctx context.Context, pkt *ddp.ExtPacket) error {
-	dstEth := ethertalk.AppleTalkBroadcast
-	if pkt.DstNode != 0xFF {
-		de, err := rtr.AARPMachine.Resolve(ctx, ddp.Addr{Network: pkt.DstNet, Node: pkt.DstNode})
-		if err != nil {
-			return err
-		}
-		dstEth = de
+// Forward routes a packet towards the right destination.
+// It increments the hop count, then looks up the best route for the network,
+// then transmits the packet according to the route.
+func (rtr *Router) Forward(ctx context.Context, ddpkt *ddp.ExtPacket) error {
+	// Check and adjust the Hop Count
+	// Note the ddp package doesn't make this simple
+	hopCount := (ddpkt.Size & 0x3C00) >> 10
+	if hopCount >= 15 {
+		return fmt.Errorf("hop count exceeded (%d >= 15)", hopCount)
 	}
-	return rtr.sendEtherTalkDDP(dstEth, pkt)
-}
+	hopCount++
+	ddpkt.Size &^= 0x3C00
+	ddpkt.Size |= hopCount << 10
 
-func (rtr *Router) BroadcastEtherTalkDDP(pkt *ddp.ExtPacket) error {
-	return rtr.sendEtherTalkDDP(ethertalk.AppleTalkBroadcast, pkt)
-}
+	switch route := rtr.RouteTable.LookupRoute(ddpkt.DstNet); {
+	case route == nil:
+		return fmt.Errorf("no route for packet (dstnet %d); dropping packet", ddpkt.DstNet)
 
-func (rtr *Router) ZoneMulticastEtherTalkDDP(zone string, pkt *ddp.ExtPacket) error {
-	return rtr.sendEtherTalkDDP(atalk.MulticastAddr(zone), pkt)
-}
+	case route.AURPPeer != nil:
+		// log.Printf("Forwarding packet to AURP peer %v", route.AURPPeer.RemoteAddr)
+		return route.AURPPeer.Forward(ddpkt)
 
-func (rtr *Router) sendEtherTalkDDP(dstEth ethernet.Addr, pkt *ddp.ExtPacket) error {
-	outFrame, err := ethertalk.AppleTalk(rtr.MyHWAddr, *pkt)
-	if err != nil {
-		return err
+	case route.EtherTalkPeer != nil:
+		// log.Printf("Forwarding to EtherTalk peer %v", route.EtherTalkPeer.PeerAddr)
+		// Note: resolving AARP can block
+		return route.EtherTalkPeer.Forward(ctx, ddpkt)
+
+	case route.EtherTalkDirect != nil:
+		// log.Printf("Outputting to EtherTalk directly")
+		// Note: resolving AARP can block
+		return route.EtherTalkDirect.Send(ctx, ddpkt)
+
+	default:
+		return fmt.Errorf("no forwarding mechanism for route! %+v", route)
 	}
-	outFrame.Dst = dstEth
-	outFrameRaw, err := ethertalk.Marshal(*outFrame)
-	if err != nil {
-		return err
-	}
-	return rtr.PcapHandle.WritePacketData(outFrameRaw)
 }

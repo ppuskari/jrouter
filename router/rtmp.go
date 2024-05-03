@@ -36,22 +36,33 @@ import (
 
 // RTMPMachine implements RTMP on an AppleTalk network attached to the router.
 type RTMPMachine struct {
-	AARP         *AARPMachine
+	AARPMachine  *AARPMachine
 	Config       *Config
 	PcapHandle   *pcap.Handle
-	RoutingTable *RoutingTable
+	RoutingTable *RouteTable
+
+	IncomingCh chan *ddp.ExtPacket
+}
+
+func (m *RTMPMachine) Handle(ctx context.Context, pkt *ddp.ExtPacket) {
+	select {
+	case <-ctx.Done():
+	case m.IncomingCh <- pkt:
+	}
 }
 
 // Run executes the machine.
-func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket) error {
-	ctx, setStatus, done := status.AddSimpleItem(ctx, "RTMP")
-	defer done()
+func (m *RTMPMachine) Run(ctx context.Context) (err error) {
+	ctx, setStatus, _ := status.AddSimpleItem(ctx, "RTMP")
+	defer func() {
+		setStatus(fmt.Sprintf("Run loop stopped! Return: %v", err))
+	}()
 
 	setStatus("Awaiting DDP address assignment")
 
 	// Await local address assignment before doing anything
-	<-m.AARP.Assigned()
-	myAddr, ok := m.AARP.Address()
+	<-m.AARPMachine.Assigned()
+	myAddr, ok := m.AARPMachine.Address()
 	if !ok {
 		return fmt.Errorf("AARP machine closed Assigned channel but Address is not valid")
 	}
@@ -63,7 +74,7 @@ func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket)
 		log.Printf("RTMP: Couldn't broadcast Data: %v", err)
 	}
 
-	setStatus("Packet loop")
+	setStatus("Starting packet loop")
 
 	bcastTicker := time.NewTicker(10 * time.Second)
 	defer bcastTicker.Stop()
@@ -74,11 +85,13 @@ func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket)
 			return ctx.Err()
 
 		case <-bcastTicker.C:
+			setStatus("Broadcasting RTMP Data")
 			if err := m.broadcastData(myAddr); err != nil {
 				log.Printf("RTMP: Couldn't broadcast Data: %v", err)
 			}
 
-		case pkt := <-incomingCh:
+		case pkt := <-m.IncomingCh:
+			setStatus("Handling incoming packet")
 			switch pkt.Proto {
 			case ddp.ProtoRTMPReq:
 				// I can answer RTMP requests!
@@ -88,7 +101,7 @@ func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket)
 				}
 
 				// should be in the cache...
-				theirHWAddr, err := m.AARP.Resolve(ctx, ddp.Addr{Network: pkt.SrcNet, Node: pkt.SrcNode})
+				theirHWAddr, err := m.AARPMachine.Resolve(ctx, ddp.Addr{Network: pkt.SrcNet, Node: pkt.SrcNode})
 				if err != nil {
 					log.Printf("RTMP: Couldn't resolve %d.%d to a hardware address: %v", pkt.SrcNet, pkt.SrcNode, err)
 					continue
@@ -173,8 +186,8 @@ func (m *RTMPMachine) Run(ctx context.Context, incomingCh <-chan *ddp.ExtPacket)
 				}
 				peer := &EtherTalkPeer{
 					PcapHandle: m.PcapHandle,
-					MyHWAddr:   m.AARP.myAddr.Hardware,
-					AARP:       m.AARP,
+					MyHWAddr:   m.AARPMachine.myAddr.Hardware,
+					AARP:       m.AARPMachine,
 					PeerAddr:   dataPkt.RouterAddr,
 				}
 
