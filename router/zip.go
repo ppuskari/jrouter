@@ -159,20 +159,20 @@ func (port *EtherTalkPort) handleZIPQuery(ctx context.Context, ddpkt *ddp.ExtPac
 func (port *EtherTalkPort) handleZIPGetNetInfo(ctx context.Context, ddpkt *ddp.ExtPacket, zipkt *zip.GetNetInfoPacket) error {
 	log.Printf("ZIP: Got GetNetInfo for zone %q", zipkt.ZoneName)
 
-	// The request is valid if the zone name is available on this network.
-	valid := slices.Contains(port.AvailableZones, zipkt.ZoneName)
+	// The request is zoneValid if the zone name is available on this network.
+	zoneValid := slices.Contains(port.AvailableZones, zipkt.ZoneName)
 
 	// The multicast address we return depends on the validity of the zone
 	// name.
 	var mcastAddr ethernet.Addr
-	if valid {
+	if zoneValid {
 		mcastAddr = atalk.MulticastAddr(zipkt.ZoneName)
 	} else {
 		mcastAddr = atalk.MulticastAddr(port.DefaultZoneName)
 	}
 
 	resp := &zip.GetNetInfoReplyPacket{
-		ZoneInvalid:   valid,
+		ZoneInvalid:   !zoneValid,
 		UseBroadcast:  false,
 		OnlyOneZone:   len(port.AvailableZones) == 1,
 		NetStart:      port.NetStart,
@@ -182,7 +182,7 @@ func (port *EtherTalkPort) handleZIPGetNetInfo(ctx context.Context, ddpkt *ddp.E
 	}
 	// The default zone name is only returned if the requested zone name is
 	// invalid.
-	if !valid {
+	if !zoneValid {
 		resp.DefaultZoneName = port.DefaultZoneName
 	}
 	log.Printf("ZIP: Replying with GetNetInfo-Reply: %+v", resp)
