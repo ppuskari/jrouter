@@ -27,51 +27,6 @@ import (
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
-func (rtr *Router) handleNBPFwdReq(ctx context.Context, ddpkt *ddp.ExtPacket, nbpkt *nbp.Packet) error {
-	// A FwdReq was addressed to us. That means a remote router thinks the
-	// zone is available on one or more of our local networks.
-
-	// There must be 1!
-	tuple := &nbpkt.Tuples[0]
-
-	for _, outPort := range rtr.Ports {
-		if !slices.Contains(outPort.AvailableZones, tuple.Zone) {
-			continue
-		}
-		log.Printf("NBP: Converting FwdReq to LkUp (%v)", tuple)
-
-		// Convert it to a LkUp and broadcast on the corresponding port
-		nbpkt.Function = nbp.FunctionLkUp
-		nbpRaw, err := nbpkt.Marshal()
-		if err != nil {
-			return fmt.Errorf("couldn't marshal LkUp: %v", err)
-		}
-
-		// Inside AppleTalk SE, pp 8-20:
-		// "If the destination network is extended, however, the router must also
-		// change the destination network number to $0000, so that the packet is
-		// received by all nodes on the network (within the correct zone multicast
-		// address)."
-		ddpkt.DstNet = 0x0000
-		ddpkt.DstNode = 0xFF // Broadcast node address within the dest network
-		ddpkt.Data = nbpRaw
-
-		if err := outPort.ZoneMulticast(tuple.Zone, ddpkt); err != nil {
-			return err
-		}
-
-		// But also... if it matches us, reply directly with a LkUp-Reply of our own
-		outDDP, err := outPort.helloWorldThisIsMe(nbpkt.NBPID, tuple)
-		if err != nil || outDDP == nil {
-			return err
-		}
-		if err := rtr.Output(ctx, outDDP); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (port *EtherTalkPort) HandleNBP(ctx context.Context, ddpkt *ddp.ExtPacket) error {
 	if ddpkt.Proto != ddp.ProtoNBP {
 		return fmt.Errorf("invalid DDP type %d on socket 2", ddpkt.Proto)
@@ -141,9 +96,9 @@ func (port *EtherTalkPort) handleNBPBrRq(ctx context.Context, ddpkt *ddp.ExtPack
 				ExtHeader: ddp.ExtHeader{
 					Size:      atalk.DDPExtHeaderSize + uint16(len(nbpRaw)),
 					Cksum:     0,
-					SrcNet:    ddpkt.SrcNet,
-					SrcNode:   ddpkt.SrcNode,
-					SrcSocket: ddpkt.SrcSocket,
+					SrcNet:    port.MyAddr.Network,
+					SrcNode:   port.MyAddr.Node,
+					SrcSocket: 2,
 					DstNet:    0x0000, // Local network broadcast
 					DstNode:   0xFF,   // Broadcast node address within the dest network
 					DstSocket: 2,
@@ -201,6 +156,51 @@ func (port *EtherTalkPort) handleNBPBrRq(ctx context.Context, ddpkt *ddp.ExtPack
 		}
 
 		if err := port.Router.Output(ctx, outDDP); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (rtr *Router) handleNBPFwdReq(ctx context.Context, ddpkt *ddp.ExtPacket, nbpkt *nbp.Packet) error {
+	// A FwdReq was addressed to us. That means a remote router thinks the
+	// zone is available on one or more of our local networks.
+
+	// There must be 1!
+	tuple := &nbpkt.Tuples[0]
+
+	for _, outPort := range rtr.Ports {
+		if !slices.Contains(outPort.AvailableZones, tuple.Zone) {
+			continue
+		}
+		log.Printf("NBP: Converting FwdReq to LkUp (%v)", tuple)
+
+		// Convert it to a LkUp and broadcast on the corresponding port
+		nbpkt.Function = nbp.FunctionLkUp
+		nbpRaw, err := nbpkt.Marshal()
+		if err != nil {
+			return fmt.Errorf("couldn't marshal LkUp: %v", err)
+		}
+
+		// Inside AppleTalk SE, pp 8-20:
+		// "If the destination network is extended, however, the router must also
+		// change the destination network number to $0000, so that the packet is
+		// received by all nodes on the network (within the correct zone multicast
+		// address)."
+		ddpkt.DstNet = 0x0000
+		ddpkt.DstNode = 0xFF // Broadcast node address within the dest network
+		ddpkt.Data = nbpRaw
+
+		if err := outPort.ZoneMulticast(tuple.Zone, ddpkt); err != nil {
+			return err
+		}
+
+		// But also... if it matches us, reply directly with a LkUp-Reply of our own
+		outDDP, err := outPort.helloWorldThisIsMe(nbpkt.NBPID, tuple)
+		if err != nil || outDDP == nil {
+			return err
+		}
+		if err := rtr.Output(ctx, outDDP); err != nil {
 			return err
 		}
 	}
