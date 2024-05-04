@@ -83,7 +83,7 @@ const zoneTableTemplate = `
 	<thead><tr>
 		<th>Network</th>
 		<th>Name</th>
-		<th>Local</th>
+		<th>Local Port</th>
 		<th>Last seen</th>
 	</tr></thead>
 	<tbody>
@@ -91,7 +91,7 @@ const zoneTableTemplate = `
 	<tr>
 		<td>{{$zone.Network}}</td>
 		<td>{{$zone.Name}}</td>
-		<td>{{if $zone.Local}}✅{{else}}❌{{end}}</td>
+		<td>{{with $zone.LocalPort}}{{.Device}}{{else}}-{{end}}</td>
 		<td>{{$zone.LastSeenAgo}}</td>
 	</tr>
 {{end}}
