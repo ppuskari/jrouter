@@ -211,7 +211,7 @@ func (port *EtherTalkPort) rtmpDataPackets(splitHorizon bool) []*rtmp.DataPacket
 			// (It's manually set as the first tuple anyway.)
 			continue
 		}
-		if splitHorizon && rt.EtherTalkPeer.Port == port {
+		if splitHorizon && rt.EtherTalkPeer != nil && rt.EtherTalkPeer.Port == port {
 			// If the route is through a peer accessible on this port, don't
 			// include it.
 			continue
