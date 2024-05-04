@@ -142,7 +142,7 @@ func (rt *RouteTable) UpdateAURPRouteDistance(peer *AURPPeer, network ddp.Networ
 	}
 }
 
-func (rt *RouteTable) UpsertEthRoute(peer *EtherTalkPeer, extended bool, netStart, netEnd ddp.Network, metric uint8) error {
+func (rt *RouteTable) UpsertEtherTalkRoute(peer *EtherTalkPeer, extended bool, netStart, netEnd ddp.Network, metric uint8) error {
 	if netStart > netEnd {
 		return fmt.Errorf("invalid network range [%d, %d]", netStart, netEnd)
 	}

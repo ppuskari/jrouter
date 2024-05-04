@@ -67,7 +67,7 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 				Data: respPktRaw,
 			}
 
-			if err := port.Router.Forward(ctx, ddpPkt); err != nil {
+			if err := port.Router.Output(ctx, ddpPkt); err != nil {
 				return fmt.Errorf("send Response: %w", err)
 			}
 
@@ -95,7 +95,7 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 					Data: dataPktRaw,
 				}
 
-				if err := port.Router.Forward(ctx, ddpPkt); err != nil {
+				if err := port.Router.Output(ctx, ddpPkt); err != nil {
 					return fmt.Errorf("send Data: %w", err)
 				}
 			}
@@ -119,7 +119,7 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 		}
 
 		for _, rt := range dataPkt.NetworkTuples {
-			if err := port.Router.RouteTable.UpsertEthRoute(peer, rt.Extended, rt.RangeStart, rt.RangeEnd, rt.Distance+1); err != nil {
+			if err := port.Router.RouteTable.UpsertEtherTalkRoute(peer, rt.Extended, rt.RangeStart, rt.RangeEnd, rt.Distance+1); err != nil {
 				log.Printf("RTMP: Couldn't upsert EtherTalk route: %v", err)
 			}
 		}
@@ -150,7 +150,7 @@ func (port *EtherTalkPort) RunRTMP(ctx context.Context) (err error) {
 		log.Printf("RTMP: Couldn't broadcast Data: %v", err)
 	}
 
-	setStatus("Starting packet loop")
+	setStatus("Starting broadcast loop")
 
 	bcastTicker := time.NewTicker(10 * time.Second)
 	defer bcastTicker.Stop()
@@ -163,7 +163,9 @@ func (port *EtherTalkPort) RunRTMP(ctx context.Context) (err error) {
 		case <-bcastTicker.C:
 			setStatus("Broadcasting RTMP Data")
 			if err := port.broadcastRTMPData(); err != nil {
-				log.Printf("RTMP: Couldn't broadcast Data: %v", err)
+				st := fmt.Sprintf("Couldn't broadcast Data: %v", err)
+				setStatus(st)
+				log.Print(st)
 			}
 		}
 	}

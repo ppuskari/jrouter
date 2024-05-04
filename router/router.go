@@ -30,9 +30,8 @@ type Router struct {
 	Ports      []*EtherTalkPort
 }
 
-// Forward routes a packet towards the right destination.
-// It increments the hop count, then looks up the best route for the network,
-// then transmits the packet according to the route.
+// Forward increments the hop count, then outputs the packet in the direction
+// of the destination.
 func (rtr *Router) Forward(ctx context.Context, ddpkt *ddp.ExtPacket) error {
 	// Check and adjust the Hop Count
 	// Note the ddp package doesn't make this simple
@@ -44,6 +43,12 @@ func (rtr *Router) Forward(ctx context.Context, ddpkt *ddp.ExtPacket) error {
 	ddpkt.Size &^= 0x3C00
 	ddpkt.Size |= hopCount << 10
 
+	return rtr.Output(ctx, ddpkt)
+}
+
+// Output outputs the packet in the direction of the destination.
+// (It does not check or adjust the hop count.)
+func (rtr *Router) Output(ctx context.Context, ddpkt *ddp.ExtPacket) error {
 	switch route := rtr.RouteTable.LookupRoute(ddpkt.DstNet); {
 	case route == nil:
 		return fmt.Errorf("no route for packet (dstnet %d); dropping packet", ddpkt.DstNet)

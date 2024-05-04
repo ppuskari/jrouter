@@ -47,7 +47,7 @@ func (rtr *Router) HandleAEP(ctx context.Context, ddpkt *ddp.ExtPacket) error {
 		ddpkt.DstSocket, ddpkt.SrcSocket = ddpkt.SrcSocket, ddpkt.DstSocket
 		ddpkt.Data[0] = byte(aep.EchoReply)
 
-		return rtr.Forward(ctx, ddpkt)
+		return rtr.Output(ctx, ddpkt)
 
 	default:
 		return fmt.Errorf("invalid AEP function %d", ep.Function)

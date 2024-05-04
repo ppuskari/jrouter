@@ -65,7 +65,7 @@ func (rtr *Router) handleNBPFwdReq(ctx context.Context, ddpkt *ddp.ExtPacket, nb
 		if err != nil || outDDP == nil {
 			return err
 		}
-		if err := rtr.Forward(ctx, outDDP); err != nil {
+		if err := rtr.Output(ctx, outDDP); err != nil {
 			return err
 		}
 	}
@@ -200,7 +200,7 @@ func (port *EtherTalkPort) handleNBPBrRq(ctx context.Context, ddpkt *ddp.ExtPack
 			Data: nbpRaw,
 		}
 
-		if err := port.Router.Forward(ctx, outDDP); err != nil {
+		if err := port.Router.Output(ctx, outDDP); err != nil {
 			return err
 		}
 	}
