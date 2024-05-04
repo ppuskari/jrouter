@@ -73,6 +73,8 @@ type AARPMachine struct {
 	cfg        *Config
 	pcapHandle *pcap.Handle
 
+	incomingCh chan *ethertalk.Packet
+
 	// The Run goroutine is responsible for all writes to myAddr.Proto and
 	// probes, so this mutex is not used to enforce a single writer, only
 	// consistent reads
@@ -90,10 +92,19 @@ func NewAARPMachine(cfg *Config, pcapHandle *pcap.Handle, myHWAddr ethernet.Addr
 		addressMappingTable: new(addressMappingTable),
 		cfg:                 cfg,
 		pcapHandle:          pcapHandle,
+		incomingCh:          make(chan *ethertalk.Packet, 1024), // arbitrary capacity
 		myAddr: aarp.AddrPair{
 			Hardware: myHWAddr,
 		},
 		assignedCh: make(chan struct{}),
+	}
+}
+
+// Handle handles a packet.
+func (a *AARPMachine) Handle(ctx context.Context, pkt *ethertalk.Packet) {
+	select {
+	case <-ctx.Done():
+	case a.incomingCh <- pkt:
 	}
 }
 
@@ -123,7 +134,7 @@ func (a *AARPMachine) status(ctx context.Context) (any, error) {
 }
 
 // Run executes the machine.
-func (a *AARPMachine) Run(ctx context.Context, incomingCh <-chan *ethertalk.Packet) error {
+func (a *AARPMachine) Run(ctx context.Context) error {
 	ctx, done := status.AddItem(ctx, "AARP", aarpStatusTemplate, a.status)
 	defer done()
 
@@ -165,9 +176,9 @@ func (a *AARPMachine) Run(ctx context.Context, incomingCh <-chan *ethertalk.Pack
 				log.Printf("Couldn't broadcast a Probe: %v", err)
 			}
 
-		case ethFrame, ok := <-incomingCh:
+		case ethFrame, ok := <-a.incomingCh:
 			if !ok {
-				incomingCh = nil
+				a.incomingCh = nil
 			}
 
 			var aapkt aarp.Packet

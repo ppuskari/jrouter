@@ -17,16 +17,17 @@
 package router
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"slices"
 
 	"gitea.drjosh.dev/josh/jrouter/atalk"
 	"gitea.drjosh.dev/josh/jrouter/atalk/nbp"
 	"github.com/sfiera/multitalk/pkg/ddp"
-	"github.com/sfiera/multitalk/pkg/ethernet"
 )
 
-func (rtr *Router) HandleNBP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) error {
+func (port *EtherTalkPort) HandleNBP(ctx context.Context, ddpkt *ddp.ExtPacket) error {
 	if ddpkt.Proto != ddp.ProtoNBP {
 		return fmt.Errorf("invalid DDP type %d on socket 2", ddpkt.Proto)
 	}
@@ -41,130 +42,180 @@ func (rtr *Router) HandleNBP(srcHWAddr ethernet.Addr, ddpkt *ddp.ExtPacket) erro
 	switch nbpkt.Function {
 	case nbp.FunctionLkUp:
 		// when in AppleTalk, do as Apple Internet Router does...
-		outDDP, err := rtr.helloWorldThisIsMe(ddpkt, nbpkt.NBPID, &nbpkt.Tuples[0])
+		outDDP, err := port.helloWorldThisIsMe(nbpkt.NBPID, &nbpkt.Tuples[0])
 		if err != nil || outDDP == nil {
 			return err
 		}
 		log.Print("NBP: Replying to LkUp with LkUp-Reply for myself")
-		return rtr.sendEtherTalkDDP(srcHWAddr, outDDP)
+		// Note: AARP can block
+		return port.Send(ctx, outDDP)
+
+	case nbp.FunctionFwdReq:
+		return port.Router.handleNBPFwdReq(ctx, ddpkt, nbpkt)
 
 	case nbp.FunctionBrRq:
-		// There must be 1!
-		tuple := &nbpkt.Tuples[0]
+		return port.handleNBPBrRq(ctx, ddpkt, nbpkt)
 
-		zones := rtr.ZoneTable.LookupName(tuple.Zone)
+	default:
+		return fmt.Errorf("TODO: handle function %v", nbpkt.Function)
+	}
+}
 
-		for _, z := range zones {
-			if z.Local {
-				// If it's for the local zone, translate it to a LkUp and broadcast it back
-				// out the EtherTalk port.
-				// "Note: On an internet, nodes on extended networks performing lookups in
-				// their own zone must replace a zone name of asterisk (*) with their actual
-				// zone name before sending the packet to A-ROUTER. All nodes performing
-				// lookups in their own zone will receive LkUp packets from themselves
-				// (actually sent by a router). The node's NBP process should expect to
-				// receive these packets and must reply to them."
-				nbpkt.Function = nbp.FunctionLkUp
-				nbpRaw, err := nbpkt.Marshal()
-				if err != nil {
-					return fmt.Errorf("couldn't marshal LkUp: %v", err)
-				}
+func (port *EtherTalkPort) handleNBPBrRq(ctx context.Context, ddpkt *ddp.ExtPacket, nbpkt *nbp.Packet) error {
+	// A BrRq was addressed to us. The sender (on a local network) is aware that
+	// the network is extended and routed, and instead of broadcasting a LkUp
+	// itself, is asking us to do it.
 
-				outDDP := ddp.ExtPacket{
-					ExtHeader: ddp.ExtHeader{
-						Size:      atalk.DDPExtHeaderSize + uint16(len(nbpRaw)),
-						Cksum:     0,
-						SrcNet:    ddpkt.SrcNet,
-						SrcNode:   ddpkt.SrcNode,
-						SrcSocket: ddpkt.SrcSocket,
-						DstNet:    0x0000, // Local network broadcast
-						DstNode:   0xFF,   // Broadcast node address within the dest network
-						DstSocket: 2,
-						Proto:     ddp.ProtoNBP,
-					},
-					Data: nbpRaw,
-				}
+	// There must be 1!
+	tuple := &nbpkt.Tuples[0]
 
-				log.Printf("NBP: zone multicasting LkUp for tuple %v", tuple)
-				if err := rtr.ZoneMulticastEtherTalkDDP(tuple.Zone, &outDDP); err != nil {
-					return err
-				}
+	// This logic would be required on a non-extended network:
+	// if tuple.Zone == "" || tuple.Zone == "*" {
+	// 	tuple.Zone = port.DefaultZoneName
+	// }
 
-				// But also...if we match the query, reply as though it was a LkUp
-				outDDP2, err := rtr.helloWorldThisIsMe(ddpkt, nbpkt.NBPID, tuple)
-				if err != nil {
-					return err
-				}
-				if outDDP2 == nil {
-					continue
-				}
-				log.Print("NBP: Replying to BrRq with LkUp-Reply for myself")
-				if err := rtr.sendEtherTalkDDP(srcHWAddr, outDDP2); err != nil {
-					return err
-				}
+	zones := port.Router.ZoneTable.LookupName(tuple.Zone)
 
-				continue
-			}
-
-			route := rtr.RouteTable.LookupRoute(z.Network)
-			if route == nil {
-				return fmt.Errorf("no route for network %d", z.Network)
-			}
-			peer := route.AURPPeer
-			if peer == nil {
-				return fmt.Errorf("nil peer for route for network %d", z.Network)
-			}
-
-			// Translate it into a FwdReq and route it to the
-			// routers with the appropriate zone(s).
-			nbpkt.Function = nbp.FunctionFwdReq
+	for _, z := range zones {
+		if outPort := z.LocalPort; outPort != nil {
+			// If it's for a local zone, translate it to a LkUp and broadcast
+			// out the corresponding EtherTalk port.
+			// "Note: On an internet, nodes on extended networks performing lookups in
+			// their own zone must replace a zone name of asterisk (*) with their actual
+			// zone name before sending the packet to A-ROUTER. All nodes performing
+			// lookups in their own zone will receive LkUp packets from themselves
+			// (actually sent by a router). The node's NBP process should expect to
+			// receive these packets and must reply to them."
+			nbpkt.Function = nbp.FunctionLkUp
 			nbpRaw, err := nbpkt.Marshal()
 			if err != nil {
-				return fmt.Errorf("couldn't marshal FwdReq: %v", err)
+				return fmt.Errorf("couldn't marshal LkUp: %v", err)
 			}
 
 			outDDP := ddp.ExtPacket{
 				ExtHeader: ddp.ExtHeader{
 					Size:      atalk.DDPExtHeaderSize + uint16(len(nbpRaw)),
 					Cksum:     0,
-					SrcNet:    ddpkt.SrcNet,
-					SrcNode:   ddpkt.SrcNode,
-					SrcSocket: ddpkt.SrcSocket,
-					DstNet:    z.Network,
-					DstNode:   0x00, // Any router for the dest network
+					SrcNet:    port.MyAddr.Network,
+					SrcNode:   port.MyAddr.Node,
+					SrcSocket: 2,
+					DstNet:    0x0000, // Local network broadcast
+					DstNode:   0xFF,   // Broadcast node address within the dest network
 					DstSocket: 2,
 					Proto:     ddp.ProtoNBP,
 				},
 				Data: nbpRaw,
 			}
 
-			outDDPRaw, err := ddp.ExtMarshal(outDDP)
-			if err != nil {
+			log.Printf("NBP: zone multicasting LkUp for tuple %v", tuple)
+			if err := outPort.ZoneMulticast(tuple.Zone, &outDDP); err != nil {
 				return err
 			}
 
-			log.Printf("NBP: Sending FwdReq to %v for tuple %v", peer.RemoteAddr, tuple)
-
-			if _, err := peer.Send(peer.Transport.NewAppleTalkPacket(outDDPRaw)); err != nil {
-				return fmt.Errorf("sending FwdReq on to peer: %w", err)
+			// But also...if we match the query, reply as though it was a LkUp
+			// This uses the *input* port information.
+			outDDP2, err := port.helloWorldThisIsMe(nbpkt.NBPID, tuple)
+			if err != nil {
+				return err
 			}
+			if outDDP2 == nil {
+				continue
+			}
+			log.Print("NBP: Replying to BrRq directly with LkUp-Reply for myself")
+			// Can reply to this BrRq on the same port we got it, because it
+			// wasn't routed
+			if err := port.Send(ctx, outDDP2); err != nil {
+				return err
+			}
+
+			continue
 		}
 
-	default:
-		return fmt.Errorf("TODO: handle function %v", nbpkt.Function)
-	}
+		// The zone table row is *not* for a local network.
+		// Translate it into a FwdReq and route that to the routers that do have
+		// that zone as a local network.
+		nbpkt.Function = nbp.FunctionFwdReq
+		nbpRaw, err := nbpkt.Marshal()
+		if err != nil {
+			return fmt.Errorf("couldn't marshal FwdReq: %v", err)
+		}
 
+		outDDP := &ddp.ExtPacket{
+			ExtHeader: ddp.ExtHeader{
+				Size:      atalk.DDPExtHeaderSize + uint16(len(nbpRaw)),
+				Cksum:     0,
+				SrcNet:    ddpkt.SrcNet,
+				SrcNode:   ddpkt.SrcNode,
+				SrcSocket: ddpkt.SrcSocket,
+				DstNet:    z.Network,
+				DstNode:   0x00, // Any router for the dest network
+				DstSocket: 2,
+				Proto:     ddp.ProtoNBP,
+			},
+			Data: nbpRaw,
+		}
+
+		if err := port.Router.Output(ctx, outDDP); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-func (rtr *Router) helloWorldThisIsMe(ddpkt *ddp.ExtPacket, nbpID uint8, tuple *nbp.Tuple) (*ddp.ExtPacket, error) {
+func (rtr *Router) handleNBPFwdReq(ctx context.Context, ddpkt *ddp.ExtPacket, nbpkt *nbp.Packet) error {
+	// A FwdReq was addressed to us. That means a remote router thinks the
+	// zone is available on one or more of our local networks.
+
+	// There must be 1!
+	tuple := &nbpkt.Tuples[0]
+
+	for _, outPort := range rtr.Ports {
+		if !slices.Contains(outPort.AvailableZones, tuple.Zone) {
+			continue
+		}
+		log.Printf("NBP: Converting FwdReq to LkUp (%v)", tuple)
+
+		// Convert it to a LkUp and broadcast on the corresponding port
+		nbpkt.Function = nbp.FunctionLkUp
+		nbpRaw, err := nbpkt.Marshal()
+		if err != nil {
+			return fmt.Errorf("couldn't marshal LkUp: %v", err)
+		}
+
+		// Inside AppleTalk SE, pp 8-20:
+		// "If the destination network is extended, however, the router must also
+		// change the destination network number to $0000, so that the packet is
+		// received by all nodes on the network (within the correct zone multicast
+		// address)."
+		ddpkt.DstNet = 0x0000
+		ddpkt.DstNode = 0xFF // Broadcast node address within the dest network
+		ddpkt.Data = nbpRaw
+
+		if err := outPort.ZoneMulticast(tuple.Zone, ddpkt); err != nil {
+			return err
+		}
+
+		// But also... if it matches us, reply directly with a LkUp-Reply of our own
+		outDDP, err := outPort.helloWorldThisIsMe(nbpkt.NBPID, tuple)
+		if err != nil || outDDP == nil {
+			return err
+		}
+		if err := rtr.Output(ctx, outDDP); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Returns an NBP LkUp-Reply for the router itself, with the address from this port.
+func (port *EtherTalkPort) helloWorldThisIsMe(nbpID uint8, tuple *nbp.Tuple) (*ddp.ExtPacket, error) {
 	if tuple.Object != "jrouter" && tuple.Object != "=" {
 		return nil, nil
 	}
 	if tuple.Type != "AppleRouter" && tuple.Type != "=" {
 		return nil, nil
 	}
-	if tuple.Zone != rtr.Config.EtherTalk.ZoneName && tuple.Zone != "*" && tuple.Zone != "" {
+	if tuple.Zone != port.DefaultZoneName && tuple.Zone != "*" && tuple.Zone != "" {
 		return nil, nil
 	}
 	respPkt := &nbp.Packet{
@@ -172,13 +223,13 @@ func (rtr *Router) helloWorldThisIsMe(ddpkt *ddp.ExtPacket, nbpID uint8, tuple *
 		NBPID:    nbpID,
 		Tuples: []nbp.Tuple{
 			{
-				Network:    rtr.MyDDPAddr.Network,
-				Node:       rtr.MyDDPAddr.Node,
+				Network:    port.MyAddr.Network,
+				Node:       port.MyAddr.Node,
 				Socket:     253,
 				Enumerator: 0,
 				Object:     "jrouter",
 				Type:       "AppleRouter",
-				Zone:       rtr.Config.EtherTalk.ZoneName,
+				Zone:       port.DefaultZoneName,
 			},
 		},
 	}
@@ -186,15 +237,25 @@ func (rtr *Router) helloWorldThisIsMe(ddpkt *ddp.ExtPacket, nbpID uint8, tuple *
 	if err != nil {
 		return nil, fmt.Errorf("couldn't marshal LkUp-Reply: %v", err)
 	}
+
+	// Inside AppleTalk SE, pp 7-16:
+	// "In BrRq, FwdReq, and LkUp packets, which carry only a single tuple, the
+	// address field contains the internet address of the requester, allowing
+	// the responder to address the LkUp-Reply datagram."
+	// Inside AppleTalk SE, pp 8-20:
+	// "Note: NBP is defined so that the router's NBP process does not
+	// participate in the NBP response process; the response is sent directly to
+	// the original requester through DDP. It is important that the original
+	// requester's field be obtained from the address field of the NBP tuple."
 	return &ddp.ExtPacket{
 		ExtHeader: ddp.ExtHeader{
 			Size:      uint16(len(respRaw)) + atalk.DDPExtHeaderSize,
 			Cksum:     0,
-			DstNet:    ddpkt.SrcNet,
-			DstNode:   ddpkt.SrcNode,
-			DstSocket: ddpkt.SrcSocket,
-			SrcNet:    rtr.MyDDPAddr.Network,
-			SrcNode:   rtr.MyDDPAddr.Node,
+			DstNet:    tuple.Network,
+			DstNode:   tuple.Node,
+			DstSocket: tuple.Socket,
+			SrcNet:    port.MyAddr.Network,
+			SrcNode:   port.MyAddr.Node,
 			SrcSocket: 2,
 			Proto:     ddp.ProtoNBP,
 		},

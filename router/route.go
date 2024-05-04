@@ -35,8 +35,9 @@ type Route struct {
 	LastSeen time.Time
 
 	// Exactly one of the following should be set
-	AURPPeer      *AURPPeer
-	EtherTalkPeer *EtherTalkPeer
+	AURPPeer        *AURPPeer      // Next hop is this peer router (over AURP)
+	EtherTalkPeer   *EtherTalkPeer // Next hop is this peer router (over EtherTalk)
+	EtherTalkDirect *EtherTalkPort // Directly connected to this network (via EtherTalk)
 }
 
 func (r Route) LastSeenAgo() string {
@@ -46,18 +47,33 @@ func (r Route) LastSeenAgo() string {
 	return fmt.Sprintf("%v ago", time.Since(r.LastSeen).Truncate(time.Millisecond))
 }
 
-type RoutingTable struct {
+type RouteTable struct {
 	mu     sync.Mutex
 	routes map[*Route]struct{}
 }
 
-func NewRoutingTable() *RoutingTable {
-	return &RoutingTable{
+func NewRouteTable() *RouteTable {
+	return &RouteTable{
 		routes: make(map[*Route]struct{}),
 	}
 }
 
-func (rt *RoutingTable) Dump() []Route {
+func (rt *RouteTable) InsertEtherTalkDirect(port *EtherTalkPort) {
+	r := &Route{
+		Extended:        true,
+		NetStart:        port.NetStart,
+		NetEnd:          port.NetEnd,
+		Distance:        0, // we're connected directly
+		LastSeen:        time.Now(),
+		EtherTalkDirect: port,
+	}
+
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	rt.routes[r] = struct{}{}
+}
+
+func (rt *RouteTable) Dump() []Route {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
@@ -68,7 +84,7 @@ func (rt *RoutingTable) Dump() []Route {
 	return table
 }
 
-func (rt *RoutingTable) LookupRoute(network ddp.Network) *Route {
+func (rt *RouteTable) LookupRoute(network ddp.Network) *Route {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
@@ -92,7 +108,7 @@ func (rt *RoutingTable) LookupRoute(network ddp.Network) *Route {
 	return bestRoute
 }
 
-func (rt *RoutingTable) DeleteAURPPeer(peer *AURPPeer) {
+func (rt *RouteTable) DeleteAURPPeer(peer *AURPPeer) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
@@ -103,7 +119,7 @@ func (rt *RoutingTable) DeleteAURPPeer(peer *AURPPeer) {
 	}
 }
 
-func (rt *RoutingTable) DeleteAURPPeerNetwork(peer *AURPPeer, network ddp.Network) {
+func (rt *RouteTable) DeleteAURPPeerNetwork(peer *AURPPeer, network ddp.Network) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
@@ -114,7 +130,7 @@ func (rt *RoutingTable) DeleteAURPPeerNetwork(peer *AURPPeer, network ddp.Networ
 	}
 }
 
-func (rt *RoutingTable) UpdateAURPRouteDistance(peer *AURPPeer, network ddp.Network, distance uint8) {
+func (rt *RouteTable) UpdateAURPRouteDistance(peer *AURPPeer, network ddp.Network, distance uint8) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
@@ -126,7 +142,7 @@ func (rt *RoutingTable) UpdateAURPRouteDistance(peer *AURPPeer, network ddp.Netw
 	}
 }
 
-func (rt *RoutingTable) UpsertEthRoute(peer *EtherTalkPeer, extended bool, netStart, netEnd ddp.Network, metric uint8) error {
+func (rt *RouteTable) UpsertEtherTalkRoute(peer *EtherTalkPeer, extended bool, netStart, netEnd ddp.Network, metric uint8) error {
 	if netStart > netEnd {
 		return fmt.Errorf("invalid network range [%d, %d]", netStart, netEnd)
 	}
@@ -169,7 +185,7 @@ func (rt *RoutingTable) UpsertEthRoute(peer *EtherTalkPeer, extended bool, netSt
 	return nil
 }
 
-func (rt *RoutingTable) InsertAURPRoute(peer *AURPPeer, extended bool, netStart, netEnd ddp.Network, metric uint8) error {
+func (rt *RouteTable) InsertAURPRoute(peer *AURPPeer, extended bool, netStart, netEnd ddp.Network, metric uint8) error {
 	if netStart > netEnd {
 		return fmt.Errorf("invalid network range [%d, %d]", netStart, netEnd)
 	}
@@ -192,7 +208,7 @@ func (rt *RoutingTable) InsertAURPRoute(peer *AURPPeer, extended bool, netStart,
 	return nil
 }
 
-func (rt *RoutingTable) ValidRoutes() []*Route {
+func (rt *RouteTable) ValidRoutes() []*Route {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	valid := make([]*Route, 0, len(rt.routes))
