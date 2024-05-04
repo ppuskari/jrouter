@@ -19,29 +19,25 @@ package router
 import (
 	"context"
 
-	"github.com/google/gopacket/pcap"
 	"github.com/sfiera/multitalk/pkg/ddp"
-	"github.com/sfiera/multitalk/pkg/ethernet"
 	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
 
-// EtherTalkPeer holds data needed to exchange routes and zones with another
-// router on the EtherTalk network.
+// EtherTalkPeer holds data needed to forward packets to another router on the
+// EtherTalk network.
 type EtherTalkPeer struct {
-	PcapHandle *pcap.Handle
-	MyHWAddr   ethernet.Addr
-	AARP       *AARPMachine
-	PeerAddr   ddp.Addr
+	Port     *EtherTalkPort
+	PeerAddr ddp.Addr
 }
 
 // Forward forwards a DDP packet to the next router.
 func (p *EtherTalkPeer) Forward(ctx context.Context, pkt *ddp.ExtPacket) error {
 	// TODO: AARP resolution can block
-	de, err := p.AARP.Resolve(ctx, p.PeerAddr)
+	de, err := p.Port.AARPMachine.Resolve(ctx, p.PeerAddr)
 	if err != nil {
 		return err
 	}
-	outFrame, err := ethertalk.AppleTalk(p.MyHWAddr, *pkt)
+	outFrame, err := ethertalk.AppleTalk(p.Port.EthernetAddr, *pkt)
 	if err != nil {
 		return err
 	}
@@ -50,5 +46,5 @@ func (p *EtherTalkPeer) Forward(ctx context.Context, pkt *ddp.ExtPacket) error {
 	if err != nil {
 		return err
 	}
-	return p.PcapHandle.WritePacketData(outFrameRaw)
+	return p.Port.PcapHandle.WritePacketData(outFrameRaw)
 }

@@ -31,6 +31,7 @@ import (
 
 // EtherTalkPort is all the data and helpers needed for EtherTalk on one port.
 type EtherTalkPort struct {
+	Device          string
 	EthernetAddr    ethernet.Addr
 	NetStart        ddp.Network
 	NetEnd          ddp.Network
@@ -39,7 +40,6 @@ type EtherTalkPort struct {
 	AvailableZones  []string
 	PcapHandle      *pcap.Handle
 	AARPMachine     *AARPMachine
-	RTMPMachine     *RTMPMachine
 	Router          *Router
 }
 
@@ -129,7 +129,9 @@ func (port *EtherTalkPort) Serve(ctx context.Context) {
 
 			switch ddpkt.DstSocket {
 			case 1: // The RTMP socket
-				port.RTMPMachine.Handle(ctx, ddpkt)
+				if err := port.HandleRTMP(ctx, ddpkt); err != nil {
+					log.Printf("RTMP: Couldn't handle: %v", err)
+				}
 
 			case 2: // The NIS (name information socket / NBP socket)
 				if err := port.HandleNBP(ctx, ddpkt); err != nil {

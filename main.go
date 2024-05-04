@@ -61,7 +61,17 @@ const routingTableTemplate = `
 		<td>{{if $route.Extended}}✅{{else}}❌{{end}}</td>
 		<td>{{$route.Distance}}</td>
 		<td>{{$route.LastSeenAgo}}</td>
-		<td>{{if $route.AURPPeer}}{{$route.AURPPeer.RemoteAddr}}{{else if $route.EtherTalkPeer}}{{$route.EtherTalkPeer.PeerAddr.Network}}.{{$route.EtherTalkPeer.PeerAddr.Node}}{{else}}-{{end}}</td>
+		<td>
+			{{- with $route.AURPPeer -}}
+				{{.RemoteAddr}}
+			{{- end -}}
+			{{- with $route.EtherTalkPeer -}}
+				{{.Port.Device}} {{.PeerAddr.Network}}.{{.PeerAddr.Node}}
+			{{- end -}}
+			{{- with $route.EtherTalkDirect -}}
+				{{.Device}} {{.NetStart}}-{{.NetEnd}}
+			{{- end -}}
+		</td>
 	</tr>
 {{end}}
 	</tbody>
@@ -330,16 +340,6 @@ func main() {
 	aarpMachine := router.NewAARPMachine(cfg, pcapHandle, myHWAddr)
 	go aarpMachine.Run(ctx)
 
-	// --------------------------------- RTMP ---------------------------------
-	rtmpMachine := &router.RTMPMachine{
-		AARPMachine:  aarpMachine,
-		Config:       cfg,
-		PcapHandle:   pcapHandle,
-		RoutingTable: routes,
-		IncomingCh:   make(chan *ddp.ExtPacket, 1024),
-	}
-	go rtmpMachine.Run(ctx)
-
 	// -------------------------------- Router --------------------------------
 	rooter := &router.Router{
 		Config:     cfg,
@@ -348,6 +348,7 @@ func main() {
 	}
 
 	etherTalkPort := &router.EtherTalkPort{
+		Device:          cfg.EtherTalk.Device,
 		EthernetAddr:    myHWAddr,
 		NetStart:        cfg.EtherTalk.NetStart,
 		NetEnd:          cfg.EtherTalk.NetEnd,
@@ -355,7 +356,6 @@ func main() {
 		AvailableZones:  []string{cfg.EtherTalk.ZoneName},
 		PcapHandle:      pcapHandle,
 		AARPMachine:     aarpMachine,
-		RTMPMachine:     rtmpMachine,
 		Router:          rooter,
 	}
 	rooter.Ports = append(rooter.Ports, etherTalkPort)
@@ -363,6 +363,9 @@ func main() {
 	for _, az := range etherTalkPort.AvailableZones {
 		zones.Upsert(etherTalkPort.NetStart, az, etherTalkPort)
 	}
+
+	// --------------------------------- RTMP ---------------------------------
+	go etherTalkPort.RunRTMP(ctx)
 
 	// ---------------------- Raw AppleTalk/AARP inbound ----------------------
 	wg.Add(1)
