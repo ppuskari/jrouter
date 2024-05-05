@@ -201,15 +201,6 @@ func main() {
 		return rs, nil
 	})
 
-	// zones := router.NewZoneTable()
-	// status.AddItem(ctx, "Zone table", zoneTableTemplate, func(context.Context) (any, error) {
-	// 	zs := zones.Dump()
-	// 	slices.SortFunc(zs, func(za, zb router.Zone) int {
-	// 		return cmp.Compare(za.Name, zb.Name)
-	// 	})
-	// 	return zs, nil
-	// })
-
 	// -------------------------------- Peers ---------------------------------
 	var peersMu sync.Mutex
 	peers := make(map[udpAddr]*router.AURPPeer)
