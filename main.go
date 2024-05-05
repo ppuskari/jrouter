@@ -50,6 +50,7 @@ const routingTableTemplate = `
 	<thead><tr>
 		<th>Network range</th>
 		<th>Extended?</th>
+		<th>Zone names</th>
 		<th>Distance</th>
 		<th>Last seen</th>
 		<th>Port</th>
@@ -58,7 +59,8 @@ const routingTableTemplate = `
 {{range $route := . }}
 	<tr>
 		<td>{{$route.NetStart}}{{if not (eq $route.NetStart $route.NetEnd)}} - {{$route.NetEnd}}{{end}}</td>
-		<td>{{if $route.Extended}}✅{{else}}❌{{end}}</td>
+		<td>{{if $route.Extended}}✅{{else}}-{{end}}</td>
+		<td>{{range $route.ZoneNames.ToSlice}}{{.}}<br>{{end}}</td>
 		<td>{{$route.Distance}}</td>
 		<td>{{$route.LastSeenAgo}}</td>
 		<td>
@@ -72,27 +74,6 @@ const routingTableTemplate = `
 				{{.Device}} {{.NetStart}}-{{.NetEnd}}
 			{{- end -}}
 		</td>
-	</tr>
-{{end}}
-	</tbody>
-</table>
-`
-
-const zoneTableTemplate = `
-<table>
-	<thead><tr>
-		<th>Network</th>
-		<th>Name</th>
-		<th>Local Port</th>
-		<th>Last seen</th>
-	</tr></thead>
-	<tbody>
-{{range $zone := . }}
-	<tr>
-		<td>{{$zone.Network}}</td>
-		<td>{{$zone.Name}}</td>
-		<td>{{with $zone.LocalPort}}{{.Device}}{{else}}-{{end}}</td>
-		<td>{{$zone.LastSeenAgo}}</td>
 	</tr>
 {{end}}
 	</tbody>
@@ -220,15 +201,6 @@ func main() {
 		return rs, nil
 	})
 
-	zones := router.NewZoneTable()
-	status.AddItem(ctx, "Zone table", zoneTableTemplate, func(context.Context) (any, error) {
-		zs := zones.Dump()
-		slices.SortFunc(zs, func(za, zb router.Zone) int {
-			return cmp.Compare(za.Name, zb.Name)
-		})
-		return zs, nil
-	})
-
 	// -------------------------------- Peers ---------------------------------
 	var peersMu sync.Mutex
 	peers := make(map[udpAddr]*router.AURPPeer)
@@ -316,7 +288,6 @@ func main() {
 		}
 
 		peer := &router.AURPPeer{
-			Config: cfg,
 			Transport: &aurp.Transport{
 				LocalDI:     localDI,
 				RemoteDI:    aurp.IPDomainIdentifier(raddr.IP),
@@ -326,8 +297,7 @@ func main() {
 			ConfiguredAddr: peerStr,
 			RemoteAddr:     raddr,
 			ReceiveCh:      make(chan aurp.Packet, 1024),
-			RoutingTable:   routes,
-			ZoneTable:      zones,
+			RouteTable:     routes,
 		}
 		aurp.Inc(&nextConnID)
 		peersMu.Lock()
@@ -344,7 +314,7 @@ func main() {
 	rooter := &router.Router{
 		Config:     cfg,
 		RouteTable: routes,
-		ZoneTable:  zones,
+		// ZoneTable:  zones,
 	}
 
 	etherTalkPort := &router.EtherTalkPort{
@@ -353,16 +323,13 @@ func main() {
 		NetStart:        cfg.EtherTalk.NetStart,
 		NetEnd:          cfg.EtherTalk.NetEnd,
 		DefaultZoneName: cfg.EtherTalk.ZoneName,
-		AvailableZones:  []string{cfg.EtherTalk.ZoneName},
+		AvailableZones:  router.SetFromSlice([]string{cfg.EtherTalk.ZoneName}),
 		PcapHandle:      pcapHandle,
 		AARPMachine:     aarpMachine,
 		Router:          rooter,
 	}
 	rooter.Ports = append(rooter.Ports, etherTalkPort)
 	routes.InsertEtherTalkDirect(etherTalkPort)
-	for _, az := range etherTalkPort.AvailableZones {
-		zones.Upsert(etherTalkPort.NetStart, az, etherTalkPort)
-	}
 
 	// --------------------------------- RTMP ---------------------------------
 	go etherTalkPort.RunRTMP(ctx)
@@ -428,17 +395,15 @@ func main() {
 				}
 				// New peer!
 				pr = &router.AURPPeer{
-					Config: cfg,
 					Transport: &aurp.Transport{
 						LocalDI:     localDI,
 						RemoteDI:    dh.SourceDI, // platinum rule
 						LocalConnID: nextConnID,
 					},
-					UDPConn:      ln,
-					RemoteAddr:   raddr,
-					ReceiveCh:    make(chan aurp.Packet, 1024),
-					RoutingTable: routes,
-					ZoneTable:    zones,
+					UDPConn:    ln,
+					RemoteAddr: raddr,
+					ReceiveCh:  make(chan aurp.Packet, 1024),
+					RouteTable: routes,
 				}
 				aurp.Inc(&nextConnID)
 				peers[ra] = pr

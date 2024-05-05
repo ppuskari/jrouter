@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"slices"
 
 	"gitea.drjosh.dev/josh/jrouter/atalk"
 	"gitea.drjosh.dev/josh/jrouter/atalk/atp"
@@ -52,6 +51,9 @@ func (port *EtherTalkPort) handleZIPZIP(ctx context.Context, ddpkt *ddp.ExtPacke
 	case *zip.QueryPacket:
 		return port.handleZIPQuery(ctx, ddpkt, zipkt)
 
+	case *zip.ReplyPacket:
+		return port.handleZIPReply(zipkt)
+
 	case *zip.GetNetInfoPacket:
 		return port.handleZIPGetNetInfo(ctx, ddpkt, zipkt)
 
@@ -62,7 +64,7 @@ func (port *EtherTalkPort) handleZIPZIP(ctx context.Context, ddpkt *ddp.ExtPacke
 
 func (port *EtherTalkPort) handleZIPQuery(ctx context.Context, ddpkt *ddp.ExtPacket, zipkt *zip.QueryPacket) error {
 	log.Printf("ZIP: Got Query for networks %v", zipkt.Networks)
-	networks := port.Router.ZoneTable.Query(zipkt.Networks)
+	networks := port.Router.RouteTable.ZonesForNetworks(zipkt.Networks)
 
 	sendReply := func(resp *zip.ReplyPacket) error {
 		respRaw, err := resp.Marshal()
@@ -156,11 +158,21 @@ func (port *EtherTalkPort) handleZIPQuery(ctx context.Context, ddpkt *ddp.ExtPac
 	return nil
 }
 
+func (port *EtherTalkPort) handleZIPReply(zipkt *zip.ReplyPacket) error {
+	log.Printf("ZIP: Got Reply containing %v", zipkt.Networks)
+
+	// Integrate new zone information into route table.
+	for n, zs := range zipkt.Networks {
+		port.Router.RouteTable.AddZonesToNetwork(n, zs...)
+	}
+	return nil
+}
+
 func (port *EtherTalkPort) handleZIPGetNetInfo(ctx context.Context, ddpkt *ddp.ExtPacket, zipkt *zip.GetNetInfoPacket) error {
 	log.Printf("ZIP: Got GetNetInfo for zone %q", zipkt.ZoneName)
 
 	// The request is zoneValid if the zone name is available on this network.
-	zoneValid := slices.Contains(port.AvailableZones, zipkt.ZoneName)
+	zoneValid := port.AvailableZones.Contains(zipkt.ZoneName)
 
 	// The multicast address we return depends on the validity of the zone
 	// name.
@@ -258,10 +270,10 @@ func (port *EtherTalkPort) handleZIPTReq(ctx context.Context, ddpkt *ddp.ExtPack
 
 	switch gzl.Function {
 	case zip.FunctionGetZoneList:
-		resp.Zones = port.Router.ZoneTable.AllNames()
+		resp.Zones = port.Router.RouteTable.AllZoneNames()
 
 	case zip.FunctionGetLocalZones:
-		resp.Zones = port.AvailableZones
+		resp.Zones = port.AvailableZones.ToSlice()
 
 	case zip.FunctionGetMyZone:
 		// Note: This shouldn't happen on extended networks (e.g. EtherTalk)
