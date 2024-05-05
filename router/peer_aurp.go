@@ -94,9 +94,6 @@ func (ss SenderState) String() string {
 
 // AURPPeer handles the peering with a peer AURP router.
 type AURPPeer struct {
-	// Whole router config.
-	Config *Config
-
 	// AURP-Tr state for producing packets.
 	Transport *aurp.Transport
 
@@ -114,11 +111,8 @@ type AURPPeer struct {
 	// Incoming packet channel.
 	ReceiveCh chan aurp.Packet
 
-	// Routing table (the peer will add/remove/update routes)
-	RoutingTable *RouteTable
-
-	// Zone table (the peer will add/remove/update zones)
-	ZoneTable *ZoneTable
+	// Route table (the peer will add/remove/update routes and zones)
+	RouteTable *RouteTable
 
 	mu     sync.RWMutex
 	rstate ReceiverState
@@ -253,7 +247,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				if sendRetries >= tickleRetryLimit {
 					log.Printf("AURP Peer: Send retry limit reached while waiting for Tickle-Ack, closing connection")
 					p.setRState(ReceiverUnconnected)
-					p.RoutingTable.DeleteAURPPeer(p)
+					p.RouteTable.DeleteAURPPeer(p)
 					break
 				}
 
@@ -272,7 +266,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				if sendRetries >= sendRetryLimit {
 					log.Printf("AURP Peer: Send retry limit reached while waiting for RI-Rsp, closing connection")
 					p.setRState(ReceiverUnconnected)
-					p.RoutingTable.DeleteAURPPeer(p)
+					p.RouteTable.DeleteAURPPeer(p)
 					break
 				}
 
@@ -443,15 +437,17 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 					log.Printf("AURP Peer: Received RI-Req but was not expecting one (sender state was %v)", p.sstate)
 				}
 
-				nets := aurp.NetworkTuples{
-					{
-						Extended:   true,
-						RangeStart: p.Config.EtherTalk.NetStart,
-						RangeEnd:   p.Config.EtherTalk.NetEnd,
-						Distance:   0,
-					},
+				var nets aurp.NetworkTuples
+				for _, r := range p.RouteTable.ValidNonAURPRoutes() {
+					nets = append(nets, aurp.NetworkTuple{
+						Extended:   r.Extended,
+						RangeStart: r.NetStart,
+						RangeEnd:   r.NetEnd,
+						Distance:   r.Distance,
+					})
 				}
 				p.Transport.LocalSeq = 1
+				// TODO: Split tuples across multiple packets as required
 				lastRISent = p.Transport.NewRIRspPacket(aurp.RoutingFlagLast, nets)
 				if _, err := p.Send(lastRISent); err != nil {
 					log.Printf("AURP Peer: Couldn't send RI-Rsp packet: %v", err)
@@ -467,7 +463,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				log.Printf("AURP Peer: Learned about these networks: %v", pkt.Networks)
 
 				for _, nt := range pkt.Networks {
-					p.RoutingTable.InsertAURPRoute(
+					p.RouteTable.InsertAURPRoute(
 						p,
 						nt.Extended,
 						ddp.Network(nt.RangeStart),
@@ -507,11 +503,28 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				sendRetries = 0
 
 				// If SZI flag is set, send ZI-Rsp (transaction)
-				// TODO: split ZI-Rsp packets similarly to ZIP Replies
 				if pkt.Flags&aurp.RoutingFlagSendZoneInfo != 0 {
-					zones := map[ddp.Network][]string{
-						p.Config.EtherTalk.NetStart: {p.Config.EtherTalk.ZoneName},
+					// Inspect last routing info packet sent to determine
+					// networks to gather names for
+					var nets []ddp.Network
+					switch last := lastRISent.(type) {
+					case *aurp.RIRspPacket:
+						for _, nt := range last.Networks {
+							nets = append(nets, nt.RangeStart)
+						}
+
+					case *aurp.RIUpdPacket:
+						for _, et := range last.Events {
+							// Only networks that were added
+							if et.EventCode != aurp.EventCodeNA {
+								continue
+							}
+							nets = append(nets, et.RangeStart)
+						}
+
 					}
+					zones := p.RouteTable.ZonesForNetworks(nets)
+					// TODO: split ZI-Rsp packets similarly to ZIP Replies
 					if _, err := p.Send(p.Transport.NewZIRspPacket(zones)); err != nil {
 						log.Printf("AURP Peer: Couldn't send ZI-Rsp packet: %v", err)
 					}
@@ -543,7 +556,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 						// Do nothing except respond with RI-Ack
 
 					case aurp.EventCodeNA:
-						if err := p.RoutingTable.InsertAURPRoute(
+						if err := p.RouteTable.InsertAURPRoute(
 							p,
 							et.Extended,
 							et.RangeStart,
@@ -555,10 +568,10 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 						ackFlag = aurp.RoutingFlagSendZoneInfo
 
 					case aurp.EventCodeND:
-						p.RoutingTable.DeleteAURPPeerNetwork(p, et.RangeStart)
+						p.RouteTable.DeleteAURPPeerNetwork(p, et.RangeStart)
 
 					case aurp.EventCodeNDC:
-						p.RoutingTable.UpdateAURPRouteDistance(p, et.RangeStart, et.Distance+1)
+						p.RouteTable.UpdateAURPRouteDistance(p, et.RangeStart, et.Distance+1)
 
 					case aurp.EventCodeNRC:
 						// "An exterior router sends a Network Route Change
@@ -566,7 +579,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 						// through its local internet changes to a path through
 						// a tunneling port, causing split-horizoned processing
 						// to eliminate that network’s routing information."
-						p.RoutingTable.DeleteAURPPeerNetwork(p, et.RangeStart)
+						p.RouteTable.DeleteAURPPeerNetwork(p, et.RangeStart)
 
 					case aurp.EventCodeZC:
 						// "This event is reserved for future use."
@@ -584,7 +597,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				}
 
 				log.Printf("AURP Peer: Router Down: error code %d %s", pkt.ErrorCode, pkt.ErrorCode)
-				p.RoutingTable.DeleteAURPPeer(p)
+				p.RouteTable.DeleteAURPPeer(p)
 
 				// Respond with RI-Ack
 				if _, err := p.Send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, 0)); err != nil {
@@ -596,7 +609,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 
 			case *aurp.ZIReqPacket:
 				// TODO: split ZI-Rsp packets similarly to ZIP Replies
-				zones := p.ZoneTable.Query(pkt.Networks)
+				zones := p.RouteTable.ZonesForNetworks(pkt.Networks)
 				if _, err := p.Send(p.Transport.NewZIRspPacket(zones)); err != nil {
 					log.Printf("AURP Peer: Couldn't send ZI-Rsp packet: %v", err)
 					return err
@@ -605,7 +618,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 			case *aurp.ZIRspPacket:
 				log.Printf("AURP Peer: Learned about these zones: %v", pkt.Zones)
 				for _, zt := range pkt.Zones {
-					p.ZoneTable.Upsert(ddp.Network(zt.Network), zt.Name, nil)
+					p.RouteTable.AddZonesToNetwork(zt.Network, zt.Name)
 				}
 
 			case *aurp.GDZLReqPacket:

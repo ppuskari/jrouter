@@ -26,7 +26,6 @@ import (
 type Router struct {
 	Config     *Config
 	RouteTable *RouteTable
-	ZoneTable  *ZoneTable
 	Ports      []*EtherTalkPort
 }
 

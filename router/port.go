@@ -37,7 +37,7 @@ type EtherTalkPort struct {
 	NetEnd          ddp.Network
 	MyAddr          ddp.Addr
 	DefaultZoneName string
-	AvailableZones  []string
+	AvailableZones  StringSet
 	PcapHandle      *pcap.Handle
 	AARPMachine     *AARPMachine
 	Router          *Router
