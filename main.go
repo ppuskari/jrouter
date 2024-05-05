@@ -80,27 +80,6 @@ const routingTableTemplate = `
 </table>
 `
 
-const zoneTableTemplate = `
-<table>
-	<thead><tr>
-		<th>Network</th>
-		<th>Name</th>
-		<th>Local Port</th>
-		<th>Last seen</th>
-	</tr></thead>
-	<tbody>
-{{range $zone := . }}
-	<tr>
-		<td>{{$zone.Network}}</td>
-		<td>{{$zone.Name}}</td>
-		<td>{{with $zone.LocalPort}}{{.Device}}{{else}}-{{end}}</td>
-		<td>{{$zone.LastSeenAgo}}</td>
-	</tr>
-{{end}}
-	</tbody>
-</table>
-`
-
 const peerTableTemplate = `
 <table>
 	<thead><tr>
@@ -353,7 +332,7 @@ func main() {
 		NetStart:        cfg.EtherTalk.NetStart,
 		NetEnd:          cfg.EtherTalk.NetEnd,
 		DefaultZoneName: cfg.EtherTalk.ZoneName,
-		AvailableZones:  []string{cfg.EtherTalk.ZoneName},
+		AvailableZones:  router.SetFromSlice([]string{cfg.EtherTalk.ZoneName}),
 		PcapHandle:      pcapHandle,
 		AARPMachine:     aarpMachine,
 		Router:          rooter,

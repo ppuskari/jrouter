@@ -22,7 +22,7 @@ import (
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
-func (rt *RouteTable) AddZoneToNetwork(n ddp.Network, z string) {
+func (rt *RouteTable) AddZonesToNetwork(n ddp.Network, zs ...string) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	for r := range rt.routes {
@@ -32,10 +32,7 @@ func (rt *RouteTable) AddZoneToNetwork(n ddp.Network, z string) {
 		if !r.Valid() {
 			continue
 		}
-		if slices.Contains(r.ZoneNames, z) {
-			continue
-		}
-		r.ZoneNames = append(r.ZoneNames, z)
+		r.ZoneNames.Insert(zs...)
 	}
 }
 
@@ -49,7 +46,9 @@ func (rt *RouteTable) ZonesForNetworks(ns []ddp.Network) map[ddp.Network][]strin
 			continue
 		}
 		if _, ok := slices.BinarySearch(ns, r.NetStart); ok {
-			zs[r.NetStart] = append(zs[r.NetStart], r.ZoneNames...)
+			for z := range r.ZoneNames {
+				zs[r.NetStart] = append(zs[r.NetStart], z)
+			}
 		}
 	}
 	return zs
@@ -64,7 +63,7 @@ func (rt *RouteTable) RoutesForZone(zone string) []*Route {
 		if !r.Valid() {
 			continue
 		}
-		if slices.Contains(r.ZoneNames, zone) {
+		if r.ZoneNames.Contains(zone) {
 			routes = append(routes, r)
 		}
 	}
@@ -77,19 +76,13 @@ func (rt *RouteTable) AllZoneNames() (zones []string) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
-	seen := make(map[string]struct{})
+	zs := make(StringSet)
 	for r := range rt.routes {
 		if !r.Valid() {
 			continue
 		}
-		for _, z := range r.ZoneNames {
-			if _, s := seen[z]; s {
-				continue
-			}
-			seen[z] = struct{}{}
-			zones = append(zones, z)
-		}
+		zs.Add(r.ZoneNames)
 	}
 
-	return zones
+	return zs.ToSlice()
 }

@@ -24,6 +24,7 @@ import (
 
 	"gitea.drjosh.dev/josh/jrouter/atalk"
 	"gitea.drjosh.dev/josh/jrouter/atalk/rtmp"
+	"gitea.drjosh.dev/josh/jrouter/atalk/zip"
 	"gitea.drjosh.dev/josh/jrouter/status"
 
 	"github.com/sfiera/multitalk/pkg/ddp"
@@ -110,18 +111,45 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 		log.Print("RTMP: Got Response or Data")
 		dataPkt, err := rtmp.UnmarshalDataPacket(pkt.Data)
 		if err != nil {
-			log.Printf("RTMP: Couldn't unmarshal RTMP Data packet: %v", err)
-			break
+			return fmt.Errorf("unmarshal RTMP Data packet: %w", err)
 		}
 		peer := &EtherTalkPeer{
 			Port:     port,
 			PeerAddr: dataPkt.RouterAddr,
 		}
 
-		for _, rt := range dataPkt.NetworkTuples {
-			if err := port.Router.RouteTable.UpsertEtherTalkRoute(peer, rt.Extended, rt.RangeStart, rt.RangeEnd, rt.Distance+1); err != nil {
+		var noZones []ddp.Network
+		for _, nt := range dataPkt.NetworkTuples {
+			route, err := port.Router.RouteTable.UpsertEtherTalkRoute(peer, nt.Extended, nt.RangeStart, nt.RangeEnd, nt.Distance+1)
+			if err != nil {
 				log.Printf("RTMP: Couldn't upsert EtherTalk route: %v", err)
 			}
+			if len(route.ZoneNames) == 0 {
+				noZones = append(noZones, route.NetStart)
+			}
+		}
+		if len(noZones) > 0 {
+			// Send a ZIP Query for all networks we don't have zone names for.
+			// TODO: split networks to fit in multiple packets as needed
+			qryPkt, err := (&zip.QueryPacket{Networks: noZones}).Marshal()
+			if err != nil {
+				return fmt.Errorf("marshal ZIP Query packet: %w", err)
+			}
+			outDDP := &ddp.ExtPacket{
+				ExtHeader: ddp.ExtHeader{
+					Size:      uint16(len(qryPkt)) + atalk.DDPExtHeaderSize,
+					Cksum:     0,
+					SrcNet:    port.MyAddr.Network,
+					SrcNode:   port.MyAddr.Node,
+					SrcSocket: 6,
+					DstNet:    pkt.SrcNet,
+					DstNode:   pkt.SrcNode,
+					DstSocket: 6, // ZIP socket
+					Proto:     ddp.ProtoZIP,
+				},
+				Data: qryPkt,
+			}
+			port.Send(ctx, outDDP)
 		}
 
 	default:

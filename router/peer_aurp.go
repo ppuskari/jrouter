@@ -618,7 +618,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 			case *aurp.ZIRspPacket:
 				log.Printf("AURP Peer: Learned about these zones: %v", pkt.Zones)
 				for _, zt := range pkt.Zones {
-					p.RouteTable.AddZoneToNetwork(zt.Network, zt.Name)
+					p.RouteTable.AddZonesToNetwork(zt.Network, zt.Name)
 				}
 
 			case *aurp.GDZLReqPacket:

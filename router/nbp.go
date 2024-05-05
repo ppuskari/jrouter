@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"slices"
 
 	"gitea.drjosh.dev/josh/jrouter/atalk"
 	"gitea.drjosh.dev/josh/jrouter/atalk/nbp"
@@ -170,7 +169,7 @@ func (rtr *Router) handleNBPFwdReq(ctx context.Context, ddpkt *ddp.ExtPacket, nb
 	tuple := &nbpkt.Tuples[0]
 
 	for _, outPort := range rtr.Ports {
-		if !slices.Contains(outPort.AvailableZones, tuple.Zone) {
+		if !outPort.AvailableZones.Contains(tuple.Zone) {
 			continue
 		}
 		log.Printf("NBP: Converting FwdReq to LkUp (%v)", tuple)

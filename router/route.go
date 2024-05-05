@@ -36,7 +36,7 @@ type Route struct {
 
 	// ZoneNames may be empty between learning the existence of a route and
 	// receiving zone information.
-	ZoneNames []string
+	ZoneNames StringSet
 
 	// Exactly one of the following should be set
 	AURPPeer        *AURPPeer      // Next hop is this peer router (over AURP)
@@ -51,8 +51,11 @@ func (r Route) LastSeenAgo() string {
 	return fmt.Sprintf("%v ago", time.Since(r.LastSeen).Truncate(time.Millisecond))
 }
 
+// Valid reports whether the route is valid.
+// A valid route has one or more zone names, and if it is learned from a peer
+// router over EtherTalk is not too old.
 func (r *Route) Valid() bool {
-	return r.EtherTalkPeer == nil || time.Since(r.LastSeen) <= maxRouteAge
+	return len(r.ZoneNames) > 0 && (r.EtherTalkPeer == nil || time.Since(r.LastSeen) <= maxRouteAge)
 }
 
 type RouteTable struct {
@@ -150,12 +153,12 @@ func (rt *RouteTable) UpdateAURPRouteDistance(peer *AURPPeer, network ddp.Networ
 	}
 }
 
-func (rt *RouteTable) UpsertEtherTalkRoute(peer *EtherTalkPeer, extended bool, netStart, netEnd ddp.Network, metric uint8) error {
+func (rt *RouteTable) UpsertEtherTalkRoute(peer *EtherTalkPeer, extended bool, netStart, netEnd ddp.Network, metric uint8) (*Route, error) {
 	if netStart > netEnd {
-		return fmt.Errorf("invalid network range [%d, %d]", netStart, netEnd)
+		return nil, fmt.Errorf("invalid network range [%d, %d]", netStart, netEnd)
 	}
 	if netStart != netEnd && !extended {
-		return fmt.Errorf("invalid network range [%d, %d] for nonextended network", netStart, netEnd)
+		return nil, fmt.Errorf("invalid network range [%d, %d] for nonextended network", netStart, netEnd)
 	}
 
 	rt.mu.Lock()
@@ -177,7 +180,7 @@ func (rt *RouteTable) UpsertEtherTalkRoute(peer *EtherTalkPeer, extended bool, n
 		}
 		r.Distance = metric
 		r.LastSeen = time.Now()
-		return nil
+		return r, nil
 	}
 
 	// Insert.
@@ -190,7 +193,7 @@ func (rt *RouteTable) UpsertEtherTalkRoute(peer *EtherTalkPeer, extended bool, n
 		EtherTalkPeer: peer,
 	}
 	rt.routes[r] = struct{}{}
-	return nil
+	return r, nil
 }
 
 func (rt *RouteTable) InsertAURPRoute(peer *AURPPeer, extended bool, netStart, netEnd ddp.Network, metric uint8) error {
@@ -216,6 +219,7 @@ func (rt *RouteTable) InsertAURPRoute(peer *AURPPeer, extended bool, netStart, n
 	return nil
 }
 
+// ValidRoutes returns all valid routes.
 func (rt *RouteTable) ValidRoutes() []*Route {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
@@ -228,6 +232,7 @@ func (rt *RouteTable) ValidRoutes() []*Route {
 	return valid
 }
 
+// ValidNonAURPRoutes returns all valid routes that were not learned via AURP.
 func (rt *RouteTable) ValidNonAURPRoutes() []*Route {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
