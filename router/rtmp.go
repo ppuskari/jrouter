@@ -102,8 +102,7 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 			}
 
 		case rtmp.FunctionLoopProbe:
-			log.Print("RTMP: TODO: handle Loop Probes")
-			return nil
+			return fmt.Errorf("TODO: handle Loop Probes")
 		}
 
 	case ddp.ProtoRTMPResp:
@@ -122,7 +121,7 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 		for _, nt := range dataPkt.NetworkTuples {
 			route, err := port.Router.RouteTable.UpsertEtherTalkRoute(peer, nt.Extended, nt.RangeStart, nt.RangeEnd, nt.Distance+1)
 			if err != nil {
-				log.Printf("RTMP: Couldn't upsert EtherTalk route: %v", err)
+				return fmt.Errorf("upsert EtherTalk route: %v", err)
 			}
 			if len(route.ZoneNames) == 0 {
 				noZones = append(noZones, route.NetStart)
@@ -149,11 +148,13 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 				},
 				Data: qryPkt,
 			}
-			port.Send(ctx, outDDP)
+			if err := port.Send(ctx, outDDP); err != nil {
+				return fmt.Errorf("sending ZIP Query: %w", err)
+			}
 		}
 
 	default:
-		log.Printf("RTMP: invalid DDP type %d on socket 1", pkt.Proto)
+		return fmt.Errorf("invalid DDP type %d on socket 1", pkt.Proto)
 	}
 
 	return nil

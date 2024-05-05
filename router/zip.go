@@ -52,7 +52,7 @@ func (port *EtherTalkPort) handleZIPZIP(ctx context.Context, ddpkt *ddp.ExtPacke
 		return port.handleZIPQuery(ctx, ddpkt, zipkt)
 
 	case *zip.ReplyPacket:
-		return port.handleZIPReply(ctx, zipkt)
+		return port.handleZIPReply(zipkt)
 
 	case *zip.GetNetInfoPacket:
 		return port.handleZIPGetNetInfo(ctx, ddpkt, zipkt)
@@ -158,8 +158,8 @@ func (port *EtherTalkPort) handleZIPQuery(ctx context.Context, ddpkt *ddp.ExtPac
 	return nil
 }
 
-func (port *EtherTalkPort) handleZIPReply(ctx context.Context, zipkt *zip.ReplyPacket) error {
-	log.Printf("ZIP: Got Reply for networks %v", zipkt.Networks)
+func (port *EtherTalkPort) handleZIPReply(zipkt *zip.ReplyPacket) error {
+	log.Printf("ZIP: Got Reply containing %v", zipkt.Networks)
 
 	// Integrate new zone information into route table.
 	for n, zs := range zipkt.Networks {
