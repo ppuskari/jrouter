@@ -29,8 +29,8 @@ func (rt *RouteTable) AddZonesToNetwork(n ddp.Network, zs ...string) {
 		if n < r.NetStart || n > r.NetEnd {
 			continue
 		}
-		if !r.Valid() {
-			continue
+		if r.ZoneNames == nil {
+			r.ZoneNames = make(StringSet)
 		}
 		r.ZoneNames.Insert(zs...)
 	}
