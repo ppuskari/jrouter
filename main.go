@@ -318,7 +318,6 @@ func main() {
 		}
 
 		peer := &router.AURPPeer{
-			Config: cfg,
 			Transport: &aurp.Transport{
 				LocalDI:     localDI,
 				RemoteDI:    aurp.IPDomainIdentifier(raddr.IP),
@@ -426,7 +425,6 @@ func main() {
 				}
 				// New peer!
 				pr = &router.AURPPeer{
-					Config: cfg,
 					Transport: &aurp.Transport{
 						LocalDI:     localDI,
 						RemoteDI:    dh.SourceDI, // platinum rule

@@ -94,9 +94,6 @@ func (ss SenderState) String() string {
 
 // AURPPeer handles the peering with a peer AURP router.
 type AURPPeer struct {
-	// Whole router config.
-	Config *Config
-
 	// AURP-Tr state for producing packets.
 	Transport *aurp.Transport
 
@@ -440,15 +437,17 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 					log.Printf("AURP Peer: Received RI-Req but was not expecting one (sender state was %v)", p.sstate)
 				}
 
-				nets := aurp.NetworkTuples{
-					{
-						Extended:   true,
-						RangeStart: p.Config.EtherTalk.NetStart,
-						RangeEnd:   p.Config.EtherTalk.NetEnd,
-						Distance:   0,
-					},
+				var nets aurp.NetworkTuples
+				for _, r := range p.RouteTable.ValidNonAURPRoutes() {
+					nets = append(nets, aurp.NetworkTuple{
+						Extended:   r.Extended,
+						RangeStart: r.NetStart,
+						RangeEnd:   r.NetEnd,
+						Distance:   r.Distance,
+					})
 				}
 				p.Transport.LocalSeq = 1
+				// TODO: Split tuples across multiple packets as required
 				lastRISent = p.Transport.NewRIRspPacket(aurp.RoutingFlagLast, nets)
 				if _, err := p.Send(lastRISent); err != nil {
 					log.Printf("AURP Peer: Couldn't send RI-Rsp packet: %v", err)
@@ -504,11 +503,28 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				sendRetries = 0
 
 				// If SZI flag is set, send ZI-Rsp (transaction)
-				// TODO: split ZI-Rsp packets similarly to ZIP Replies
 				if pkt.Flags&aurp.RoutingFlagSendZoneInfo != 0 {
-					zones := map[ddp.Network][]string{
-						p.Config.EtherTalk.NetStart: {p.Config.EtherTalk.ZoneName},
+					// Inspect last routing info packet sent to determine
+					// networks to gather names for
+					var nets []ddp.Network
+					switch last := lastRISent.(type) {
+					case *aurp.RIRspPacket:
+						for _, nt := range last.Networks {
+							nets = append(nets, nt.RangeStart)
+						}
+
+					case *aurp.RIUpdPacket:
+						for _, et := range last.Events {
+							// Only networks that were added
+							if et.EventCode != aurp.EventCodeNA {
+								continue
+							}
+							nets = append(nets, et.RangeStart)
+						}
+
 					}
+					zones := p.RouteTable.ZonesForNetworks(nets)
+					// TODO: split ZI-Rsp packets similarly to ZIP Replies
 					if _, err := p.Send(p.Transport.NewZIRspPacket(zones)); err != nil {
 						log.Printf("AURP Peer: Couldn't send ZI-Rsp packet: %v", err)
 					}

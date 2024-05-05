@@ -227,3 +227,19 @@ func (rt *RouteTable) ValidRoutes() []*Route {
 	}
 	return valid
 }
+
+func (rt *RouteTable) ValidNonAURPRoutes() []*Route {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	valid := make([]*Route, 0, len(rt.routes))
+	for r := range rt.routes {
+		if r.AURPPeer != nil {
+			continue
+		}
+		if !r.Valid() {
+			continue
+		}
+		valid = append(valid, r)
+	}
+	return valid
+}
