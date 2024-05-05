@@ -11,21 +11,25 @@ Home-grown alternative implementation of Apple Internet Router 3.0
 
 TashTalk could be a stretch goal, if I can acquire one!
 
+## Things that used to be caveats
+
+* Previously it would listen for all EtherTalk traffic, regardless of destination.
+  Now it doesn't do that, which should help it co-exist with other routers on
+  the same host.
+* You can configure an alternate Ethernet address if you are reusing the same
+  network interface for multiple different EtherTalk software.
+* In addition to the configured EtherTalk network and zone, it now learns routes
+  and zones from other EtherTalk routers, and should share them across AURP.
+* There's a status server. Browse to http://\[your router\]:9459/status to see
+  information about the state of jrouter.
+
 ## Caveats
 
 Things I plan to fix Real Soon Now:
 
-* ✅ Fixed ~~It currently listens to all AppleTalk and AARP traffic on the EtherTalk port.
-  This might not play well with other AppleTalk software, e.g. netatalk.~~
-* ✅ Fixed ~~Also it currently uses the default Ethernet address for the interface for
-  sending packets. I plan to add the ability to configure a different address.~~ 
-  You can now configure a different Ethernet address for the EtherTalk
-  interface. I haven't tested it with netatalk or tashrouter on the same
-  host, but I think using a distinct Ethernet address would help them coexist.
-* It currently ignores other AppleTalk routers on the EtherTalk side. This is
-  the next main thing to implement to make it work with e.g. netatalk.
 * Some packet types need splitting to fit within limits. Some of these aren't
-  implemented yet (mainly encapsulated).
+  implemented yet (mainly encapsulated). The unimplemented ones seem unlikely to
+  hit those limits unless you are running a lot of routers or zones locally.
 * I plan to add a Prometheus metrics endpoint and at least add log levels /
   verbosity config.
 * The AURP implementation is mostly there, but not fully complete. The main
