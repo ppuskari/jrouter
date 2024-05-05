@@ -34,6 +34,10 @@ type Route struct {
 
 	LastSeen time.Time
 
+	// ZoneNames may be empty between learning the existence of a route and
+	// receiving zone information.
+	ZoneNames []string
+
 	// Exactly one of the following should be set
 	AURPPeer        *AURPPeer      // Next hop is this peer router (over AURP)
 	EtherTalkPeer   *EtherTalkPeer // Next hop is this peer router (over EtherTalk)
@@ -45,6 +49,10 @@ func (r Route) LastSeenAgo() string {
 		return "never"
 	}
 	return fmt.Sprintf("%v ago", time.Since(r.LastSeen).Truncate(time.Millisecond))
+}
+
+func (r *Route) Valid() bool {
+	return r.EtherTalkPeer == nil || time.Since(r.LastSeen) <= maxRouteAge
 }
 
 type RouteTable struct {
@@ -65,6 +73,7 @@ func (rt *RouteTable) InsertEtherTalkDirect(port *EtherTalkPort) {
 		NetEnd:          port.NetEnd,
 		Distance:        0, // we're connected directly
 		LastSeen:        time.Now(),
+		ZoneNames:       port.AvailableZones,
 		EtherTalkDirect: port,
 	}
 
@@ -93,8 +102,7 @@ func (rt *RouteTable) LookupRoute(network ddp.Network) *Route {
 		if network < r.NetStart || network > r.NetEnd {
 			continue
 		}
-		// Exclude EtherTalk routes that are too old
-		if r.EtherTalkPeer != nil && time.Since(r.LastSeen) > maxRouteAge {
+		if !r.Valid() {
 			continue
 		}
 		if bestRoute == nil {
@@ -213,11 +221,9 @@ func (rt *RouteTable) ValidRoutes() []*Route {
 	defer rt.mu.Unlock()
 	valid := make([]*Route, 0, len(rt.routes))
 	for r := range rt.routes {
-		// Exclude EtherTalk routes that are too old
-		if r.EtherTalkPeer != nil && time.Since(r.LastSeen) > maxRouteAge {
-			continue
+		if r.Valid() {
+			valid = append(valid, r)
 		}
-		valid = append(valid, r)
 	}
 	return valid
 }

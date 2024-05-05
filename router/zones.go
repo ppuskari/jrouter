@@ -17,145 +17,79 @@
 package router
 
 import (
-	"fmt"
 	"slices"
-	"sort"
-	"sync"
-	"time"
 
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
-//const maxZoneAge = 10 * time.Minute // TODO: confirm
-
-type Zone struct {
-	Network   ddp.Network
-	Name      string
-	LocalPort *EtherTalkPort // nil if remote (local to another router)
-	LastSeen  time.Time
-}
-
-func (z Zone) LastSeenAgo() string {
-	if z.LastSeen.IsZero() {
-		return "never"
-	}
-	return fmt.Sprintf("%v ago", time.Since(z.LastSeen).Truncate(time.Millisecond))
-}
-
-type zoneKey struct {
-	network ddp.Network
-	name    string
-}
-
-type ZoneTable struct {
-	mu    sync.Mutex
-	zones map[zoneKey]*Zone
-}
-
-func NewZoneTable() *ZoneTable {
-	return &ZoneTable{
-		zones: make(map[zoneKey]*Zone),
-	}
-}
-
-func (zt *ZoneTable) Dump() []Zone {
-	zt.mu.Lock()
-	defer zt.mu.Unlock()
-	zs := make([]Zone, 0, len(zt.zones))
-	for _, z := range zt.zones {
-		zs = append(zs, *z)
-	}
-	return zs
-}
-
-func (zt *ZoneTable) Upsert(network ddp.Network, name string, localPort *EtherTalkPort) {
-	zt.mu.Lock()
-	defer zt.mu.Unlock()
-	key := zoneKey{network, name}
-	z := zt.zones[key]
-	if z != nil {
-		z.LocalPort = localPort
-		z.LastSeen = time.Now()
-		return
-	}
-	zt.zones[key] = &Zone{
-		Network:   network,
-		Name:      name,
-		LocalPort: localPort,
-		LastSeen:  time.Now(),
-	}
-}
-
-func (zt *ZoneTable) Query(ns []ddp.Network) map[ddp.Network][]string {
-	slices.Sort(ns)
-	zs := make(map[ddp.Network][]string)
-
-	zt.mu.Lock()
-	defer zt.mu.Unlock()
-	for _, z := range zt.zones {
-		// if time.Since(z.LastSeen) > maxZoneAge {
-		// 	continue
-		// }
-		if _, ok := slices.BinarySearch(ns, z.Network); ok {
-			zs[z.Network] = append(zs[z.Network], z.Name)
-		}
-	}
-	return zs
-}
-
-func (zt *ZoneTable) LookupName(name string) []*Zone {
-	zt.mu.Lock()
-	defer zt.mu.Unlock()
-
-	var zs []*Zone
-	for _, z := range zt.zones {
-		if z.Name == name {
-			zs = append(zs, z)
-		}
-	}
-	return zs
-}
-
-// func (zt *ZoneTable) LocalNames() []string {
-// 	zt.mu.Lock()
-// 	seen := make(map[string]struct{})
-// 	zs := make([]string, 0, len(zt.zones))
-// 	for _, z := range zt.zones {
-// 		// if time.Since(z.LastSeen) > maxZoneAge {
-// 		// 	continue
-// 		// }
-// 		if z.Local != nil {
-// 			continue
-// 		}
-// 		if _, s := seen[z.Name]; s {
-// 			continue
-// 		}
-// 		seen[z.Name] = struct{}{}
-// 		zs = append(zs, z.Name)
-
-// 	}
-// 	zt.mu.Unlock()
-
-// 	sort.Strings(zs)
-// 	return zs
-// }
-
-func (zt *ZoneTable) AllNames() []string {
-	zt.mu.Lock()
-	seen := make(map[string]struct{})
-	zs := make([]string, 0, len(zt.zones))
-	for _, z := range zt.zones {
-		// if time.Since(z.LastSeen) > maxZoneAge {
-		// 	continue
-		// }
-		if _, s := seen[z.Name]; s {
+func (rt *RouteTable) AddZoneToNetwork(n ddp.Network, z string) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	for r := range rt.routes {
+		if n < r.NetStart || n > r.NetEnd {
 			continue
 		}
-		seen[z.Name] = struct{}{}
-		zs = append(zs, z.Name)
+		if !r.Valid() {
+			continue
+		}
+		if slices.Contains(r.ZoneNames, z) {
+			continue
+		}
+		r.ZoneNames = append(r.ZoneNames, z)
 	}
-	zt.mu.Unlock()
+}
 
-	sort.Strings(zs)
+func (rt *RouteTable) ZonesForNetworks(ns []ddp.Network) map[ddp.Network][]string {
+	zs := make(map[ddp.Network][]string)
+
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	for r := range rt.routes {
+		if !r.Valid() {
+			continue
+		}
+		if _, ok := slices.BinarySearch(ns, r.NetStart); ok {
+			zs[r.NetStart] = append(zs[r.NetStart], r.ZoneNames...)
+		}
+	}
 	return zs
+}
+
+func (rt *RouteTable) RoutesForZone(zone string) []*Route {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+
+	var routes []*Route
+	for r := range rt.routes {
+		if !r.Valid() {
+			continue
+		}
+		if slices.Contains(r.ZoneNames, zone) {
+			routes = append(routes, r)
+		}
+	}
+	return routes
+}
+
+func (rt *RouteTable) AllZoneNames() (zones []string) {
+	defer slices.Sort(zones)
+
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+
+	seen := make(map[string]struct{})
+	for r := range rt.routes {
+		if !r.Valid() {
+			continue
+		}
+		for _, z := range r.ZoneNames {
+			if _, s := seen[z]; s {
+				continue
+			}
+			seen[z] = struct{}{}
+			zones = append(zones, z)
+		}
+	}
+
+	return zones
 }

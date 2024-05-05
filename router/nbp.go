@@ -74,10 +74,10 @@ func (port *EtherTalkPort) handleNBPBrRq(ctx context.Context, ddpkt *ddp.ExtPack
 	// 	tuple.Zone = port.DefaultZoneName
 	// }
 
-	zones := port.Router.ZoneTable.LookupName(tuple.Zone)
+	routes := port.Router.RouteTable.RoutesForZone(tuple.Zone)
 
-	for _, z := range zones {
-		if outPort := z.LocalPort; outPort != nil {
+	for _, route := range routes {
+		if outPort := route.EtherTalkDirect; outPort != nil {
 			// If it's for a local zone, translate it to a LkUp and broadcast
 			// out the corresponding EtherTalk port.
 			// "Note: On an internet, nodes on extended networks performing lookups in
@@ -147,7 +147,7 @@ func (port *EtherTalkPort) handleNBPBrRq(ctx context.Context, ddpkt *ddp.ExtPack
 				SrcNet:    ddpkt.SrcNet,
 				SrcNode:   ddpkt.SrcNode,
 				SrcSocket: ddpkt.SrcSocket,
-				DstNet:    z.Network,
+				DstNet:    route.NetStart,
 				DstNode:   0x00, // Any router for the dest network
 				DstSocket: 2,
 				Proto:     ddp.ProtoNBP,

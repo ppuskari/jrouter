@@ -62,7 +62,7 @@ func (port *EtherTalkPort) handleZIPZIP(ctx context.Context, ddpkt *ddp.ExtPacke
 
 func (port *EtherTalkPort) handleZIPQuery(ctx context.Context, ddpkt *ddp.ExtPacket, zipkt *zip.QueryPacket) error {
 	log.Printf("ZIP: Got Query for networks %v", zipkt.Networks)
-	networks := port.Router.ZoneTable.Query(zipkt.Networks)
+	networks := port.Router.RouteTable.ZonesForNetworks(zipkt.Networks)
 
 	sendReply := func(resp *zip.ReplyPacket) error {
 		respRaw, err := resp.Marshal()
@@ -258,7 +258,7 @@ func (port *EtherTalkPort) handleZIPTReq(ctx context.Context, ddpkt *ddp.ExtPack
 
 	switch gzl.Function {
 	case zip.FunctionGetZoneList:
-		resp.Zones = port.Router.ZoneTable.AllNames()
+		resp.Zones = port.Router.RouteTable.AllZoneNames()
 
 	case zip.FunctionGetLocalZones:
 		resp.Zones = port.AvailableZones
