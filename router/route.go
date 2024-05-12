@@ -45,10 +45,7 @@ type Route struct {
 }
 
 func (r Route) LastSeenAgo() string {
-	if r.LastSeen.IsZero() {
-		return "never"
-	}
-	return fmt.Sprintf("%v ago", time.Since(r.LastSeen).Truncate(time.Millisecond))
+	return ago(r.LastSeen)
 }
 
 // Valid reports whether the route is valid.

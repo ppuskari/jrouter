@@ -378,10 +378,7 @@ func (e AMTEntry) Valid() bool {
 // LastUpdatedAgo is a friendly string reporting how long ago the entry was
 // updated/resolved.
 func (e AMTEntry) LastUpdatedAgo() string {
-	if e.LastUpdated.IsZero() {
-		return "never"
-	}
-	return fmt.Sprintf("%v ago", time.Since(e.LastUpdated).Truncate(time.Millisecond))
+	return ago(e.LastUpdated)
 }
 
 // addressMappingTable implements a concurrent-safe Address Mapping Table for

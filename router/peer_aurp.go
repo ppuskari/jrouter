@@ -19,7 +19,6 @@ package router
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"log"
 	"net"
 	"sync"
@@ -151,37 +150,25 @@ func (p *AURPPeer) SenderState() SenderState {
 func (p *AURPPeer) LastReconnectAgo() string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	if p.lastReconnect.IsZero() {
-		return "never"
-	}
-	return fmt.Sprintf("%v ago", time.Since(p.lastReconnect).Truncate(time.Millisecond))
+	return ago(p.lastReconnect)
 }
 
 func (p *AURPPeer) LastHeardFromAgo() string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	if p.lastHeardFrom.IsZero() {
-		return "never"
-	}
-	return fmt.Sprintf("%v ago", time.Since(p.lastHeardFrom).Truncate(time.Millisecond))
+	return ago(p.lastHeardFrom)
 }
 
 func (p *AURPPeer) LastSendAgo() string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	if p.lastSend.IsZero() {
-		return "never"
-	}
-	return fmt.Sprintf("%v ago", time.Since(p.lastSend).Truncate(time.Millisecond))
+	return ago(p.lastSend)
 }
 
 func (p *AURPPeer) LastUpdateAgo() string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	if p.lastUpdate.IsZero() {
-		return "never"
-	}
-	return fmt.Sprintf("%v ago", time.Since(p.lastUpdate).Truncate(time.Millisecond))
+	return ago(p.lastUpdate)
 }
 
 func (p *AURPPeer) SendRetries() int {
