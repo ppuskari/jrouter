@@ -173,9 +173,12 @@ func (e EventTuples) WriteTo(w io.Writer) (int64, error) {
 }
 
 func parseEventTuples(p []byte) (EventTuples, error) {
-	// Each event tuple is at least 4 bytes, so we need to store at most
-	// len(p)/4 of them.
-	e := make(EventTuples, 0, len(p)/4)
+	// Event tuples can be 1, 4, or 6 bytes long. But the only type of length 1
+	// is the Null event type sent to probe whether or not the data receiver is
+	// still listening. If that's present there probably aren't any other
+	// tuples. Hence len(p)/4 (rounded up) is a reasonable estimate of max tuple
+	// count.
+	e := make(EventTuples, 0, (len(p)+3)/4)
 	for len(p) > 0 {
 		et, nextp, err := parseEventTuple(p)
 		if err != nil {
@@ -198,6 +201,10 @@ type EventTuple struct {
 func (et *EventTuple) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
 	a.write8(uint8(et.EventCode))
+	if et.EventCode == EventCodeNull {
+		// null tuple
+		return a.ret()
+	}
 	a.write16(uint16(et.RangeStart))
 	if !et.Extended {
 		// non-extended tuple
@@ -211,12 +218,18 @@ func (et *EventTuple) WriteTo(w io.Writer) (int64, error) {
 }
 
 func parseEventTuple(p []byte) (EventTuple, []byte, error) {
-	if len(p) < 4 {
-		return EventTuple{}, p, fmt.Errorf("insufficient input length %d for network event tuple", len(p))
+	if len(p) < 1 {
+		return EventTuple{}, p, fmt.Errorf("insufficient input length %d for any network event tuple", len(p))
 	}
 
 	var et EventTuple
 	et.EventCode = EventCode(p[0])
+	if et.EventCode == EventCodeNull {
+		return et, p[1:], nil
+	}
+	if len(p) < 4 {
+		return EventTuple{}, p, fmt.Errorf("insufficient input length %d for non-Null network event tuple", len(p))
+	}
 	et.RangeStart = ddp.Network(binary.BigEndian.Uint16(p[1:3]))
 	et.RangeEnd = et.RangeStart
 	et.Distance = p[3]
