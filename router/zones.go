@@ -23,8 +23,8 @@ import (
 )
 
 func (rt *RouteTable) AddZonesToNetwork(n ddp.Network, zs ...string) {
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
+	rt.routesMu.Lock()
+	defer rt.routesMu.Unlock()
 	for r := range rt.routes {
 		if n < r.NetStart || n > r.NetEnd {
 			continue
@@ -39,8 +39,8 @@ func (rt *RouteTable) AddZonesToNetwork(n ddp.Network, zs ...string) {
 func (rt *RouteTable) ZonesForNetworks(ns []ddp.Network) map[ddp.Network][]string {
 	zs := make(map[ddp.Network][]string)
 
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
+	rt.routesMu.Lock()
+	defer rt.routesMu.Unlock()
 	for r := range rt.routes {
 		if !r.Valid() {
 			continue
@@ -55,8 +55,8 @@ func (rt *RouteTable) ZonesForNetworks(ns []ddp.Network) map[ddp.Network][]strin
 }
 
 func (rt *RouteTable) RoutesForZone(zone string) []*Route {
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
+	rt.routesMu.Lock()
+	defer rt.routesMu.Unlock()
 
 	var routes []*Route
 	for r := range rt.routes {
@@ -73,8 +73,8 @@ func (rt *RouteTable) RoutesForZone(zone string) []*Route {
 func (rt *RouteTable) AllZoneNames() (zones []string) {
 	defer slices.Sort(zones)
 
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
+	rt.routesMu.Lock()
+	defer rt.routesMu.Unlock()
 
 	zs := make(StringSet)
 	for r := range rt.routes {

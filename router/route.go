@@ -55,15 +55,38 @@ func (r *Route) Valid() bool {
 	return len(r.ZoneNames) > 0 && (r.EtherTalkPeer == nil || time.Since(r.LastSeen) <= maxRouteAge)
 }
 
+type RouteTableObserver interface {
+	RouteAdded(*Route)
+	RouteDeleted(*Route)
+	RouteDistanceChanged(*Route)
+	RouteForwarderChanged(*Route)
+}
+
 type RouteTable struct {
-	mu     sync.Mutex
-	routes map[*Route]struct{}
+	routesMu sync.RWMutex
+	routes   map[*Route]struct{}
+
+	observersMu sync.RWMutex
+	observers   map[RouteTableObserver]struct{}
 }
 
 func NewRouteTable() *RouteTable {
 	return &RouteTable{
-		routes: make(map[*Route]struct{}),
+		routes:    make(map[*Route]struct{}),
+		observers: make(map[RouteTableObserver]struct{}),
 	}
+}
+
+func (rt *RouteTable) AddObserver(obs RouteTableObserver) {
+	rt.observersMu.Lock()
+	defer rt.observersMu.Unlock()
+	rt.observers[obs] = struct{}{}
+}
+
+func (rt *RouteTable) RemoveObserver(obs RouteTableObserver) {
+	rt.observersMu.Lock()
+	defer rt.observersMu.Unlock()
+	delete(rt.observers, obs)
 }
 
 func (rt *RouteTable) InsertEtherTalkDirect(port *EtherTalkPort) {
@@ -77,14 +100,14 @@ func (rt *RouteTable) InsertEtherTalkDirect(port *EtherTalkPort) {
 		EtherTalkDirect: port,
 	}
 
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
+	rt.routesMu.Lock()
+	defer rt.routesMu.Unlock()
 	rt.routes[r] = struct{}{}
 }
 
 func (rt *RouteTable) Dump() []Route {
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
+	rt.routesMu.Lock()
+	defer rt.routesMu.Unlock()
 
 	table := make([]Route, 0, len(rt.routes))
 	for r := range rt.routes {
@@ -94,8 +117,8 @@ func (rt *RouteTable) Dump() []Route {
 }
 
 func (rt *RouteTable) LookupRoute(network ddp.Network) *Route {
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
+	rt.routesMu.Lock()
+	defer rt.routesMu.Unlock()
 
 	var bestRoute *Route
 	for r := range rt.routes {
@@ -117,8 +140,8 @@ func (rt *RouteTable) LookupRoute(network ddp.Network) *Route {
 }
 
 func (rt *RouteTable) DeleteAURPPeer(peer *AURPPeer) {
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
+	rt.routesMu.Lock()
+	defer rt.routesMu.Unlock()
 
 	for route := range rt.routes {
 		if route.AURPPeer == peer {
@@ -128,8 +151,8 @@ func (rt *RouteTable) DeleteAURPPeer(peer *AURPPeer) {
 }
 
 func (rt *RouteTable) DeleteAURPPeerNetwork(peer *AURPPeer, network ddp.Network) {
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
+	rt.routesMu.Lock()
+	defer rt.routesMu.Unlock()
 
 	for route := range rt.routes {
 		if route.AURPPeer == peer && route.NetStart == network {
@@ -139,8 +162,8 @@ func (rt *RouteTable) DeleteAURPPeerNetwork(peer *AURPPeer, network ddp.Network)
 }
 
 func (rt *RouteTable) UpdateAURPRouteDistance(peer *AURPPeer, network ddp.Network, distance uint8) {
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
+	rt.routesMu.Lock()
+	defer rt.routesMu.Unlock()
 
 	for route := range rt.routes {
 		if route.AURPPeer == peer && route.NetStart == network {
@@ -158,8 +181,8 @@ func (rt *RouteTable) UpsertEtherTalkRoute(peer *EtherTalkPeer, extended bool, n
 		return nil, fmt.Errorf("invalid network range [%d, %d] for nonextended network", netStart, netEnd)
 	}
 
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
+	rt.routesMu.Lock()
+	defer rt.routesMu.Unlock()
 
 	// Update?
 	for r := range rt.routes {
@@ -210,16 +233,16 @@ func (rt *RouteTable) InsertAURPRoute(peer *AURPPeer, extended bool, netStart, n
 		AURPPeer: peer,
 	}
 
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
+	rt.routesMu.Lock()
+	defer rt.routesMu.Unlock()
 	rt.routes[r] = struct{}{}
 	return nil
 }
 
 // ValidRoutes returns all valid routes.
 func (rt *RouteTable) ValidRoutes() []*Route {
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
+	rt.routesMu.RLock()
+	defer rt.routesMu.RUnlock()
 	valid := make([]*Route, 0, len(rt.routes))
 	for r := range rt.routes {
 		if r.Valid() {
@@ -231,8 +254,8 @@ func (rt *RouteTable) ValidRoutes() []*Route {
 
 // ValidNonAURPRoutes returns all valid routes that were not learned via AURP.
 func (rt *RouteTable) ValidNonAURPRoutes() []*Route {
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
+	rt.routesMu.RLock()
+	defer rt.routesMu.RUnlock()
 	valid := make([]*Route, 0, len(rt.routes))
 	for r := range rt.routes {
 		if r.AURPPeer != nil {

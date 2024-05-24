@@ -114,6 +114,9 @@ type AURPPeer struct {
 	// Route table (the peer will add/remove/update routes and zones)
 	RouteTable *RouteTable
 
+	// Event tuples yet to be sent to this peer in an RI-Upd.
+	pendingEvents chan aurp.EventTuple
+
 	// The internal states below are only set within the Handle loop, but can
 	// be read concurrently from outside.
 	mu            sync.RWMutex
@@ -124,6 +127,41 @@ type AURPPeer struct {
 	lastSend      time.Time // TODO: clarify use of lastSend / sendRetries
 	lastUpdate    time.Time
 	sendRetries   int
+}
+
+func (p *AURPPeer) addPendingEvent(ec aurp.EventCode, route *Route) {
+	// Don't advertise routes to AURP peers to other AURP peers
+	if route.AURPPeer != nil {
+		return
+	}
+	et := aurp.EventTuple{
+		EventCode:  ec,
+		Extended:   route.Extended,
+		RangeStart: route.NetStart,
+		Distance:   route.Distance,
+		RangeEnd:   route.NetEnd,
+	}
+	switch ec {
+	case aurp.EventCodeND, aurp.EventCodeNRC:
+		et.Distance = 0 // "The distance field does not apply to ND or NRC event tuples and should be set to 0."
+	}
+	p.pendingEvents <- et
+}
+
+func (p *AURPPeer) RouteAdded(route *Route) {
+	p.addPendingEvent(aurp.EventCodeNA, route)
+}
+
+func (p *AURPPeer) RouteDeleted(route *Route) {
+	p.addPendingEvent(aurp.EventCodeND, route)
+}
+
+func (p *AURPPeer) RouteDistanceChanged(route *Route) {
+	p.addPendingEvent(aurp.EventCodeNDC, route)
+}
+
+func (p *AURPPeer) RouteForwarderChanged(route *Route) {
+	p.addPendingEvent(aurp.EventCodeNRC, route)
 }
 
 func (p *AURPPeer) Forward(ddpkt *ddp.ExtPacket) error {
