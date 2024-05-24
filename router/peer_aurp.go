@@ -129,6 +129,25 @@ type AURPPeer struct {
 	sendRetries   int
 }
 
+func NewAURPPeer(routes *RouteTable, udpConn *net.UDPConn, peerAddr string, raddr *net.UDPAddr, localDI, remoteDI aurp.DomainIdentifier, connID uint16) *AURPPeer {
+	if remoteDI == nil {
+		remoteDI = aurp.IPDomainIdentifier(raddr.IP)
+	}
+	return &AURPPeer{
+		Transport: &aurp.Transport{
+			LocalDI:     localDI,
+			RemoteDI:    remoteDI,
+			LocalConnID: connID,
+		},
+		UDPConn:        udpConn,
+		ConfiguredAddr: peerAddr,
+		RemoteAddr:     raddr,
+		ReceiveCh:      make(chan aurp.Packet, 1024),
+		RouteTable:     routes,
+		pendingEvents:  make(chan aurp.EventTuple, 1024),
+	}
+}
+
 func (p *AURPPeer) addPendingEvent(ec aurp.EventCode, route *Route) {
 	// Don't advertise routes to AURP peers to other AURP peers
 	if route.AURPPeer != nil {
