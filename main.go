@@ -297,18 +297,7 @@ func main() {
 			continue
 		}
 
-		peer := &router.AURPPeer{
-			Transport: &aurp.Transport{
-				LocalDI:     localDI,
-				RemoteDI:    aurp.IPDomainIdentifier(raddr.IP),
-				LocalConnID: nextConnID,
-			},
-			UDPConn:        ln,
-			ConfiguredAddr: peerStr,
-			RemoteAddr:     raddr,
-			ReceiveCh:      make(chan aurp.Packet, 1024),
-			RouteTable:     routes,
-		}
+		peer := router.NewAURPPeer(routes, ln, peerStr, raddr, localDI, nil, nextConnID)
 		aurp.Inc(&nextConnID)
 		peersMu.Lock()
 		peers[udpAddrFromNet(raddr)] = peer
@@ -404,17 +393,7 @@ func main() {
 					continue
 				}
 				// New peer!
-				pr = &router.AURPPeer{
-					Transport: &aurp.Transport{
-						LocalDI:     localDI,
-						RemoteDI:    dh.SourceDI, // platinum rule
-						LocalConnID: nextConnID,
-					},
-					UDPConn:    ln,
-					RemoteAddr: raddr,
-					ReceiveCh:  make(chan aurp.Packet, 1024),
-					RouteTable: routes,
-				}
+				pr = router.NewAURPPeer(routes, ln, "", raddr, localDI, dh.SourceDI, nextConnID)
 				aurp.Inc(&nextConnID)
 				peers[ra] = pr
 				goPeerHandler(pr)
