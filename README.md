@@ -62,3 +62,7 @@ sudo setcap 'CAP_NET_BIND_SERVICE=ep CAP_NET_RAW=ep' ~/go/bin/jrouter
 * `NET_RAW` is needed for EtherTalk
 
 TODO: instructions for non-Linux machines
+
+## Bug reports? Feature requests? Complaints? Praise? 
+
+You can contact me on the Fediverse at @DrJosh9000@cloudisland.nz, or email me at josh.deprez@gmail.com. 
