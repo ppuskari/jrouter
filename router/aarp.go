@@ -37,6 +37,8 @@ const (
 	maxAMTEntryAge        = 30 * time.Second
 	aarpRequestRetransmit = 1 * time.Second
 	aarpRequestTimeout    = 10 * time.Second
+
+	aarpBodyLength = 28 // bytes
 )
 
 const aarpStatusTemplate = `
@@ -181,8 +183,17 @@ func (a *AARPMachine) Run(ctx context.Context) error {
 				a.incomingCh = nil
 			}
 
+			// sfiera/multitalk will return an "excess data" error if the
+			// payload is too big. Most traffic I've seen locally does not have
+			// this problem, but I've seen one report with some junk trailing
+			// data on AARP packets.
+			payload := ethFrame.Payload
+			if len(payload) > aarpBodyLength {
+				payload = payload[:aarpBodyLength]
+			}
+
 			var aapkt aarp.Packet
-			if err := aarp.Unmarshal(ethFrame.Payload, &aapkt); err != nil {
+			if err := aarp.Unmarshal(payload, &aapkt); err != nil {
 				log.Printf("Couldn't unmarshal AARP packet: %v", err)
 				continue
 			}
