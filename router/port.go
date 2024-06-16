@@ -18,6 +18,7 @@ package router
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"io"
 	"log"
@@ -79,8 +80,18 @@ func (port *EtherTalkPort) Serve(ctx context.Context) {
 
 		case ethertalk.AppleTalkProto:
 			// log.Print("Got an AppleTalk frame")
+
+			// Workaround for strict length checking in sfiera/multitalk
+			payload := ethFrame.Payload
+			if len(payload) < 2 {
+				log.Printf("Couldn't unmarshal DDP packet: too small (length = %d)", len(payload))
+			}
+			if size := binary.BigEndian.Uint16(payload[:2]) & 0x3ff; len(payload) > int(size) {
+				payload = payload[:size]
+			}
+
 			ddpkt := new(ddp.ExtPacket)
-			if err := ddp.ExtUnmarshal(ethFrame.Payload, ddpkt); err != nil {
+			if err := ddp.ExtUnmarshal(payload, ddpkt); err != nil {
 				log.Printf("Couldn't unmarshal DDP packet: %v", err)
 				continue
 			}
