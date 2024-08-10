@@ -200,5 +200,8 @@ func (port *EtherTalkPort) send(dstEth ethernet.Addr, pkt *ddp.ExtPacket) error 
 	if err != nil {
 		return err
 	}
+	if len(outFrameRaw) < 64 {
+		outFrameRaw = append(outFrameRaw, make([]byte, 64-len(outFrameRaw))...)
+	}
 	return port.PcapHandle.WritePacketData(outFrameRaw)
 }

@@ -46,5 +46,8 @@ func (p *EtherTalkPeer) Forward(ctx context.Context, pkt *ddp.ExtPacket) error {
 	if err != nil {
 		return err
 	}
+	if len(outFrameRaw) < 64 {
+		outFrameRaw = append(outFrameRaw, make([]byte, 64-len(outFrameRaw))...)
+	}
 	return p.Port.PcapHandle.WritePacketData(outFrameRaw)
 }

@@ -337,6 +337,9 @@ func (a *AARPMachine) heyThatsMe(targ aarp.AddrPair) error {
 	if err != nil {
 		return err
 	}
+	if len(respFrameRaw) < 64 {
+		respFrameRaw = append(respFrameRaw, make([]byte, 64-len(respFrameRaw))...)
+	}
 	return a.pcapHandle.WritePacketData(respFrameRaw)
 }
 
@@ -350,6 +353,9 @@ func (a *AARPMachine) probe() error {
 	if err != nil {
 		return err
 	}
+	if len(probeFrameRaw) < 64 {
+		probeFrameRaw = append(probeFrameRaw, make([]byte, 64-len(probeFrameRaw))...)
+	}
 	return a.pcapHandle.WritePacketData(probeFrameRaw)
 }
 
@@ -362,6 +368,9 @@ func (a *AARPMachine) request(ddpAddr ddp.Addr) error {
 	reqFrameRaw, err := ethertalk.Marshal(*reqFrame)
 	if err != nil {
 		return err
+	}
+	if len(reqFrameRaw) < 64 {
+		reqFrameRaw = append(reqFrameRaw, make([]byte, 64-len(reqFrameRaw))...)
 	}
 	return a.pcapHandle.WritePacketData(reqFrameRaw)
 }
