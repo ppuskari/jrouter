@@ -70,10 +70,10 @@ Building and running:
 
 Notes:
 
-* `build-essential` is needed for `CGo`
-* `libpcap-dev` and `CGo` is needed for [gopacket](https://github.com/google/gopacket)
-* `NET_BIND_SERVICE` is needed to bind UDP port 387 (for talking between AIRs)
-* `NET_RAW` is needed for EtherTalk
+* `git` is needed for `go install` to fetch the module
+* `build-essential` and`libpcap-dev` are needed for [gopacket](https://github.com/google/gopacket), which uses [CGo](https://pkg.go.dev/cmd/cgo)
+* `NET_BIND_SERVICE` is needed for `jrouter` to bind UDP port 387 (for talking between AIRs)
+* `NET_RAW` is needed for `jrouter` to listen for and send EtherTalk packets
 
 TODO: instructions for non-Linux / non-Debian-like machines
 
