@@ -51,17 +51,31 @@ TODO: explain the configuration file
 
 Building and running:
 
-```shell
-sudo apt install libpcap-dev
-go install gitea.drjosh.dev/josh/jrouter@latest
-sudo setcap 'CAP_NET_BIND_SERVICE=ep CAP_NET_RAW=ep' ~/go/bin/jrouter
-~/go/bin/jrouter
-```
+1. Install [Go](https://go.dev/dl).
 
+2. Run these commands (for Debian-variety Linuxen, e.g. Ubuntu, Raspbian, Mint...):
+
+  ```shell
+  sudo apt install git build-essential libpcap-dev
+  go install gitea.drjosh.dev/josh/jrouter@latest
+  sudo setcap 'CAP_NET_BIND_SERVICE=ep CAP_NET_RAW=ep' ~/go/bin/jrouter
+  ```
+
+3. Configure `jrouter.yaml`
+
+4. To run:
+  ```shell
+  ~/go/bin/jrouter
+  ```
+
+Notes:
+
+* `build-essential` is needed for `CGo`
+* `libpcap-dev` and `CGo` is needed for [gopacket](https://github.com/google/gopacket)
 * `NET_BIND_SERVICE` is needed to bind UDP port 387 (for talking between AIRs)
 * `NET_RAW` is needed for EtherTalk
 
-TODO: instructions for non-Linux machines
+TODO: instructions for non-Linux / non-Debian-like machines
 
 ## Bug reports? Feature requests? Complaints? Praise? 
 
