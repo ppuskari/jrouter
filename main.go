@@ -30,7 +30,6 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
-	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -104,7 +103,7 @@ const peerTableTemplate = `
 		<td>{{$peer.LastReconnectAgo}}</td>
 		<td>{{$peer.LastUpdateAgo}}</td>
 		<td>{{$peer.LastSendAgo}}</td>
-		<td>{{$peer.SendRetries}}</td>		
+		<td>{{$peer.SendRetries}}</td>
 	</tr>
 {{end}}
 	</tbody>
@@ -117,7 +116,9 @@ var configFilePath = flag.String("config", "jrouter.yaml", "Path to configuratio
 
 func main() {
 	// For some reason it occasionally panics and the panics have no traceback?
-	debug.SetTraceback("all")
+	// This didn't help:
+	// debug.SetTraceback("all")
+	// I think it's calling recover in a defer too broadly.
 
 	flag.Parse()
 	log.Println("jrouter")

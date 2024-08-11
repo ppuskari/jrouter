@@ -37,7 +37,7 @@ Things I plan to fix Real Soon Now:
 
 Things I plan to fix At Some Point:
 
-* For expediency I made it act as a _seed router_. At some point I might add 
+* For expediency I made it act as a _seed router_. At some point I might add
   "soft seed" functionality.
 
 
@@ -49,20 +49,16 @@ First, set up a `jrouter.yaml` (use the one in this repo as an example).
 
 TODO: explain the configuration file
 
-Building and running:
+### Building and running directly
 
 1. Install [Go](https://go.dev/dl).
-
 2. Run these commands (for Debian-variety Linuxen, e.g. Ubuntu, Raspbian, Mint...):
-
   ```shell
   sudo apt install git build-essential libpcap-dev
   go install gitea.drjosh.dev/josh/jrouter@latest
   sudo setcap 'CAP_NET_BIND_SERVICE=ep CAP_NET_RAW=ep' ~/go/bin/jrouter
   ```
-
 3. Configure `jrouter.yaml`
-
 4. To run:
   ```shell
   ~/go/bin/jrouter
@@ -77,6 +73,26 @@ Notes:
 
 TODO: instructions for non-Linux / non-Debian-like machines
 
-## Bug reports? Feature requests? Complaints? Praise? 
+### With Docker
 
-You can contact me on the Fediverse at @DrJosh9000@cloudisland.nz, or email me at josh.deprez@gmail.com. 
+1.  Clone the repo and `cd` into it.
+2.  `docker build -t jrouter .`
+3.  Example `docker run` command:
+    ```shell
+    docker run \
+      -v ./cfg:/etc/jrouter \
+      --cap-add NET_RAW \
+      --net host \
+      --name jrouter \
+      jrouter
+    ```
+
+Notes:
+
+* Put `jrouter.yaml` inside a `cfg` directory (or some path of your choice and bind-mount it at `/etc/jrouter`) for it to find the config file.
+* `--cap-add NET_RAW` and `--net host` is needed for EtherTalk access to the network interface.
+* By using `--net host`, the default AURP port (387) will be bound without `-p`.
+
+## Bug reports? Feature requests? Complaints? Praise?
+
+You can contact me on the Fediverse at @DrJosh9000@cloudisland.nz, or email me at josh.deprez@gmail.com.
