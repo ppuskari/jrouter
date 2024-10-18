@@ -21,7 +21,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"gitea.drjosh.dev/josh/jrouter/atalk"
+	"drjosh.dev/jrouter/atalk"
 )
 
 const (

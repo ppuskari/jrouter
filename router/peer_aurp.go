@@ -24,7 +24,7 @@ import (
 	"sync"
 	"time"
 
-	"gitea.drjosh.dev/josh/jrouter/aurp"
+	"drjosh.dev/jrouter/aurp"
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 

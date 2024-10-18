@@ -55,7 +55,7 @@ TODO: explain the configuration file
 2. Run these commands (for Debian-variety Linuxen, e.g. Ubuntu, Raspbian, Mint...):
   ```shell
   sudo apt install git build-essential libpcap-dev
-  go install gitea.drjosh.dev/josh/jrouter@latest
+  go install drjosh.dev/jrouter@latest
   sudo setcap 'CAP_NET_BIND_SERVICE=ep CAP_NET_RAW=ep' ~/go/bin/jrouter
   ```
 3. Configure `jrouter.yaml`

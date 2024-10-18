@@ -21,8 +21,8 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"gitea.drjosh.dev/josh/jrouter/atalk"
-	"gitea.drjosh.dev/josh/jrouter/atalk/atp"
+	"drjosh.dev/jrouter/atalk"
+	"drjosh.dev/jrouter/atalk/atp"
 )
 
 type GetZonesPacket struct {

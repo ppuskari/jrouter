@@ -19,7 +19,7 @@ package zip
 import (
 	"testing"
 
-	"gitea.drjosh.dev/josh/jrouter/atalk/atp"
+	"drjosh.dev/jrouter/atalk/atp"
 )
 
 func FuzzUnmarshalPacket(f *testing.F) {

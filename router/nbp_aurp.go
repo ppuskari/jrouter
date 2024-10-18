@@ -20,7 +20,7 @@ import (
 	"context"
 	"fmt"
 
-	"gitea.drjosh.dev/josh/jrouter/atalk/nbp"
+	"drjosh.dev/jrouter/atalk/nbp"
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 

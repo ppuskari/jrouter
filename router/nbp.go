@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"log"
 
-	"gitea.drjosh.dev/josh/jrouter/atalk"
-	"gitea.drjosh.dev/josh/jrouter/atalk/nbp"
+	"drjosh.dev/jrouter/atalk"
+	"drjosh.dev/jrouter/atalk/nbp"
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 

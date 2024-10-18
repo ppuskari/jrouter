@@ -23,7 +23,7 @@ import (
 	"io"
 	"log"
 
-	"gitea.drjosh.dev/josh/jrouter/atalk"
+	"drjosh.dev/jrouter/atalk"
 	"github.com/google/gopacket/pcap"
 	"github.com/sfiera/multitalk/pkg/ddp"
 	"github.com/sfiera/multitalk/pkg/ethernet"

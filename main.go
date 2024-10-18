@@ -35,9 +35,9 @@ import (
 	"sync"
 	"time"
 
-	"gitea.drjosh.dev/josh/jrouter/aurp"
-	"gitea.drjosh.dev/josh/jrouter/router"
-	"gitea.drjosh.dev/josh/jrouter/status"
+	"drjosh.dev/jrouter/aurp"
+	"drjosh.dev/jrouter/router"
+	"drjosh.dev/jrouter/status"
 
 	"github.com/google/gopacket/pcap"
 	"github.com/sfiera/multitalk/pkg/ddp"

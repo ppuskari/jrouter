@@ -24,7 +24,7 @@ import (
 	"sync"
 	"time"
 
-	"gitea.drjosh.dev/josh/jrouter/status"
+	"drjosh.dev/jrouter/status"
 	"github.com/google/gopacket/pcap"
 	"github.com/sfiera/multitalk/pkg/aarp"
 	"github.com/sfiera/multitalk/pkg/ddp"

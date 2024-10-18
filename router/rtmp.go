@@ -22,10 +22,10 @@ import (
 	"log"
 	"time"
 
-	"gitea.drjosh.dev/josh/jrouter/atalk"
-	"gitea.drjosh.dev/josh/jrouter/atalk/rtmp"
-	"gitea.drjosh.dev/josh/jrouter/atalk/zip"
-	"gitea.drjosh.dev/josh/jrouter/status"
+	"drjosh.dev/jrouter/atalk"
+	"drjosh.dev/jrouter/atalk/rtmp"
+	"drjosh.dev/jrouter/atalk/zip"
+	"drjosh.dev/jrouter/status"
 
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
