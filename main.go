@@ -44,72 +44,6 @@ import (
 	"github.com/sfiera/multitalk/pkg/ethernet"
 )
 
-const routingTableTemplate = `
-<table>
-	<thead><tr>
-		<th>Network range</th>
-		<th>Extended?</th>
-		<th>Zone names</th>
-		<th>Distance</th>
-		<th>Last seen</th>
-		<th>Port</th>
-	</tr></thead>
-	<tbody>
-{{range $route := . }}
-	<tr>
-		<td>{{$route.NetStart}}{{if not (eq $route.NetStart $route.NetEnd)}} - {{$route.NetEnd}}{{end}}</td>
-		<td>{{if $route.Extended}}✅{{else}}-{{end}}</td>
-		<td>{{range $route.ZoneNames.ToSlice}}{{.}}<br>{{end}}</td>
-		<td>{{$route.Distance}}</td>
-		<td>{{$route.LastSeenAgo}}</td>
-		<td>
-			{{- with $route.AURPPeer -}}
-				{{.RemoteAddr}}
-			{{- end -}}
-			{{- with $route.EtherTalkPeer -}}
-				{{.Port.Device}} {{.PeerAddr.Network}}.{{.PeerAddr.Node}}
-			{{- end -}}
-			{{- with $route.EtherTalkDirect -}}
-				{{.Device}} {{.NetStart}}-{{.NetEnd}}
-			{{- end -}}
-		</td>
-	</tr>
-{{end}}
-	</tbody>
-</table>
-`
-
-const peerTableTemplate = `
-<table>
-	<thead><tr>
-		<th>Configured addr</th>
-		<th>Remote addr</th>
-		<th>Receiver state</th>
-		<th>Sender state</th>
-		<th>Last heard from</th>
-		<th>Last reconnect</th>
-		<th>Last update</th>
-		<th>Last send</th>
-		<th>Send retries</th>
-	</tr></thead>
-	<tbody>
-{{range $peer := . }}
-	<tr>
-		<td>{{$peer.ConfiguredAddr}}</td>
-		<td>{{$peer.RemoteAddr}}</td>
-		<td>{{$peer.ReceiverState}}</td>
-		<td>{{$peer.SenderState}}</td>
-		<td>{{$peer.LastHeardFromAgo}}</td>
-		<td>{{$peer.LastReconnectAgo}}</td>
-		<td>{{$peer.LastUpdateAgo}}</td>
-		<td>{{$peer.LastSendAgo}}</td>
-		<td>{{$peer.SendRetries}}</td>
-	</tr>
-{{end}}
-	</tbody>
-</table>
-`
-
 var hasPortRE = regexp.MustCompile(`:\d+$`)
 
 var configFilePath = flag.String("config", "jrouter.yaml", "Path to configuration file to use")
@@ -170,10 +104,14 @@ func main() {
 	ctx, _ := signal.NotifyContext(cctx, os.Interrupt)
 
 	// --------------------------------- HTTP ---------------------------------
-	http.HandleFunc("/status", status.Handle)
-	go func() {
-		log.Print(http.ListenAndServe(":9459", nil))
-	}()
+	if cfg.MonitoringAddr == "" {
+		log.Print("monitoring_addr is empty - disabling the monitoring HTTP server")
+	} else {
+		http.HandleFunc("/status", status.Handle)
+		go func() {
+			log.Print(http.ListenAndServe(cfg.MonitoringAddr, nil))
+		}()
+	}
 
 	// --------------------------------- Pcap ---------------------------------
 	// First check the interface

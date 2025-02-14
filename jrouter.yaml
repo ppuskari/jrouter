@@ -1,12 +1,37 @@
+# local_ip is used to set the "real" IP address that this server is
+# reachable on, when it is not any of the host addresses.
+# AURP includes this address as part of this server's identity in the network.
+#
+# (Say jrouter is running behind NAT, it won't know what the real publicly-
+# routable address of the NAT gateway is unless you set this.)
+#
+# This is technically optional.
+local_ip: 192.0.2.1
+
+# monitoring_addr enables an inbuilt HTTP server that serves endpoints related
+# to monitoring jrouter. Currently these are:
+# - /status - a page that displays the current state of key components
+monitoring_addr: ":9459"
+
+# ethertalk configures which network interface is used for Ethertalk, and the
+# AppleTalk zone information.
+# (In future this will take an array of devices and zones.)
 ethertalk:
-    device: enp2s0
-    #ethernet_addr: '08:00:07:fe:dc:ba'
-    zone_name: The Twilight Zone
-    net_start: 100
-    net_end: 100
+  device: enp2s0
+  #ethernet_addr: '08:00:07:fe:dc:ba'
+  zone_name: The Twilight Zone
+  net_start: 100
+  net_end: 100
 
+# open_peering lets the server accept incoming connections from unknown servers.
+# If you disable this, only the configured peers will be connected.
 open_peering: true
-peers:
-- 192.168.86.21
 
-#peerlist_url: http://example.com/peers.txt
+# peers lists IP addresses or domain names of peers to actively connect to.
+peers:
+  - 192.0.2.1
+  - example.net
+
+# peerlist_url provides an address to download a plain-text file containing
+# peers to actively connect to.
+peerlist_url: http://example.com/peers.txt

@@ -19,8 +19,10 @@ Home-grown alternative implementation of Apple Internet Router 3.0
   network interface for multiple different EtherTalk software.
 * In addition to the configured EtherTalk network and zone, it now learns routes
   and zones from other EtherTalk routers, and should share them across AURP.
-* There's a status server. Browse to http://\[your router\]:9459/status to see
-  information about the state of jrouter.
+* There's a status endpoint that outputs diagnostic information about the state
+  of the server. Set the `monitoring_addr` config option and then browse to
+  `http://[your router]:[port you configured]/status` to see information about
+  the state of jrouter.
 
 ## Caveats
 

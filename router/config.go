@@ -27,6 +27,11 @@ type Config struct {
 	// Optional: default is 387.
 	ListenPort uint16 `yaml:"listen_port"`
 
+	// Used for hosting /status server (and /metrics, in future).
+	// Example: ":9459" (listen on port 9459 on all interfaces).
+	// Optional: when left empty, the monitoring HTTP server is disabled.
+	MonitoringAddr string `yaml:"monitoring_addr"`
+
 	// Sets the Domain Identifier used by this router.
 	// Note: this does not "bind" the IP side of the router to a particular
 	// interface; it will listen on all interfaces with IP addresses.
