@@ -70,6 +70,24 @@ Notes:
 * `--cap-add NET_RAW` and `--net host` is needed for EtherTalk access to the network interface.
 * By using `--net host`, the default AURP port (387) will be bound without `-p`.
 
+### Docker Compose
+
+Example `docker-compose.yml` file:
+
+```yaml
+services:
+  jrouter:
+    image: gitea.drjosh.dev/josh/jrouter:latest
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ./jrouter
+        target: /etc/jrouter
+    network_mode: host
+    cap_add:
+      - NET_RAW
+```
+
 ### Building and running directly
 
 1. Install [Go](https://go.dev/dl).
