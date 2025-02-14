@@ -49,6 +49,22 @@ First, set up a `jrouter.yaml` (use the one in this repo as an example).
 
 TODO: explain the configuration file
 
+### Running with Docker
+
+There is a container image available at `gitea.drjosh.dev/josh/jrouter:latest`.
+
+Example `docker run` command:
+
+```shell
+# Run using a config file ./cfg/jrouter.yaml
+docker run \
+  -v ./cfg:/etc/jrouter \
+  --cap-add NET_RAW \
+  --net host \
+  --name jrouter \
+  gitea.drjosh.dev/josh/jrouter:latest
+```
+
 ### Building and running directly
 
 1. Install [Go](https://go.dev/dl).
@@ -73,7 +89,7 @@ Notes:
 
 TODO: instructions for non-Linux / non-Debian-like machines
 
-### With Docker
+### Building and running with Docker manually
 
 1.  Clone the repo and `cd` into it.
 2.  `docker build -t jrouter .`
