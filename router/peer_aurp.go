@@ -107,7 +107,7 @@ type AURPPeer struct {
 
 	// The resolved address of the peer.
 	// NOTE: The port is ignored and replaced with 387.
-	RemoteAddr *net.UDPAddr
+	RemoteAddr net.IP
 
 	// Incoming packet channel.
 	ReceiveCh chan aurp.Packet
@@ -144,7 +144,7 @@ func NewAURPPeer(routes *RouteTable, udpConn *net.UDPConn, peerAddr string, radd
 		UDPConn:        udpConn,
 		ConfiguredAddr: peerAddr,
 		// TODO: The port is assumed to be 387 - sensible?
-		RemoteAddr: &net.UDPAddr{IP: raddr, Port: 387},
+		RemoteAddr: raddr,
 		ReceiveCh:  make(chan aurp.Packet, 1024),
 		RouteTable: routes,
 	}
@@ -300,7 +300,7 @@ func (p *AURPPeer) send(pkt aurp.Packet) (int, error) {
 		return 0, err
 	}
 	log.Printf("AURP Peer: Sending %T (len %d) to %v", pkt, b.Len(), p.RemoteAddr)
-	return p.UDPConn.WriteToUDP(b.Bytes(), p.RemoteAddr)
+	return p.UDPConn.WriteToUDP(b.Bytes(), &net.UDPAddr{IP: p.RemoteAddr, Port: 387})
 }
 
 func (p *AURPPeer) Handle(ctx context.Context) error {
@@ -453,7 +453,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 						break
 					}
 					log.Printf("AURP Peer: resolved %q to %v", p.ConfiguredAddr, raddr)
-					p.RemoteAddr = raddr
+					p.RemoteAddr = raddr.IP
 
 					p.bumpLastReconnect()
 					p.resetSendRetries()
@@ -583,7 +583,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				}
 				if pkt.RateOrErrCode < 0 {
 					// It's an error code.
-					log.Printf("AURP Peer: Open-Rsp error code from peer %v: %d", p.RemoteAddr.IP, pkt.RateOrErrCode)
+					log.Printf("AURP Peer: Open-Rsp error code from peer %v: %d", p.RemoteAddr, pkt.RateOrErrCode)
 					p.setRState(ReceiverUnconnected)
 					break
 				}
