@@ -93,7 +93,7 @@ func main() {
 
 	ln, err := net.ListenUDP("udp4", &net.UDPAddr{Port: int(cfg.ListenPort)})
 	if err != nil {
-		log.Fatalf("AURP: Couldn't listen on udp4:387: %v", err)
+		log.Fatalf("AURP: Couldn't listen on udp4:%d: %v", cfg.ListenPort, err)
 	}
 	defer ln.Close()
 	log.Printf("AURP: Listening on %v", ln.LocalAddr())
@@ -152,14 +152,14 @@ func main() {
 
 	// -------------------------------- Peers ---------------------------------
 	var peersMu sync.Mutex
-	peers := make(map[udpAddr]*router.AURPPeer)
+	peersByIP := make(map[[4]byte]*router.AURPPeer)
 	status.AddItem(ctx, "AURP Peers", peerTableTemplate, func(context.Context) (any, error) {
 		var peerInfo []*router.AURPPeer
 		func() {
 			peersMu.Lock()
 			defer peersMu.Unlock()
-			peerInfo = make([]*router.AURPPeer, 0, len(peers))
-			for _, p := range peers {
+			peerInfo = make([]*router.AURPPeer, 0, len(peersByIP))
+			for _, p := range peersByIP {
 				peerInfo = append(peerInfo, p)
 			}
 		}()
@@ -236,10 +236,10 @@ func main() {
 			continue
 		}
 
-		peer := router.NewAURPPeer(routes, ln, peerStr, raddr, localDI, nil, nextConnID)
+		peer := router.NewAURPPeer(routes, ln, peerStr, raddr.IP, localDI, nil, nextConnID)
 		aurp.Inc(&nextConnID)
 		peersMu.Lock()
-		peers[udpAddrFromNet(raddr)] = peer
+		peersByIP[[4]byte(raddr.IP)] = peer
 		peersMu.Unlock()
 		goPeerHandler(peer)
 	}
@@ -322,9 +322,9 @@ func main() {
 			log.Printf("AURP: Got %T from %v (%v)", pkt, raddr, dh.SourceDI)
 
 			// Existing peer?
-			ra := udpAddrFromNet(raddr)
+			ra := [4]byte(raddr.IP)
 			peersMu.Lock()
-			pr := peers[ra]
+			pr := peersByIP[ra]
 			if pr == nil {
 				if !cfg.OpenPeering {
 					log.Printf("AURP: Got packet from %v but it's not in my config and open peering is disabled; dropping the packet", raddr)
@@ -332,9 +332,9 @@ func main() {
 					continue
 				}
 				// New peer!
-				pr = router.NewAURPPeer(routes, ln, "", raddr, localDI, dh.SourceDI, nextConnID)
+				pr = router.NewAURPPeer(routes, ln, "", raddr.IP, localDI, dh.SourceDI, nextConnID)
 				aurp.Inc(&nextConnID)
-				peers[ra] = pr
+				peersByIP[ra] = pr
 				goPeerHandler(pr)
 			}
 			peersMu.Unlock()
@@ -405,26 +405,6 @@ func main() {
 
 	// -------------------------------- Close ---------------------------------
 	wg.Wait()
-}
-
-// Hashable net.UDPAddr
-type udpAddr struct {
-	ipv4 [4]byte
-	port uint16
-}
-
-func udpAddrFromNet(a *net.UDPAddr) udpAddr {
-	return udpAddr{
-		ipv4: [4]byte(a.IP.To4()),
-		port: uint16(a.Port),
-	}
-}
-
-func (u udpAddr) toNet() *net.UDPAddr {
-	return &net.UDPAddr{
-		IP:   u.ipv4[:],
-		Port: int(u.port),
-	}
 }
 
 func bool2Int(b bool) int {

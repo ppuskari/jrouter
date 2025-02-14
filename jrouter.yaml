@@ -1,3 +1,10 @@
+# listen_port configures the UDP port that the AURP server will listen on.
+# Optional; defaults to 387 (the traditional AURP port).
+# If you are operating behind a NAT, this can be any port you can forward to,
+# but if jrouter is exposed directly to the internet, only 387 is expected to
+# work.
+listen_port: 387
+
 # local_ip is used to set the "real" IP address that this server is
 # reachable on, when it is not any of the host addresses.
 # AURP includes this address as part of this server's identity in the network.

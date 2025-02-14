@@ -106,6 +106,7 @@ type AURPPeer struct {
 	ConfiguredAddr string
 
 	// The resolved address of the peer.
+	// NOTE: The port is ignored and replaced with 387.
 	RemoteAddr *net.UDPAddr
 
 	// Incoming packet channel.
@@ -130,9 +131,9 @@ type AURPPeer struct {
 	sendRetries   int
 }
 
-func NewAURPPeer(routes *RouteTable, udpConn *net.UDPConn, peerAddr string, raddr *net.UDPAddr, localDI, remoteDI aurp.DomainIdentifier, connID uint16) *AURPPeer {
+func NewAURPPeer(routes *RouteTable, udpConn *net.UDPConn, peerAddr string, raddr net.IP, localDI, remoteDI aurp.DomainIdentifier, connID uint16) *AURPPeer {
 	if remoteDI == nil {
-		remoteDI = aurp.IPDomainIdentifier(raddr.IP)
+		remoteDI = aurp.IPDomainIdentifier(raddr)
 	}
 	return &AURPPeer{
 		Transport: &aurp.Transport{
@@ -142,9 +143,10 @@ func NewAURPPeer(routes *RouteTable, udpConn *net.UDPConn, peerAddr string, radd
 		},
 		UDPConn:        udpConn,
 		ConfiguredAddr: peerAddr,
-		RemoteAddr:     raddr,
-		ReceiveCh:      make(chan aurp.Packet, 1024),
-		RouteTable:     routes,
+		// TODO: The port is assumed to be 387 - sensible?
+		RemoteAddr: &net.UDPAddr{IP: raddr, Port: 387},
+		ReceiveCh:  make(chan aurp.Packet, 1024),
+		RouteTable: routes,
 	}
 }
 
