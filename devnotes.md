@@ -10,6 +10,9 @@ docker buildx create --name container --driver=docker-container
 # Do for each build/push
 docker buildx build \
   --tag gitea.drjosh.dev/josh/jrouter:latest \
+  --tag gitea.drjosh.dev/josh/jrouter:0.0.2 \
+  --tag gitea.drjosh.dev/josh/jrouter:0.0 \
+  --tag gitea.drjosh.dev/josh/jrouter:0 \
   --platform linux/arm/v8,linux/amd64 \
   --builder container \
   --push .
