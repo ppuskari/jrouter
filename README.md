@@ -8,8 +8,7 @@ Home-grown alternative implementation of Apple Internet Router 3.0
 * Function on modern operating systems
 * EtherTalk support
 * Be observable (there's a HTTP server with a `/status` page)
-
-TashTalk could be a stretch goal, if I can acquire one!
+* (Stretch goal) TashTalk support
 
 ## Things that used to be caveats
 
@@ -64,6 +63,12 @@ docker run \
   --name jrouter \
   gitea.drjosh.dev/josh/jrouter:latest
 ```
+
+Notes:
+
+* Put `jrouter.yaml` inside a `cfg` directory (or some path of your choice and bind-mount it at `/etc/jrouter`) for it to find the config file.
+* `--cap-add NET_RAW` and `--net host` is needed for EtherTalk access to the network interface.
+* By using `--net host`, the default AURP port (387) will be bound without `-p`.
 
 ### Building and running directly
 
