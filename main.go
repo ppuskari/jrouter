@@ -310,8 +310,8 @@ func main() {
 			}
 
 			promLabels := prometheus.Labels{"peer": raddr.IP.String()}
-			aurpBytesInCounter.With(promLabels).Add(float64(pktlen))
 			aurpPacketsInCounter.With(promLabels).Inc()
+			aurpBytesInCounter.With(promLabels).Add(float64(pktlen))
 
 			// log.Printf("AURP: Received packet of length %d from %v", pktlen, raddr)
 

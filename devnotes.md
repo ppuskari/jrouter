@@ -7,7 +7,14 @@
 docker login gitea.drjosh.dev
 docker buildx create --name container --driver=docker-container
 
-# Do for each build/push
+# Do for each "dev" release
+docker buildx build \
+  --tag gitea.drjosh.dev/josh/jrouter:latest \
+  --platform linux/arm/v8,linux/amd64 \
+  --builder container \
+  --push .
+
+# Do for each release
 docker buildx build \
   --tag gitea.drjosh.dev/josh/jrouter:latest \
   --tag gitea.drjosh.dev/josh/jrouter:0.0.4 \

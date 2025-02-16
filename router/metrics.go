@@ -39,7 +39,7 @@ var (
 			Namespace: "jrouter",
 			Subsystem: "aarp",
 			Name:      "bytes_out_total",
-			Help:      "count of AARP bytes received",
+			Help:      "count of AARP bytes sent",
 		},
 		[]string{
 			"port",
@@ -52,7 +52,7 @@ var (
 			Namespace: "jrouter",
 			Subsystem: "aarp",
 			Name:      "packets_out_total",
-			Help:      "count of AARP packets received",
+			Help:      "count of AARP packets sent",
 		},
 		[]string{
 			"port",
