@@ -40,6 +40,8 @@ import (
 	"drjosh.dev/jrouter/status"
 
 	"github.com/google/gopacket/pcap"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sfiera/multitalk/pkg/ddp"
 	"github.com/sfiera/multitalk/pkg/ethernet"
 )
@@ -108,6 +110,7 @@ func main() {
 		log.Print("monitoring_addr is empty - disabling the monitoring HTTP server")
 	} else {
 		http.HandleFunc("/status", status.Handle)
+		http.Handle("/metrics", promhttp.Handler())
 		go func() {
 			log.Print(http.ListenAndServe(cfg.MonitoringAddr, nil))
 		}()
@@ -244,10 +247,6 @@ func main() {
 		goPeerHandler(peer)
 	}
 
-	// --------------------------------- AARP ---------------------------------
-	aarpMachine := router.NewAARPMachine(cfg, pcapHandle, myHWAddr)
-	go aarpMachine.Run(ctx)
-
 	// -------------------------------- Router --------------------------------
 	rooter := &router.Router{
 		Config:     cfg,
@@ -263,11 +262,14 @@ func main() {
 		DefaultZoneName: cfg.EtherTalk.ZoneName,
 		AvailableZones:  router.SetFromSlice([]string{cfg.EtherTalk.ZoneName}),
 		PcapHandle:      pcapHandle,
-		AARPMachine:     aarpMachine,
 		Router:          rooter,
 	}
 	rooter.Ports = append(rooter.Ports, etherTalkPort)
 	routes.InsertEtherTalkDirect(etherTalkPort)
+
+	// --------------------------------- AARP ---------------------------------
+	etherTalkPort.AARPMachine = router.NewAARPMachine(etherTalkPort, myHWAddr)
+	go etherTalkPort.AARPMachine.Run(ctx)
 
 	// --------------------------------- RTMP ---------------------------------
 	go etherTalkPort.RunRTMP(ctx)
@@ -277,7 +279,7 @@ func main() {
 	go func() {
 		defer wg.Done()
 
-		ctx, setStatus, _ := status.AddSimpleItem(ctx, "EtherTalk inbound")
+		ctx, setStatus, _ := status.AddSimpleItem(ctx, fmt.Sprintf("EtherTalk inbound on %s", cfg.EtherTalk.Device))
 		defer setStatus("EtherTalk Serve goroutine exited!")
 
 		setStatus(fmt.Sprintf("Listening on %s", cfg.EtherTalk.Device))
@@ -307,11 +309,16 @@ func main() {
 				continue
 			}
 
+			promLabels := prometheus.Labels{"peer": raddr.IP.String()}
+			aurpBytesInCounter.With(promLabels).Add(float64(pktlen))
+			aurpPacketsInCounter.With(promLabels).Inc()
+
 			// log.Printf("AURP: Received packet of length %d from %v", pktlen, raddr)
 
 			dh, pkt, parseErr := aurp.ParsePacket(pktbuf[:pktlen])
 			if parseErr != nil {
 				log.Printf("AURP: Failed to parse packet: %v", parseErr)
+				aurpInvalidPacketsInCounter.With(promLabels).Inc()
 				continue
 			}
 			if readErr != nil {
@@ -319,7 +326,7 @@ func main() {
 				return
 			}
 
-			log.Printf("AURP: Got %T from %v (%v)", pkt, raddr, dh.SourceDI)
+			log.Printf("AURP: Got %T from peer %v (domain identifier %v)", pkt, raddr, dh.SourceDI)
 
 			// Existing peer?
 			ra := [4]byte(raddr.IP)
@@ -327,7 +334,7 @@ func main() {
 			pr := peersByIP[ra]
 			if pr == nil {
 				if !cfg.OpenPeering {
-					log.Printf("AURP: Got packet from %v but it's not in my config and open peering is disabled; dropping the packet", raddr)
+					log.Printf("AURP: Got packet from %v, but it's not in my config and open peering is disabled; dropping the packet", raddr)
 					peersMu.Unlock()
 					continue
 				}

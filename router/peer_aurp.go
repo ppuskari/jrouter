@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"drjosh.dev/jrouter/aurp"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
@@ -299,6 +300,11 @@ func (p *AURPPeer) send(pkt aurp.Packet) (int, error) {
 	if _, err := pkt.WriteTo(&b); err != nil {
 		return 0, err
 	}
+
+	promLabels := prometheus.Labels{"peer": p.RemoteAddr.String()}
+	aurpPacketsOutCounter.With(promLabels).Inc()
+	aurpBytesOutCounter.With(promLabels).Add(float64(b.Len()))
+
 	log.Printf("AURP Peer: Sending %T (len %d) to %v", pkt, b.Len(), p.RemoteAddr)
 	return p.UDPConn.WriteToUDP(b.Bytes(), &net.UDPAddr{IP: p.RemoteAddr, Port: 387})
 }

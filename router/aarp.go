@@ -25,7 +25,7 @@ import (
 	"time"
 
 	"drjosh.dev/jrouter/status"
-	"github.com/google/gopacket/pcap"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sfiera/multitalk/pkg/aarp"
 	"github.com/sfiera/multitalk/pkg/ddp"
 	"github.com/sfiera/multitalk/pkg/ethernet"
@@ -72,8 +72,7 @@ Status: {{.Status}}<br/>
 type AARPMachine struct {
 	*addressMappingTable
 
-	cfg        *Config
-	pcapHandle *pcap.Handle
+	port *EtherTalkPort
 
 	incomingCh chan *ethertalk.Packet
 
@@ -89,11 +88,10 @@ type AARPMachine struct {
 }
 
 // NewAARPMachine creates a new AARPMachine.
-func NewAARPMachine(cfg *Config, pcapHandle *pcap.Handle, myHWAddr ethernet.Addr) *AARPMachine {
+func NewAARPMachine(port *EtherTalkPort, myHWAddr ethernet.Addr) *AARPMachine {
 	return &AARPMachine{
 		addressMappingTable: new(addressMappingTable),
-		cfg:                 cfg,
-		pcapHandle:          pcapHandle,
+		port:                port,
 		incomingCh:          make(chan *ethertalk.Packet, 1024), // arbitrary capacity
 		myAddr: aarp.AddrPair{
 			Hardware: myHWAddr,
@@ -145,7 +143,7 @@ func (a *AARPMachine) Run(ctx context.Context) error {
 	a.statusMsg = "Initialising"
 	a.probes = 0
 	a.myAddr.Proto = ddp.Addr{
-		Network: ddp.Network(a.cfg.EtherTalk.NetStart),
+		Network: ddp.Network(a.port.NetStart),
 		Node:    1,
 	}
 	a.mu.Unlock()
@@ -178,8 +176,8 @@ func (a *AARPMachine) Run(ctx context.Context) error {
 				log.Printf("Couldn't broadcast a Probe: %v", err)
 			}
 
-		case ethFrame, ok := <-a.incomingCh:
-			if !ok {
+		case ethFrame, open := <-a.incomingCh:
+			if !open {
 				a.incomingCh = nil
 			}
 
@@ -308,11 +306,11 @@ func (a *AARPMachine) Resolve(ctx context.Context, ddpAddr ddp.Addr) (ethernet.A
 func (a *AARPMachine) reroll() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.cfg.EtherTalk.NetStart != a.cfg.EtherTalk.NetEnd {
+	if a.port.NetStart != a.port.NetEnd {
 		// Pick a new network number at random
 		a.myAddr.Proto.Network = rand.N(
-			a.cfg.EtherTalk.NetEnd-a.cfg.EtherTalk.NetStart+1,
-		) + a.cfg.EtherTalk.NetStart
+			a.port.NetEnd-a.port.NetStart+1,
+		) + a.port.NetStart
 	}
 
 	// Can't use: 0x00, 0xff, 0xfe, and should avoid the existing node number
@@ -333,14 +331,7 @@ func (a *AARPMachine) heyThatsMe(targ aarp.AddrPair) error {
 	//log.Printf("AARP: sending packet %+v", respFrame)
 	// Instead of broadcasting the reply, send it to the target specifically?
 	respFrame.Dst = targ.Hardware
-	respFrameRaw, err := ethertalk.Marshal(*respFrame)
-	if err != nil {
-		return err
-	}
-	if len(respFrameRaw) < 64 {
-		respFrameRaw = append(respFrameRaw, make([]byte, 64-len(respFrameRaw))...)
-	}
-	return a.pcapHandle.WritePacketData(respFrameRaw)
+	return a.send(respFrame)
 }
 
 // Broadcast an AARP Probe
@@ -349,14 +340,7 @@ func (a *AARPMachine) probe() error {
 	if err != nil {
 		return err
 	}
-	probeFrameRaw, err := ethertalk.Marshal(*probeFrame)
-	if err != nil {
-		return err
-	}
-	if len(probeFrameRaw) < 64 {
-		probeFrameRaw = append(probeFrameRaw, make([]byte, 64-len(probeFrameRaw))...)
-	}
-	return a.pcapHandle.WritePacketData(probeFrameRaw)
+	return a.send(probeFrame)
 }
 
 // Broadcast an AARP Request
@@ -365,14 +349,25 @@ func (a *AARPMachine) request(ddpAddr ddp.Addr) error {
 	if err != nil {
 		return err
 	}
-	reqFrameRaw, err := ethertalk.Marshal(*reqFrame)
+	return a.send(reqFrame)
+}
+
+func (a *AARPMachine) send(pkt *ethertalk.Packet) error {
+	frameRaw, err := ethertalk.Marshal(*pkt)
 	if err != nil {
 		return err
 	}
-	if len(reqFrameRaw) < 64 {
-		reqFrameRaw = append(reqFrameRaw, make([]byte, 64-len(reqFrameRaw))...)
+	if len(frameRaw) < 64 {
+		frameRaw = append(frameRaw, make([]byte, 64-len(frameRaw))...)
 	}
-	return a.pcapHandle.WritePacketData(reqFrameRaw)
+
+	promLabels := prometheus.Labels{
+		"port": a.port.Device,
+	}
+	aarpPacketsOutCounter.With(promLabels).Inc()
+	aarpBytesOutCounter.With(promLabels).Add(float64(len(frameRaw)))
+
+	return a.port.PcapHandle.WritePacketData(frameRaw)
 }
 
 // AMTEntry is an entry in an address mapping table.

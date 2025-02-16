@@ -22,9 +22,11 @@ import (
 	"errors"
 	"io"
 	"log"
+	"strconv"
 
 	"drjosh.dev/jrouter/atalk"
 	"github.com/google/gopacket/pcap"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sfiera/multitalk/pkg/ddp"
 	"github.com/sfiera/multitalk/pkg/ethernet"
 	"github.com/sfiera/multitalk/pkg/ethertalk"
@@ -44,6 +46,8 @@ type EtherTalkPort struct {
 	Router          *Router
 }
 
+// Serve runs a loop that reads AARP or AppleTalk packets from the network
+// device, and handles them.
 func (port *EtherTalkPort) Serve(ctx context.Context) {
 	for {
 		if ctx.Err() != nil {
@@ -64,6 +68,7 @@ func (port *EtherTalkPort) Serve(ctx context.Context) {
 
 		ethFrame := new(ethertalk.Packet)
 		if err := ethertalk.Unmarshal(rawPkt, ethFrame); err != nil {
+			atalkInvalidPacketsInCounter.With(prometheus.Labels{"port": port.Device}).Inc()
 			log.Printf("Couldn't unmarshal EtherTalk frame: %v", err)
 			continue
 		}
@@ -76,6 +81,10 @@ func (port *EtherTalkPort) Serve(ctx context.Context) {
 		switch ethFrame.SNAPProto {
 		case ethertalk.AARPProto:
 			// log.Print("Got an AARP frame")
+			promLabels := prometheus.Labels{"port": port.Device}
+			aarpPacketsInCounter.With(promLabels).Inc()
+			aarpBytesInCounter.With(promLabels).Add(float64(len(rawPkt)))
+
 			port.AARPMachine.Handle(ctx, ethFrame)
 
 		case ethertalk.AppleTalkProto:
@@ -95,6 +104,20 @@ func (port *EtherTalkPort) Serve(ctx context.Context) {
 				log.Printf("Couldn't unmarshal DDP packet: %v", err)
 				continue
 			}
+
+			promLabels := prometheus.Labels{
+				"port":       port.Device,
+				"src_net":    strconv.Itoa(int(ddpkt.SrcNet)),
+				"src_node":   strconv.Itoa(int(ddpkt.SrcNode)),
+				"src_socket": strconv.Itoa(int(ddpkt.SrcSocket)),
+				"dst_net":    strconv.Itoa(int(ddpkt.DstNet)),
+				"dst_node":   strconv.Itoa(int(ddpkt.DstNode)),
+				"dst_socket": strconv.Itoa(int(ddpkt.DstSocket)),
+				"proto":      strconv.Itoa(int(ddpkt.Proto)),
+			}
+			atalkPacketsInCounter.With(promLabels).Inc()
+			atalkBytesInCounter.With(promLabels).Add(float64(len(rawPkt)))
+
 			// log.Printf("DDP: src (%d.%d s %d) dst (%d.%d s %d) proto %d data len %d",
 			// 	ddpkt.SrcNet, ddpkt.SrcNode, ddpkt.SrcSocket,
 			// 	ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket,
@@ -170,6 +193,8 @@ func (port *EtherTalkPort) Serve(ctx context.Context) {
 	}
 }
 
+// Send sends a DDP packet out this port to the destination node.
+// If pkt.DstNode = 0xFF, then the packet is broadcast.
 func (port *EtherTalkPort) Send(ctx context.Context, pkt *ddp.ExtPacket) error {
 	dstEth := ethertalk.AppleTalkBroadcast
 	if pkt.DstNode != 0xFF {
@@ -182,14 +207,20 @@ func (port *EtherTalkPort) Send(ctx context.Context, pkt *ddp.ExtPacket) error {
 	return port.send(dstEth, pkt)
 }
 
+// Broadcast broadcasts the DDP packet on this port.
 func (port *EtherTalkPort) Broadcast(pkt *ddp.ExtPacket) error {
 	return port.send(ethertalk.AppleTalkBroadcast, pkt)
 }
 
+// ZoneMulticast broadcasts the DDP packet to a zone multicast hwaddr.
+// The specific address used is computed from the zone name.
 func (port *EtherTalkPort) ZoneMulticast(zone string, pkt *ddp.ExtPacket) error {
 	return port.send(atalk.MulticastAddr(zone), pkt)
 }
 
+// send is used to send EtherTalk packets. dstEth is either the destination node
+// or another AppleTalk router that will forward the packet. Or it's a broadcast
+// packet and dstEth should be a broadcast hwaddr.
 func (port *EtherTalkPort) send(dstEth ethernet.Addr, pkt *ddp.ExtPacket) error {
 	outFrame, err := ethertalk.AppleTalk(port.EthernetAddr, *pkt)
 	if err != nil {
@@ -203,5 +234,19 @@ func (port *EtherTalkPort) send(dstEth ethernet.Addr, pkt *ddp.ExtPacket) error 
 	if len(outFrameRaw) < 64 {
 		outFrameRaw = append(outFrameRaw, make([]byte, 64-len(outFrameRaw))...)
 	}
+
+	promLabels := prometheus.Labels{
+		"port":       port.Device,
+		"src_net":    strconv.Itoa(int(pkt.SrcNet)),
+		"src_node":   strconv.Itoa(int(pkt.SrcNode)),
+		"src_socket": strconv.Itoa(int(pkt.SrcSocket)),
+		"dst_net":    strconv.Itoa(int(pkt.DstNet)),
+		"dst_node":   strconv.Itoa(int(pkt.DstNode)),
+		"dst_socket": strconv.Itoa(int(pkt.DstSocket)),
+		"proto":      strconv.Itoa(int(pkt.Proto)),
+	}
+	atalkPacketsOutCounter.With(promLabels).Inc()
+	atalkBytesOutCounter.With(promLabels).Add(float64(len(outFrameRaw)))
+
 	return port.PcapHandle.WritePacketData(outFrameRaw)
 }

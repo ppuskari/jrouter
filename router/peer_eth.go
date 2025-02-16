@@ -20,7 +20,6 @@ import (
 	"context"
 
 	"github.com/sfiera/multitalk/pkg/ddp"
-	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
 
 // EtherTalkPeer holds data needed to forward packets to another router on the
@@ -37,17 +36,6 @@ func (p *EtherTalkPeer) Forward(ctx context.Context, pkt *ddp.ExtPacket) error {
 	if err != nil {
 		return err
 	}
-	outFrame, err := ethertalk.AppleTalk(p.Port.EthernetAddr, *pkt)
-	if err != nil {
-		return err
-	}
-	outFrame.Dst = de
-	outFrameRaw, err := ethertalk.Marshal(*outFrame)
-	if err != nil {
-		return err
-	}
-	if len(outFrameRaw) < 64 {
-		outFrameRaw = append(outFrameRaw, make([]byte, 64-len(outFrameRaw))...)
-	}
-	return p.Port.PcapHandle.WritePacketData(outFrameRaw)
+
+	return p.Port.send(de, pkt)
 }
