@@ -7,7 +7,7 @@ import (
 
 var (
 
-	// jrouter_atalk_bytes_in_total
+	// jrouter_aarp_bytes_in_total
 	aarpBytesInCounter = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "jrouter",
@@ -33,7 +33,7 @@ var (
 		},
 	)
 
-	// jrouter_atalk_bytes_in_total
+	// jrouter_aarp_bytes_out_total
 	aarpBytesOutCounter = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "jrouter",
@@ -46,7 +46,7 @@ var (
 		},
 	)
 
-	// jrouter_aarp_packets_in_total
+	// jrouter_aarp_packets_out_total
 	aarpPacketsOutCounter = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "jrouter",
@@ -103,7 +103,7 @@ var (
 	atalkInvalidPacketsInCounter = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "jrouter",
-			Subsystem: "aurp",
+			Subsystem: "atalk",
 			Name:      "invalid_packets_in_total",
 			Help:      "count of invalid AARP or AppleTalk packets received",
 		},
