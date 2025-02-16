@@ -7,7 +7,7 @@ Home-grown alternative implementation of Apple Internet Router 3.0
 * Full compatibility with Apple Internet Router 3.0
 * Function on modern operating systems
 * EtherTalk support
-* Be observable (there's a HTTP server with a `/status` page)
+* Be observable (there's a HTTP server with `/status` and `/metrics` pages)
 * (Stretch goal) TashTalk support
 
 ## Things that used to be caveats
@@ -31,8 +31,6 @@ Things I plan to fix Real Soon Now:
 * Some packet types need splitting to fit within limits. Some of these aren't
   implemented yet (mainly encapsulated). The unimplemented ones seem unlikely to
   hit those limits unless you are running a lot of routers or zones locally.
-* I plan to add a Prometheus metrics endpoint and at least add log levels /
-  verbosity config.
 * The AURP implementation is mostly there, but not fully complete. The main
   thing missing is sequence number checking.
 

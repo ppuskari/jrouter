@@ -18,6 +18,7 @@ local_ip: 192.0.2.1
 # monitoring_addr enables an inbuilt HTTP server that serves endpoints related
 # to monitoring jrouter. Currently these are:
 # - /status - a page that displays the current state of key components
+# - /metrics - Prometheus-style metrics
 monitoring_addr: ":9459"
 
 # ethertalk configures which network interface is used for Ethertalk, and the
