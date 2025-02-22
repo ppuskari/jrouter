@@ -33,6 +33,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"drjosh.dev/jrouter/aurp"
@@ -54,7 +55,7 @@ func main() {
 	// For some reason it occasionally panics and the panics have no traceback?
 	// This didn't help:
 	// debug.SetTraceback("all")
-	// I think it's calling recover in a defer too broadly.
+	// I think some dependency is calling recover in a defer too broadly.
 
 	flag.Parse()
 	log.Println("jrouter")
@@ -100,10 +101,13 @@ func main() {
 	defer ln.Close()
 	log.Printf("AURP: Listening on %v", ln.LocalAddr())
 
-	log.Println("Press ^C or send SIGINT to stop the router gracefully")
 	cctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ctx, _ := signal.NotifyContext(cctx, os.Interrupt)
+
+	// SIGTERM is what Docker sends the container process to let it clean up.
+	// Fortunately syscall.SIGTERM is defined even when GOOS=windows.
+	log.Println("Press ^C or send SIGINT or SIGTERM to stop the router gracefully")
+	ctx, _ := signal.NotifyContext(cctx, os.Interrupt, syscall.SIGTERM)
 
 	// --------------------------------- HTTP ---------------------------------
 	if cfg.MonitoringAddr == "" {

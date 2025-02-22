@@ -17,7 +17,7 @@ docker buildx build \
 # Do for each release
 docker buildx build \
   --tag gitea.drjosh.dev/josh/jrouter:latest \
-  --tag gitea.drjosh.dev/josh/jrouter:0.0.4 \
+  --tag gitea.drjosh.dev/josh/jrouter:0.0.6 \
   --tag gitea.drjosh.dev/josh/jrouter:0.0 \
   --tag gitea.drjosh.dev/josh/jrouter:0 \
   --platform linux/arm/v8,linux/amd64 \
