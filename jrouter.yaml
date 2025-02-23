@@ -21,15 +21,20 @@ local_ip: 192.0.2.1
 # - /metrics - Prometheus-style metrics
 monitoring_addr: ":9459"
 
-# ethertalk configures which network interface is used for Ethertalk, and the
+# ethertalk configures network interfaces used for Ethertalk, and the
 # AppleTalk zone information.
-# (In future this will take an array of devices and zones.)
+# This can contain either a single ethertalk config, or a list of such configs.
 ethertalk:
-  device: enp2s0
-  #ethernet_addr: '08:00:07:fe:dc:ba'
-  zone_name: The Twilight Zone
-  net_start: 100
-  net_end: 100
+  - device: en0 # Name of the device - required.
+    # ethernet_addr overrides the "hardware" address used by jrouter.
+    # This is useful if you have another AppleTalk software running on the same
+    # machine, e.g. netatalk, and you do not want jrouter to steal its packets.
+    #ethernet_addr: '08:00:07:fe:dc:ba'
+    # Name of the AppleTalk zone - required.
+    zone_name: The Twilight Zone
+    # Network number range for this network (inclusive) - required.
+    net_start: 100
+    net_end: 100
 
 # open_peering lets the server accept incoming connections from unknown servers.
 # If you disable this, only the configured peers will be connected.

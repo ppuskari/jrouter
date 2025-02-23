@@ -121,31 +121,51 @@ func main() {
 	}
 
 	// --------------------------------- Pcap ---------------------------------
-	// First check the interface
-	iface, err := net.InterfaceByName(cfg.EtherTalk.Device)
-	if err != nil {
-		log.Fatalf("Couldn't find interface named %q: %v", cfg.EtherTalk.Device, err)
-	}
-	myHWAddr := ethernet.Addr(iface.HardwareAddr)
-	if cfg.EtherTalk.EthAddr != "" {
-		// Override myHWAddr with the configured address
-		netHWAddr, err := net.ParseMAC(cfg.EtherTalk.EthAddr)
-		if err != nil {
-			log.Fatalf("Couldn't parse ethertalk.ethernet_addr value %q: %v", cfg.EtherTalk.EthAddr, err)
-		}
-		myHWAddr = ethernet.Addr(netHWAddr)
+	if len(cfg.EtherTalk) == 0 {
+		log.Fatal("The ethertalk config in jrouter.yaml was empty; at least one entry is required")
 	}
 
-	pcapHandle, err := pcap.OpenLive(cfg.EtherTalk.Device, 4096, true, 100*time.Millisecond)
-	if err != nil {
-		log.Fatalf("Couldn't open %q for packet capture: %v", cfg.EtherTalk.Device, err)
+	var ethertalkPorts []*router.EtherTalkPort
+
+	for _, etcfg := range cfg.EtherTalk {
+		// First check the interface
+		iface, err := net.InterfaceByName(etcfg.Device)
+		if err != nil {
+			log.Fatalf("Couldn't find interface named %q: %v", etcfg.Device, err)
+		}
+
+		myHWAddr := ethernet.Addr(iface.HardwareAddr)
+		if etcfg.EthAddr != "" {
+			// Override myHWAddr with the configured address
+			netHWAddr, err := net.ParseMAC(etcfg.EthAddr)
+			if err != nil {
+				log.Fatalf("Couldn't parse ethertalk.ethernet_addr value %q: %v", etcfg.EthAddr, err)
+			}
+			myHWAddr = ethernet.Addr(netHWAddr)
+		}
+
+		handle, err := pcap.OpenLive(etcfg.Device, 4096, true, 100*time.Millisecond)
+		if err != nil {
+			log.Fatalf("Couldn't open %q for packet capture: %v", etcfg.Device, err)
+		}
+		bpfFilter := fmt.Sprintf("(atalk or aarp) and (ether multicast or ether dst %s)", myHWAddr)
+		if err := handle.SetBPFFilter(bpfFilter); err != nil {
+			handle.Close()
+			log.Fatalf("Couldn't set BPF filter on packet capture: %v", err)
+		}
+		defer handle.Close()
+
+		ethertalkPorts = append(ethertalkPorts, &router.EtherTalkPort{
+			Device:          etcfg.Device,
+			EthernetAddr:    myHWAddr,
+			NetStart:        etcfg.NetStart,
+			NetEnd:          etcfg.NetEnd,
+			DefaultZoneName: etcfg.ZoneName,
+			AvailableZones:  router.SetFromSlice([]string{etcfg.ZoneName}),
+			PcapHandle:      handle,
+			// Router: set below
+		})
 	}
-	bpfFilter := fmt.Sprintf("(atalk or aarp) and (ether multicast or ether dst %s)", myHWAddr)
-	if err := pcapHandle.SetBPFFilter(bpfFilter); err != nil {
-		pcapHandle.Close()
-		log.Fatalf("Couldn't set BPF filter on packet capture: %v", err)
-	}
-	defer pcapHandle.Close()
 
 	// -------------------------------- Tables --------------------------------
 	routes := router.NewRouteTable()
@@ -258,38 +278,33 @@ func main() {
 		// ZoneTable:  zones,
 	}
 
-	etherTalkPort := &router.EtherTalkPort{
-		Device:          cfg.EtherTalk.Device,
-		EthernetAddr:    myHWAddr,
-		NetStart:        cfg.EtherTalk.NetStart,
-		NetEnd:          cfg.EtherTalk.NetEnd,
-		DefaultZoneName: cfg.EtherTalk.ZoneName,
-		AvailableZones:  router.SetFromSlice([]string{cfg.EtherTalk.ZoneName}),
-		PcapHandle:      pcapHandle,
-		Router:          rooter,
+	// Attach ports to router
+	rooter.Ports = append(rooter.Ports, ethertalkPorts...)
+	for _, etPort := range ethertalkPorts {
+		// Attach router to ports
+		etPort.Router = rooter
+
+		// Add port to routing table
+		routes.InsertEtherTalkDirect(etPort)
+
+		// Run AARP and RTMP on each port.
+		etPort.AARPMachine = router.NewAARPMachine(etPort, etPort.EthernetAddr)
+		go etPort.AARPMachine.Run(ctx)
+		go etPort.RunRTMP(ctx)
+
+		// Finally, start handling packets.
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			ctx, setStatus, _ := status.AddSimpleItem(ctx, fmt.Sprintf("EtherTalk inbound on %s", etPort.Device))
+			defer setStatus("EtherTalk Serve goroutine exited!")
+
+			setStatus(fmt.Sprintf("Listening on %s", etPort.Device))
+
+			etPort.Serve(ctx)
+		}()
 	}
-	rooter.Ports = append(rooter.Ports, etherTalkPort)
-	routes.InsertEtherTalkDirect(etherTalkPort)
-
-	// --------------------------------- AARP ---------------------------------
-	etherTalkPort.AARPMachine = router.NewAARPMachine(etherTalkPort, myHWAddr)
-	go etherTalkPort.AARPMachine.Run(ctx)
-
-	// --------------------------------- RTMP ---------------------------------
-	go etherTalkPort.RunRTMP(ctx)
-
-	// ---------------------- Raw AppleTalk/AARP inbound ----------------------
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		ctx, setStatus, _ := status.AddSimpleItem(ctx, fmt.Sprintf("EtherTalk inbound on %s", cfg.EtherTalk.Device))
-		defer setStatus("EtherTalk Serve goroutine exited!")
-
-		setStatus(fmt.Sprintf("Listening on %s", cfg.EtherTalk.Device))
-
-		etherTalkPort.Serve(ctx)
-	}()
 
 	// ----------------------------- AURP inbound -----------------------------
 	wg.Add(1)

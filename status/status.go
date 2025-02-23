@@ -6,6 +6,7 @@
 package status
 
 import (
+	"cmp"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -16,6 +17,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -193,10 +195,17 @@ func (i *templatedItem) Eval(ctx context.Context) template.HTML {
 
 // Handle handles status page requests.
 func Handle(w http.ResponseWriter, r *http.Request) {
+	version, build := "unknown", "unknown"
+	info, has := debug.ReadBuildInfo()
+	if has && info != nil {
+		version = cmp.Or(info.Main.Version, "unknown")
+		build = cmp.Or(info.Main.Sum, "unknown")
+	}
+
 	data := &statusData{
 		Items:        rootItem.items,
-		Version:      "TODO",
-		Build:        "TODO",
+		Version:      version,
+		Build:        build,
 		Hostname:     hostname,
 		Username:     username,
 		ExeName:      exename,

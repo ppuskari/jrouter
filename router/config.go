@@ -17,6 +17,7 @@
 package router
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/sfiera/multitalk/pkg/ddp"
@@ -24,43 +25,78 @@ import (
 )
 
 type Config struct {
-	// Optional: default is 387.
+	// ListenPort is the AURP service port. Optional: default is 387.
 	ListenPort uint16 `yaml:"listen_port"`
 
-	// Used for hosting /status server (and /metrics, in future).
+	// MonitoringAddr is used for hosting /status server and /metrics.
 	// Example: ":9459" (listen on port 9459 on all interfaces).
 	// Optional: when left empty, the monitoring HTTP server is disabled.
 	MonitoringAddr string `yaml:"monitoring_addr"`
 
-	// Sets the Domain Identifier used by this router.
+	// LocalIP configures the Domain Identifier used by this router.
 	// Note: this does not "bind" the IP side of the router to a particular
 	// interface; it will listen on all interfaces with IP addresses.
 	// Optional: defaults to the first global unicast address on any local
 	// network interface.
 	LocalIP string `yaml:"local_ip"`
 
-	// Required for routing a local EtherTalk network.
-	EtherTalk struct {
-		EthAddr  string      `yaml:"ethernet_addr"`
-		Device   string      `yaml:"device"`
-		ZoneName string      `yaml:"zone_name"`
-		NetStart ddp.Network `yaml:"net_start"`
-		NetEnd   ddp.Network `yaml:"net_end"`
-	} `yaml:"ethertalk"`
+	// EtherTalk is required for routing one or more local EtherTalk networks.
+	EtherTalk EtherTalkConfigs `yaml:"ethertalk"`
 
+	// LocalTalk is TODO.
 	// LocalTalk struct {
 	//	ZoneName   string `yaml:"zone_name"`
 	// 	Network uint16 `yaml:"network"`
 	// } `yaml:"localtalk"`
 
-	// Allow routers other than those listed under peers?
+	// OpenPeering allowsrouters other than those listed under peers.
 	OpenPeering bool `yaml:"open_peering"`
 
-	// List of peer routers.
+	// Peers sets a list of peer routers to connect to and allow connections
+	// from.
 	Peers []string `yaml:"peers"`
 
-	// Or a URL to fetch a list of peers from.
+	// PeerListURL sets a URL to fetch a list of peers from (plain text, one
+	// peer per line).
 	PeerListURL string `yaml:"peerlist_url"`
+}
+
+type EtherTalkConfigs []*EtherTalkConfig
+
+func (cs *EtherTalkConfigs) UnmarshalYAML(n *yaml.Node) error {
+	switch n.Kind {
+	case yaml.SequenceNode:
+		return n.Decode((*[]*EtherTalkConfig)(cs))
+
+	case yaml.MappingNode:
+		var v EtherTalkConfig
+		if err := n.Decode(&v); err != nil {
+			return err
+		}
+		*cs = append(*cs, &v)
+		return nil
+
+	default:
+		return fmt.Errorf("invalid YAML kind for 'ethertalk' %v, want either a sequence or a mapping", n.Kind)
+	}
+}
+
+// EtherTalkConfig configures EtherTalk for a specific Ethernet interface.
+type EtherTalkConfig struct {
+	// EthAddr overrides the hardware address used by jrouter. Optional.
+	EthAddr string `yaml:"ethernet_addr"`
+
+	// Device is the Ethernet device name (e.g. eth0, enp2s0, en3). Required.
+	Device string `yaml:"device"`
+
+	// ZoneName is the AppleTalk zone name for the network on this interface.
+	// Required.
+	ZoneName string `yaml:"zone_name"`
+
+	// NetStart and NetEnd control the network number range for the AppleTalk
+	// network on this interface (inclusive). Required.
+	NetStart ddp.Network `yaml:"net_start"`
+	NetEnd   ddp.Network `yaml:"net_end"`
 }
 
 func LoadConfig(cfgPath string) (*Config, error) {
