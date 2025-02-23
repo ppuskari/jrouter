@@ -162,7 +162,7 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 
 // RunRTMP makes periodic RTMP Data broadcasts on this port.
 func (port *EtherTalkPort) RunRTMP(ctx context.Context) (err error) {
-	ctx, setStatus, _ := status.AddSimpleItem(ctx, "RTMP")
+	ctx, setStatus, _ := status.AddSimpleItem(ctx, fmt.Sprintf("RTMP on %s", port.Device))
 	defer func() {
 		setStatus(fmt.Sprintf("Run loop stopped! Return: %v", err))
 	}()

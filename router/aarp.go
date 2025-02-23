@@ -135,7 +135,7 @@ func (a *AARPMachine) status(ctx context.Context) (any, error) {
 
 // Run executes the machine.
 func (a *AARPMachine) Run(ctx context.Context) error {
-	ctx, done := status.AddItem(ctx, "AARP", aarpStatusTemplate, a.status)
+	ctx, done := status.AddItem(ctx, fmt.Sprintf("AARP on %s", a.port.Device), aarpStatusTemplate, a.status)
 	defer done()
 
 	// Initialise our DDP address with a preferred address (first network.1)
