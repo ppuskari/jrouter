@@ -263,6 +263,7 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 
 	var route *Route
 	insert := false
+	update := false
 	func() {
 		rt.allRoutesMu.Lock()
 		defer rt.allRoutesMu.Unlock()
@@ -272,6 +273,7 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 			route.LastSeen = time.Now()
 			if route.Distance != metric {
 				route.Distance = metric
+				update = true
 			}
 			return
 		}
@@ -287,6 +289,10 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 		}
 		rt.allRoutes[routeKey] = route
 	}()
+
+	if !insert && !update {
+		return route, nil
+	}
 
 	for n := netStart; n <= netEnd; n++ {
 		func() {
