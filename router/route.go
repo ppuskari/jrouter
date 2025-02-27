@@ -134,10 +134,9 @@ func (rt *RouteTable) Lookup(network ddp.Network) *Route {
 
 	// Routes are sorted by distance, so we can return the first valid route.
 	for _, r := range rt.routesByNetwork[network] {
-		if !r.Valid() {
-			continue
+		if r.Valid() {
+			return r
 		}
-		return r
 	}
 	return nil
 }
@@ -335,9 +334,21 @@ func (rt *RouteTable) ValidLocalRoutes() []*Route {
 		if _, isAURP := r.Target.(*AURPPeer); isAURP {
 			continue
 		}
-		if r.Valid() {
-			valid = append(valid, r)
+		if !r.Valid() {
+			continue
 		}
+		// Something is reflecting AURP routes back to jrouter.
+		// On the assumption that they're doing the right thing with route
+		// distances (reflected route should have higher distance) then
+		// we can quickly check using routesByNetwork to see if there's a lower
+		// distance route to an AURP peer for the same network.
+		if best := rt.Lookup(r.NetStart); best != nil {
+			if _, isAURP := best.Target.(*AURPPeer); isAURP {
+				continue
+			}
+		}
+
+		valid = append(valid, r)
 	}
 	return valid
 }
