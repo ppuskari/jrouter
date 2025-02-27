@@ -262,19 +262,21 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 	}
 
 	var route *Route
-	update := false
+	insert := false
 	func() {
 		rt.allRoutesMu.Lock()
 		defer rt.allRoutesMu.Unlock()
 		route = rt.allRoutes[routeKey]
 		if route != nil {
 			// Update
-			update = true
-			route.Distance = metric
 			route.LastSeen = time.Now()
+			if route.Distance != metric {
+				route.Distance = metric
+			}
 			return
 		}
 		// Route insert.
+		insert = true
 		route = &Route{
 			RouteKey: routeKey,
 			Extended: extended,
@@ -286,16 +288,14 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 		rt.allRoutes[routeKey] = route
 	}()
 
-	if update {
-		return route, nil
-	}
-
 	for n := netStart; n <= netEnd; n++ {
 		func() {
 			rt.routesByNetworkMu[n].Lock()
 			defer rt.routesByNetworkMu[n].Unlock()
 
-			rt.routesByNetwork[n] = append(rt.routesByNetwork[n], route)
+			if insert {
+				rt.routesByNetwork[n] = append(rt.routesByNetwork[n], route)
+			}
 			slices.SortFunc(rt.routesByNetwork[n], func(a, b *Route) int {
 				return cmp.Compare(a.Distance, b.Distance)
 			})
