@@ -119,7 +119,13 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 
 		var noZones []ddp.Network
 		for _, nt := range dataPkt.NetworkTuples {
-			route, err := port.Router.RouteTable.UpsertRoute(peer, nt.Extended, nt.RangeStart, nt.RangeEnd, nt.Distance+1)
+			route, err := port.Router.RouteTable.UpsertRoute(
+				peer,
+				nt.Extended,
+				nt.RangeStart,
+				nt.RangeEnd,
+				nt.Distance+1,
+			)
 			if err != nil {
 				return fmt.Errorf("upsert EtherTalk route: %v", err)
 			}

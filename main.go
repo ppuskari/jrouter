@@ -285,7 +285,11 @@ func main() {
 		etPort.Router = rooter
 
 		// Add port to routing table
-		routes.UpsertRoute(etPort, true /* extended */, etPort.NetStart, etPort.NetEnd, 0)
+		route, err := routes.UpsertRoute(etPort, true /* extended */, etPort.NetStart, etPort.NetEnd, 0)
+		if err != nil {
+			log.Fatalf("Couldn't create route for EtherTalk port: %v", err)
+		}
+		route.ZoneNames = etPort.AvailableZones
 
 		// Run AARP and RTMP on each port.
 		etPort.AARPMachine = router.NewAARPMachine(etPort, etPort.EthernetAddr)
