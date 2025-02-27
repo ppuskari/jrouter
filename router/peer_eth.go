@@ -18,6 +18,7 @@ package router
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
@@ -38,4 +39,13 @@ func (p *EtherTalkPeer) Forward(ctx context.Context, pkt *ddp.ExtPacket) error {
 	}
 
 	return p.Port.send(de, pkt)
+}
+
+// RouteTargetKey returns "EtherTalkPeer|device name|peer address".
+func (p *EtherTalkPeer) RouteTargetKey() string {
+	return fmt.Sprintf("EtherTalkPeer|%s|%d.%d", p.Port.Device, p.PeerAddr.Network, p.PeerAddr.Node)
+}
+
+func (p *EtherTalkPeer) String() string {
+	return fmt.Sprintf("%d.%d via %s", p.PeerAddr.Network, p.PeerAddr.Node, p.Port.Device)
 }

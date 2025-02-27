@@ -218,6 +218,21 @@ func (port *EtherTalkPort) ZoneMulticast(zone string, pkt *ddp.ExtPacket) error 
 	return port.send(atalk.MulticastAddr(zone), pkt)
 }
 
+// Forward is another name for Send.
+// (EtherTalk ports can be used as a route target.)
+func (port *EtherTalkPort) Forward(ctx context.Context, pkt *ddp.ExtPacket) error {
+	return port.Send(ctx, pkt)
+}
+
+// RouteTargetKey returns "EtherTalkPort|device name".
+func (port *EtherTalkPort) RouteTargetKey() string {
+	return "EtherTalkPort|" + port.Device
+}
+
+func (port *EtherTalkPort) String() string {
+	return port.Device
+}
+
 // send is used to send EtherTalk packets. dstEth is either the destination node
 // or another AppleTalk router that will forward the packet. Or it's a broadcast
 // packet and dstEth should be a broadcast hwaddr.

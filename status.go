@@ -24,7 +24,7 @@ const routingTableTemplate = `
 		<th>Zone names</th>
 		<th>Distance</th>
 		<th>Last seen</th>
-		<th>Port</th>
+		<th>Target</th>
 	</tr></thead>
 	<tbody>
 {{range $route := . }}
@@ -34,17 +34,7 @@ const routingTableTemplate = `
 		<td>{{range $route.ZoneNames.ToSlice}}{{.}}<br>{{end}}</td>
 		<td>{{$route.Distance}}</td>
 		<td>{{$route.LastSeenAgo}}</td>
-		<td>
-			{{- with $route.AURPPeer -}}
-				{{.RemoteAddr}}
-			{{- end -}}
-			{{- with $route.EtherTalkPeer -}}
-				{{.Port.Device}} {{.PeerAddr.Network}}.{{.PeerAddr.Node}}
-			{{- end -}}
-			{{- with $route.EtherTalkDirect -}}
-				{{.Device}} {{.NetStart}}-{{.NetEnd}}
-			{{- end -}}
-		</td>
+		<td>{{$route.Target}}</td>
 	</tr>
 {{end}}
 	</tbody>

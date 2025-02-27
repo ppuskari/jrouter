@@ -153,7 +153,7 @@ func NewAURPPeer(routes *RouteTable, udpConn *net.UDPConn, peerAddr string, radd
 
 func (p *AURPPeer) addPendingEvent(ec aurp.EventCode, route *Route) {
 	// Don't advertise routes to AURP peers to other AURP peers
-	if route.AURPPeer != nil {
+	if _, isAURP := route.Target.(*AURPPeer); isAURP {
 		return
 	}
 	et := aurp.EventTuple{
@@ -188,13 +188,24 @@ func (p *AURPPeer) RouteForwarderChanged(route *Route) {
 	p.addPendingEvent(aurp.EventCodeNRC, route)
 }
 
-func (p *AURPPeer) Forward(ddpkt *ddp.ExtPacket) error {
+// Forward encapsulates the DDP packet in an AURP AppleTalkPacket and sends it
+// to the remote peer router.
+func (p *AURPPeer) Forward(_ context.Context, ddpkt *ddp.ExtPacket) error {
 	outPkt, err := ddp.ExtMarshal(*ddpkt)
 	if err != nil {
 		return err
 	}
 	_, err = p.send(p.Transport.NewAppleTalkPacket(outPkt))
 	return err
+}
+
+// RouteTargetKey returns "AURPPeer|peer's IP address".
+func (p *AURPPeer) RouteTargetKey() string {
+	return "AURPPeer|" + p.RemoteAddr.String()
+}
+
+func (p *AURPPeer) String() string {
+	return p.RemoteAddr.String()
 }
 
 func (p *AURPPeer) ReceiverState() ReceiverState {
@@ -392,7 +403,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				if p.sendRetries >= tickleRetryLimit {
 					log.Printf("AURP Peer: Send retry limit reached while waiting for Tickle-Ack, closing connection")
 					p.setRState(ReceiverUnconnected)
-					p.RouteTable.DeleteAURPPeer(p)
+					p.RouteTable.DeleteTarget(p)
 					break
 				}
 
@@ -411,7 +422,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				if p.sendRetries >= sendRetryLimit {
 					log.Printf("AURP Peer: Send retry limit reached while waiting for RI-Rsp, closing connection")
 					p.setRState(ReceiverUnconnected)
-					p.RouteTable.DeleteAURPPeer(p)
+					p.RouteTable.DeleteTarget(p)
 					break
 				}
 
@@ -610,7 +621,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				}
 
 				var nets aurp.NetworkTuples
-				for _, r := range p.RouteTable.ValidNonAURPRoutes() {
+				for _, r := range p.RouteTable.ValidLocalRoutes() {
 					nets = append(nets, aurp.NetworkTuple{
 						Extended:   r.Extended,
 						RangeStart: r.NetStart,
@@ -635,7 +646,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				log.Printf("AURP Peer: Learned about these networks: %v", pkt.Networks)
 
 				for _, nt := range pkt.Networks {
-					p.RouteTable.InsertAURPRoute(
+					p.RouteTable.UpsertRoute(
 						p,
 						nt.Extended,
 						ddp.Network(nt.RangeStart),
@@ -728,31 +739,36 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 						// Do nothing except respond with RI-Ack
 
 					case aurp.EventCodeNA:
-						if err := p.RouteTable.InsertAURPRoute(
+						if _, err := p.RouteTable.UpsertRoute(
 							p,
 							et.Extended,
 							et.RangeStart,
 							et.RangeEnd,
 							et.Distance+1,
 						); err != nil {
-							log.Printf("AURP Peer: couldn't insert route: %v", err)
+							log.Printf("AURP Peer: NA event: couldn't insert route: %v", err)
 						}
 						ackFlag = aurp.RoutingFlagSendZoneInfo
 
 					case aurp.EventCodeND:
-						p.RouteTable.DeleteAURPPeerNetwork(p, et.RangeStart)
+						if err := p.RouteTable.DeleteRoute(p, et.RangeStart); err != nil {
+							log.Printf("AURP Peer: ND event: couldn't delete route: %v", err)
+						}
 
 					case aurp.EventCodeNDC:
-						p.RouteTable.UpdateAURPRouteDistance(p, et.RangeStart, et.Distance+1)
+						if err := p.RouteTable.UpdateRoute(p, et.RangeStart, et.Distance+1); err != nil {
+							log.Printf("AURP Peer: NDC event: couldn't update route: %v", err)
+						}
 
 					case aurp.EventCodeNRC:
 						// "An exterior router sends a Network Route Change
 						// (NRC) event if the path to an exported network
 						// through its local internet changes to a path through
 						// a tunneling port, causing split-horizoned processing
-						// to eliminate that network’s routing information."
-						p.RouteTable.DeleteAURPPeerNetwork(p, et.RangeStart)
-
+						// to eliminate that network's routing information."
+						if err := p.RouteTable.DeleteRoute(p, et.RangeStart); err != nil {
+							log.Printf("AURP Peer: NRC event: couldn't delete route: %v", err)
+						}
 					case aurp.EventCodeZC:
 						// "This event is reserved for future use."
 					}
@@ -769,7 +785,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				}
 
 				log.Printf("AURP Peer: Router Down: error code %d %s", pkt.ErrorCode, pkt.ErrorCode)
-				p.RouteTable.DeleteAURPPeer(p)
+				p.RouteTable.DeleteTarget(p)
 
 				// Respond with RI-Ack
 				if _, err := p.send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, 0)); err != nil {
@@ -790,7 +806,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 			case *aurp.ZIRspPacket:
 				log.Printf("AURP Peer: Learned about these zones: %v", pkt.Zones)
 				for _, zt := range pkt.Zones {
-					p.RouteTable.AddZonesToNetwork(zt.Network, zt.Name)
+					p.RouteTable.AddZonesToRoute(p, zt.Network, zt.Name)
 				}
 
 			case *aurp.GDZLReqPacket:

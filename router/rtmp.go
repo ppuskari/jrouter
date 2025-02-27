@@ -119,7 +119,7 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 
 		var noZones []ddp.Network
 		for _, nt := range dataPkt.NetworkTuples {
-			route, err := port.Router.RouteTable.UpsertEtherTalkRoute(peer, nt.Extended, nt.RangeStart, nt.RangeEnd, nt.Distance+1)
+			route, err := port.Router.RouteTable.UpsertRoute(peer, nt.Extended, nt.RangeStart, nt.RangeEnd, nt.Distance+1)
 			if err != nil {
 				return fmt.Errorf("upsert EtherTalk route: %v", err)
 			}
@@ -234,13 +234,14 @@ func (port *EtherTalkPort) rtmpDataPackets(splitHorizon bool) []*rtmp.DataPacket
 	routes := port.Router.RouteTable.ValidRoutes()
 	tuples := make([]rtmp.NetworkTuple, 0, len(routes))
 	for _, rt := range routes {
-		if rt.EtherTalkDirect == port {
+		if rt.Target.RouteTargetKey() == port.RouteTargetKey() {
 			// If the route is actually a direct connection to this port,
 			// don't include it.
 			// (It's manually set as the first tuple anyway.)
 			continue
 		}
-		if splitHorizon && rt.EtherTalkPeer != nil && rt.EtherTalkPeer.Port == port {
+		etPeer, _ := rt.Target.(*EtherTalkPeer)
+		if splitHorizon && etPeer != nil && etPeer.Port == port {
 			// If the route is through a peer accessible on this port, don't
 			// include it.
 			continue

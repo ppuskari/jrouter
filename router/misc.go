@@ -18,6 +18,8 @@ package router
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 )
 
@@ -26,11 +28,7 @@ import (
 type StringSet map[string]struct{}
 
 func (set StringSet) ToSlice() []string {
-	ss := make([]string, 0, len(set))
-	for s := range set {
-		ss = append(ss, s)
-	}
-	return ss
+	return slices.Collect(maps.Keys(set))
 }
 
 func (set StringSet) Contains(s string) bool {

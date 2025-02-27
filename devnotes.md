@@ -9,7 +9,7 @@ docker buildx create --name container --driver=docker-container
 
 # Do for each "dev" release
 docker buildx build \
-  --tag gitea.drjosh.dev/josh/jrouter:latest \
+  --tag gitea.drjosh.dev/josh/jrouter:dev \
   --platform linux/arm/v8,linux/amd64 \
   --builder container \
   --push .

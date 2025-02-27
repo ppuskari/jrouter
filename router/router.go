@@ -48,25 +48,32 @@ func (rtr *Router) Forward(ctx context.Context, ddpkt *ddp.ExtPacket) error {
 // Output outputs the packet in the direction of the destination.
 // (It does not check or adjust the hop count.)
 func (rtr *Router) Output(ctx context.Context, ddpkt *ddp.ExtPacket) error {
-	switch route := rtr.RouteTable.LookupRoute(ddpkt.DstNet); {
-	case route == nil:
+	route := rtr.RouteTable.Lookup(ddpkt.DstNet)
+	if route == nil {
 		return fmt.Errorf("no route for packet (dstnet %d); dropping packet", ddpkt.DstNet)
+	}
 
-	case route.AURPPeer != nil:
-		// log.Printf("Forwarding packet to AURP peer %v", route.AURPPeer.RemoteAddr)
-		return route.AURPPeer.Forward(ddpkt)
-
-	case route.EtherTalkPeer != nil:
-		// log.Printf("Forwarding to EtherTalk peer %v", route.EtherTalkPeer.PeerAddr)
-		// Note: resolving AARP can block
-		return route.EtherTalkPeer.Forward(ctx, ddpkt)
-
-	case route.EtherTalkDirect != nil:
-		// log.Printf("Outputting to EtherTalk directly")
-		// Note: resolving AARP can block
-		return route.EtherTalkDirect.Send(ctx, ddpkt)
-
-	default:
+	if route.Target == nil {
 		return fmt.Errorf("no forwarding mechanism for route! %+v", route)
 	}
+
+	return route.Target.Forward(ctx, ddpkt)
+
+	// case route.AURPPeer != nil:
+	// 	// log.Printf("Forwarding packet to AURP peer %v", route.AURPPeer.RemoteAddr)
+	// 	return route.AURPPeer.Forward(ddpkt)
+
+	// case route.EtherTalkPeer != nil:
+	// 	// log.Printf("Forwarding to EtherTalk peer %v", route.EtherTalkPeer.PeerAddr)
+	// 	// Note: resolving AARP can block
+	// 	return route.EtherTalkPeer.Forward(ctx, ddpkt)
+
+	// case route.EtherTalkDirect != nil:
+	// 	// log.Printf("Outputting to EtherTalk directly")
+	// 	// Note: resolving AARP can block
+	// 	return route.EtherTalkDirect.Send(ctx, ddpkt)
+
+	// default:
+	// 	return fmt.Errorf("no forwarding mechanism for route! %+v", route)
+	// }
 }

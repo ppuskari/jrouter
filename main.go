@@ -171,7 +171,7 @@ func main() {
 	routes := router.NewRouteTable()
 	status.AddItem(ctx, "Routing table", routingTableTemplate, func(context.Context) (any, error) {
 		rs := routes.Dump()
-		slices.SortFunc(rs, func(ra, rb router.Route) int {
+		slices.SortFunc(rs, func(ra, rb *router.Route) int {
 			return cmp.Compare(ra.NetStart, rb.NetStart)
 		})
 		return rs, nil
@@ -285,7 +285,7 @@ func main() {
 		etPort.Router = rooter
 
 		// Add port to routing table
-		routes.InsertEtherTalkDirect(etPort)
+		routes.UpsertRoute(etPort, true /* extended */, etPort.NetStart, etPort.NetEnd, 0)
 
 		// Run AARP and RTMP on each port.
 		etPort.AARPMachine = router.NewAARPMachine(etPort, etPort.EthernetAddr)

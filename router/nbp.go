@@ -76,7 +76,8 @@ func (port *EtherTalkPort) handleNBPBrRq(ctx context.Context, ddpkt *ddp.ExtPack
 	routes := port.Router.RouteTable.RoutesForZone(tuple.Zone)
 
 	for _, route := range routes {
-		if outPort := route.EtherTalkDirect; outPort != nil {
+
+		if etPort, isETPort := route.Target.(*EtherTalkPort); isETPort {
 			// If it's for a local zone, translate it to a LkUp and broadcast
 			// out the corresponding EtherTalk port.
 			// "Note: On an internet, nodes on extended networks performing lookups in
@@ -107,7 +108,7 @@ func (port *EtherTalkPort) handleNBPBrRq(ctx context.Context, ddpkt *ddp.ExtPack
 			}
 
 			log.Printf("NBP: zone multicasting LkUp for tuple %v", tuple)
-			if err := outPort.ZoneMulticast(tuple.Zone, &outDDP); err != nil {
+			if err := etPort.ZoneMulticast(tuple.Zone, &outDDP); err != nil {
 				return err
 			}
 

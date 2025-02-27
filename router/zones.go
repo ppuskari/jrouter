@@ -17,49 +17,59 @@
 package router
 
 import (
+	"maps"
 	"slices"
 
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
-func (rt *RouteTable) AddZonesToNetwork(n ddp.Network, zs ...string) {
-	rt.routesMu.Lock()
-	defer rt.routesMu.Unlock()
-	for r := range rt.routes {
-		if n < r.NetStart || n > r.NetEnd {
-			continue
-		}
-		if r.ZoneNames == nil {
-			r.ZoneNames = make(StringSet)
-		}
-		r.ZoneNames.Insert(zs...)
+// AddZonesToRoute adds zone names to this route.
+func (rt *RouteTable) AddZonesToRoute(target RouteTarget, netStart ddp.Network, zs ...string) error {
+	route, err := rt.find(target, netStart)
+	if err != nil {
+		return err
 	}
+
+	if route.ZoneNames == nil {
+		route.ZoneNames = make(StringSet)
+	}
+	route.ZoneNames.Insert(zs...)
+	return nil
 }
 
-func (rt *RouteTable) ZonesForNetworks(ns []ddp.Network) map[ddp.Network][]string {
+// ZonesForNetworks returns a map of network numbers to zone names in each.
+// It only considers valid routes.
+func (rt *RouteTable) ZonesForNetworks(networks []ddp.Network) map[ddp.Network][]string {
 	zs := make(map[ddp.Network][]string)
 
-	rt.routesMu.Lock()
-	defer rt.routesMu.Unlock()
-	for r := range rt.routes {
-		if !r.Valid() {
-			continue
-		}
-		if _, ok := slices.BinarySearch(ns, r.NetStart); ok {
-			for z := range r.ZoneNames {
-				zs[r.NetStart] = append(zs[r.NetStart], z)
+	for _, n := range networks {
+		func() {
+			rt.routesByNetworkMu[n].RLock()
+			defer rt.routesByNetworkMu[n].RUnlock()
+
+			for _, r := range rt.routesByNetwork[n] {
+				if !r.Valid() {
+					continue
+				}
+				for z := range r.ZoneNames {
+					zs[n] = append(zs[n], z)
+				}
 			}
-		}
+		}()
 	}
+
 	return zs
 }
 
+// RoutesForZone returns all valid routes containing the zone name.
+// (Zones can span multiple different networks.) This is used for handling
+// NBP BrRq.
 func (rt *RouteTable) RoutesForZone(zone string) []*Route {
-	rt.routesMu.Lock()
-	defer rt.routesMu.Unlock()
+	rt.allRoutesMu.RLock()
+	defer rt.allRoutesMu.RUnlock()
 
 	var routes []*Route
-	for r := range rt.routes {
+	for _, r := range rt.allRoutes {
 		if !r.Valid() {
 			continue
 		}
@@ -68,21 +78,22 @@ func (rt *RouteTable) RoutesForZone(zone string) []*Route {
 		}
 	}
 	return routes
+
 }
 
-func (rt *RouteTable) AllZoneNames() (zones []string) {
-	defer slices.Sort(zones)
-
-	rt.routesMu.Lock()
-	defer rt.routesMu.Unlock()
+// AllZoneNames returns all zone names known to the router having at least one
+// valid route. This is used by the ZIP GetZoneList function.
+func (rt *RouteTable) AllZoneNames() []string {
+	rt.allRoutesMu.RLock()
+	defer rt.allRoutesMu.RUnlock()
 
 	zs := make(StringSet)
-	for r := range rt.routes {
+	for _, r := range rt.allRoutes {
 		if !r.Valid() {
 			continue
 		}
 		zs.Add(r.ZoneNames)
 	}
 
-	return zs.ToSlice()
+	return slices.Sorted(maps.Keys(zs))
 }
