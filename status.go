@@ -24,6 +24,7 @@ const routingTableTemplate = `
 		<th>Zone names</th>
 		<th>Distance</th>
 		<th>Last seen</th>
+		<th>Valid?</th>
 		<th>Target</th>
 	</tr></thead>
 	<tbody>
@@ -34,6 +35,7 @@ const routingTableTemplate = `
 		<td>{{range $route.ZoneNames.ToSlice}}{{.}}<br>{{end}}</td>
 		<td>{{$route.Distance}}</td>
 		<td>{{$route.LastSeenAgo}}</td>
+		<td>{{if $route.Valid}}✅{{else}}❌{{end}}</td>
 		<td>{{$route.Target}}</td>
 	</tr>
 {{end}}

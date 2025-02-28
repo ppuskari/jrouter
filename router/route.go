@@ -74,8 +74,13 @@ func (r Route) LastSeenAgo() string {
 // A valid route has one or more zone names, and if it is learned from a peer
 // router over EtherTalk is not too old.
 func (r *Route) Valid() bool {
-	_, isEtherTalkPeer := r.Target.(*EtherTalkPeer)
-	return len(r.ZoneNames) > 0 && (isEtherTalkPeer || time.Since(r.LastSeen) <= maxRouteAge)
+	if len(r.ZoneNames) == 0 {
+		return false
+	}
+	if _, isEtherTalkPeer := r.Target.(*EtherTalkPeer); isEtherTalkPeer {
+		return time.Since(r.LastSeen) <= maxRouteAge
+	}
+	return true
 }
 
 type RouteTableObserver interface {

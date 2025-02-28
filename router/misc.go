@@ -43,9 +43,7 @@ func (set StringSet) Insert(ss ...string) {
 }
 
 func (set StringSet) Add(t StringSet) {
-	for s := range t {
-		set[s] = struct{}{}
-	}
+	maps.Copy(set, t)
 }
 
 func SetFromSlice(ss []string) StringSet {

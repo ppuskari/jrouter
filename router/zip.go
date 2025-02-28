@@ -20,8 +20,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"maps"
-	"slices"
 
 	"drjosh.dev/jrouter/atalk"
 	"drjosh.dev/jrouter/atalk/atp"
@@ -277,7 +275,7 @@ func (port *EtherTalkPort) handleZIPTReq(ctx context.Context, ddpkt *ddp.ExtPack
 		resp.Zones = port.Router.RouteTable.AllZoneNames()
 
 	case zip.FunctionGetLocalZones:
-		resp.Zones = slices.Collect(maps.Keys(port.AvailableZones))
+		resp.Zones = port.AvailableZones.ToSlice()
 
 	case zip.FunctionGetMyZone:
 		// Note: This shouldn't happen on extended networks (e.g. EtherTalk)
