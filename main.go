@@ -422,8 +422,13 @@ func main() {
 					continue
 				}
 
-				// Route the packet!
-				if err := rooter.Forward(ctx, ddpkt); err != nil {
+				// Output the packet!
+				// Note that AIR does not increment the hop count for packets
+				// flowing from AURP->local, probably because the hop count was
+				// incremented when it was sent by the remote peer. (To put it
+				// another way, the whole network of AURP nodes acts as one huge
+				// "router".) Hence rooter.Output and not rooter.Forward.
+				if err := rooter.Output(ctx, ddpkt); err != nil {
 					log.Printf("DDP/AURP: Couldn't route packet: %v", err)
 				}
 
