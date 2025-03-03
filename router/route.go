@@ -101,6 +101,10 @@ type RouteTable struct {
 	routesByNetworkMu [1 << 16]sync.RWMutex
 	routesByNetwork   [1 << 16][]*Route
 
+	// networksByZone maps zone names to network numbers.
+	networksByZoneMu sync.RWMutex
+	networksByZone   map[string][]ddp.Network
+
 	// observers can observe
 	observersMu sync.RWMutex
 	observers   map[RouteTableObserver]struct{}
@@ -108,8 +112,9 @@ type RouteTable struct {
 
 func NewRouteTable() *RouteTable {
 	return &RouteTable{
-		observers: make(map[RouteTableObserver]struct{}),
-		allRoutes: make(map[RouteKey]*Route),
+		observers:      make(map[RouteTableObserver]struct{}),
+		allRoutes:      make(map[RouteKey]*Route),
+		networksByZone: make(map[string][]ddp.Network),
 	}
 }
 

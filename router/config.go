@@ -52,6 +52,15 @@ type Config struct {
 	// OpenPeering allowsrouters other than those listed under peers.
 	OpenPeering bool `yaml:"open_peering"`
 
+	// Extra AdvertiseZones is a set of extra zones that are not managed by
+	// jouter but that can be advertised over AURP if a valid route becomes
+	// available through the local EtherTalk (e.g. from a neighbouring netatalk
+	// router).
+	ExtraAdvertisedZones []string `yaml:"extra_advertised_zones"`
+
+	// HideZones prevents zones from being advertised over AURP.
+	HiddenZones []string `yaml:"hidden_zones"`
+
 	// Peers sets a list of peer routers to connect to and allow connections
 	// from.
 	Peers []string `yaml:"peers"`
@@ -92,6 +101,8 @@ type EtherTalkConfig struct {
 	// ZoneName is the AppleTalk zone name for the network on this interface.
 	// Required.
 	ZoneName string `yaml:"zone_name"`
+
+	// TODO: AdditionalZones []string `yaml:"additional_zones"`
 
 	// NetStart and NetEnd control the network number range for the AppleTalk
 	// network on this interface (inclusive). Required.

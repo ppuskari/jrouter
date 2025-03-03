@@ -23,7 +23,7 @@ import (
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
-// AddZonesToRoute adds zone names to this route.
+// AddZonesToRoute adds zone names to the route specified by (target, netStart).
 func (rt *RouteTable) AddZonesToRoute(target RouteTarget, netStart ddp.Network, zs ...string) error {
 	route, err := rt.find(target, netStart)
 	if err != nil {
@@ -34,6 +34,12 @@ func (rt *RouteTable) AddZonesToRoute(target RouteTarget, netStart ddp.Network, 
 		route.ZoneNames = make(StringSet)
 	}
 	route.ZoneNames.Insert(zs...)
+
+	rt.networksByZoneMu.Lock()
+	defer rt.networksByZoneMu.Unlock()
+	for _, zn := range zs {
+		rt.networksByZone[zn] = append(rt.networksByZone[zn], netStart)
+	}
 	return nil
 }
 
@@ -43,19 +49,11 @@ func (rt *RouteTable) ZonesForNetworks(networks []ddp.Network) map[ddp.Network][
 	zs := make(map[ddp.Network][]string)
 
 	for _, n := range networks {
-		func() {
-			rt.routesByNetworkMu[n].RLock()
-			defer rt.routesByNetworkMu[n].RUnlock()
-
-			for _, r := range rt.routesByNetwork[n] {
-				if !r.Valid() {
-					continue
-				}
-				for z := range r.ZoneNames {
-					zs[n] = append(zs[n], z)
-				}
-			}
-		}()
+		r := rt.Lookup(n)
+		if r == nil {
+			continue
+		}
+		zs[n] = append(zs[n], r.ZoneNames.ToSlice()...)
 	}
 
 	return zs
@@ -65,12 +63,10 @@ func (rt *RouteTable) ZonesForNetworks(networks []ddp.Network) map[ddp.Network][
 // (Zones can span multiple different networks.) This is used for handling
 // NBP BrRq.
 func (rt *RouteTable) RoutesForZone(zone string) []*Route {
-	rt.allRoutesMu.RLock()
-	defer rt.allRoutesMu.RUnlock()
-
 	var routes []*Route
-	for _, r := range rt.allRoutes {
-		if !r.Valid() {
+	for _, n := range rt.networksForZone(zone) {
+		r := rt.Lookup(n)
+		if r == nil {
 			continue
 		}
 		if r.ZoneNames.Contains(zone) {
@@ -78,22 +74,18 @@ func (rt *RouteTable) RoutesForZone(zone string) []*Route {
 		}
 	}
 	return routes
+}
 
+func (rt *RouteTable) networksForZone(zone string) []ddp.Network {
+	rt.networksByZoneMu.RLock()
+	defer rt.networksByZoneMu.RUnlock()
+	return rt.networksByZone[zone]
 }
 
 // AllZoneNames returns all zone names known to the router having at least one
 // valid route. This is used by the ZIP GetZoneList function.
 func (rt *RouteTable) AllZoneNames() []string {
-	rt.allRoutesMu.RLock()
-	defer rt.allRoutesMu.RUnlock()
-
-	zs := make(StringSet)
-	for _, r := range rt.allRoutes {
-		if !r.Valid() {
-			continue
-		}
-		zs.Add(r.ZoneNames)
-	}
-
-	return slices.Sorted(maps.Keys(zs))
+	rt.networksByZoneMu.RLock()
+	defer rt.networksByZoneMu.RUnlock()
+	return slices.Sorted(maps.Keys(rt.networksByZone))
 }
