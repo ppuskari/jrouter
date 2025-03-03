@@ -23,6 +23,7 @@ import (
 
 	"drjosh.dev/jrouter/atalk"
 	"drjosh.dev/jrouter/atalk/nbp"
+	"drjosh.dev/jrouter/meta"
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
@@ -209,7 +210,7 @@ func (rtr *Router) handleNBPFwdReq(ctx context.Context, ddpkt *ddp.ExtPacket, nb
 
 // Returns an NBP LkUp-Reply for the router itself, with the address from this port.
 func (port *EtherTalkPort) helloWorldThisIsMe(nbpID uint8, tuple *nbp.Tuple) (*ddp.ExtPacket, error) {
-	if tuple.Object != "jrouter" && tuple.Object != "=" {
+	if tuple.Object != meta.NameVersion && tuple.Object != "=" {
 		return nil, nil
 	}
 	if tuple.Type != "AppleRouter" && tuple.Type != "=" {
@@ -227,7 +228,7 @@ func (port *EtherTalkPort) helloWorldThisIsMe(nbpID uint8, tuple *nbp.Tuple) (*d
 				Node:       port.MyAddr.Node,
 				Socket:     253,
 				Enumerator: 0,
-				Object:     "jrouter",
+				Object:     meta.NameVersion,
 				Type:       "AppleRouter",
 				Zone:       port.DefaultZoneName,
 			},

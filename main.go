@@ -37,6 +37,7 @@ import (
 	"time"
 
 	"drjosh.dev/jrouter/aurp"
+	"drjosh.dev/jrouter/meta"
 	"drjosh.dev/jrouter/router"
 	"drjosh.dev/jrouter/status"
 
@@ -58,7 +59,7 @@ func main() {
 	// I think some dependency is calling recover in a defer too broadly.
 
 	flag.Parse()
-	log.Println("jrouter")
+	log.Println(meta.NameVersion)
 
 	cfg, err := router.LoadConfig(*configFilePath)
 	if err != nil {

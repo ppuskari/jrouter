@@ -21,6 +21,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"drjosh.dev/jrouter/meta"
 )
 
 const errorTmplSrc = `<div class="error">❌ {{.Operation}}: <code>{{.Error}}</code><br>
@@ -195,16 +197,15 @@ func (i *templatedItem) Eval(ctx context.Context) template.HTML {
 
 // Handle handles status page requests.
 func Handle(w http.ResponseWriter, r *http.Request) {
-	version, build := "unknown", "unknown"
+	build := "unknown"
 	info, has := debug.ReadBuildInfo()
 	if has && info != nil {
-		version = cmp.Or(info.Main.Version, "unknown")
 		build = cmp.Or(info.Main.Sum, "unknown")
 	}
 
 	data := &statusData{
 		Items:        rootItem.items,
-		Version:      version,
+		Version:      meta.Version,
 		Build:        build,
 		Hostname:     hostname,
 		Username:     username,
