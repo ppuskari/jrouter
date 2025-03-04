@@ -210,7 +210,7 @@ func (rt *RouteTable) DeleteTarget(target RouteTarget) {
 	}()
 
 	// Delete target routes from each network number.
-	for n := range networks {
+	for n, rc := range networks {
 		func() {
 			rt.byNetworkMu[n].Lock()
 			defer rt.byNetworkMu[n].Unlock()
@@ -218,15 +218,15 @@ func (rt *RouteTable) DeleteTarget(target RouteTarget) {
 			oldRoutes := rt.byNetwork[n]
 			newRoutes := make([]*Route, 0, len(oldRoutes))
 			for _, route := range oldRoutes {
-				if networks[n].oldBest == nil && route.Valid() {
-					networks[n].oldBest = route
+				if rc.oldBest == nil && route.Valid() {
+					rc.oldBest = route
 				}
 				if route.Target.RouteTargetKey() == targetKey {
 					continue
 				}
 				newRoutes = append(newRoutes, route)
-				if networks[n].newBest == nil && route.Valid() {
-					networks[n].newBest = route
+				if rc.newBest == nil && route.Valid() {
+					rc.newBest = route
 				}
 			}
 			rt.byNetwork[n] = newRoutes
