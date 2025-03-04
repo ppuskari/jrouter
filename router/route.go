@@ -20,6 +20,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"iter"
 	"maps"
 	"slices"
 	"sync"
@@ -29,22 +30,6 @@ import (
 )
 
 const maxRouteAge = 10 * time.Minute // TODO: confirm
-
-// RouteTarget implementations can forward packets somewhere.
-type RouteTarget interface {
-	// Forward should send the packet to the route target.
-	Forward(context.Context, *ddp.ExtPacket) error
-
-	// RouteTargetKey is used for determining if two targets are the same.
-	RouteTargetKey() string
-}
-
-// RouteKey is a comparable struct for identifying a specific route.
-// A route can be specified by the target and the start of the network range.
-type RouteKey struct {
-	TargetKey string
-	NetStart  ddp.Network
-}
 
 // Route represents a route: a destination network range, a way to send packets
 // towards the destination, and some other data that affects whether the route
@@ -83,6 +68,24 @@ func (r *Route) Valid() bool {
 	return true
 }
 
+// RouteTarget implementations can forward packets somewhere.
+type RouteTarget interface {
+	// Forward should send the packet to the route target.
+	Forward(context.Context, *ddp.ExtPacket) error
+
+	// RouteTargetKey is used for determining if two targets are the same.
+	RouteTargetKey() string
+}
+
+// RouteKey is a comparable struct for identifying a specific route.
+// A route can be specified by the target and the start of the network range.
+type RouteKey struct {
+	TargetKey string
+	NetStart  ddp.Network
+}
+
+// RouteTableObserver implementations can receive notifications of route table
+// changes. (TODO, not yet implemented)
 type RouteTableObserver interface {
 	RouteAdded(*Route)
 	RouteDeleted(*Route)
@@ -90,16 +93,17 @@ type RouteTableObserver interface {
 	RouteForwarderChanged(*Route)
 }
 
+// RouteTable is an in-memory database of routes.
 type RouteTable struct {
-	// allRoutes is used for maintenance operations.
-	allRoutesMu sync.RWMutex
-	allRoutes   map[RouteKey]*Route
-
-	// routesByNetwork is used for packet forwarding, so it uses very fine-
+	// byNetwork is used for packet forwarding, so it uses very fine-
 	// grained locking and structures per network number. (There are only 2^16
 	// of them, on a modern system that's tiny.)
-	routesByNetworkMu [1 << 16]sync.RWMutex
-	routesByNetwork   [1 << 16][]*Route
+	byNetworkMu [1 << 16]sync.RWMutex
+	byNetwork   [1 << 16][]*Route
+
+	// byClassMu divides routes broadly by target type.
+	byClassMu [TargetClassCount]sync.RWMutex
+	byClass   [TargetClassCount]map[RouteKey]*Route
 
 	// networksByZone maps zone names to network numbers.
 	networksByZoneMu sync.RWMutex
@@ -110,20 +114,26 @@ type RouteTable struct {
 	observers   map[RouteTableObserver]struct{}
 }
 
+// NewRouteTable initialises a new empty route table.
 func NewRouteTable() *RouteTable {
-	return &RouteTable{
+	rt := &RouteTable{
 		observers:      make(map[RouteTableObserver]struct{}),
-		allRoutes:      make(map[RouteKey]*Route),
 		networksByZone: make(map[string][]ddp.Network),
 	}
+	for i := range TargetClassCount {
+		rt.byClass[i] = make(map[RouteKey]*Route)
+	}
+	return rt
 }
 
+// AddObserver adds a route table observer.
 func (rt *RouteTable) AddObserver(obs RouteTableObserver) {
 	rt.observersMu.Lock()
 	defer rt.observersMu.Unlock()
 	rt.observers[obs] = struct{}{}
 }
 
+// RemoveObserver removes a route table observer.
 func (rt *RouteTable) RemoveObserver(obs RouteTableObserver) {
 	rt.observersMu.Lock()
 	defer rt.observersMu.Unlock()
@@ -131,19 +141,24 @@ func (rt *RouteTable) RemoveObserver(obs RouteTableObserver) {
 }
 
 // Dump returns all routes in the table.
-func (rt *RouteTable) Dump() []*Route {
-	rt.allRoutesMu.RLock()
-	defer rt.allRoutesMu.RUnlock()
-	return slices.Collect(maps.Values(rt.allRoutes))
+func (rt *RouteTable) Dump() (allRoutes []*Route) {
+	for i := range rt.byClass {
+		func() {
+			rt.byClassMu[i].RLock()
+			defer rt.byClassMu[i].RUnlock()
+			allRoutes = append(allRoutes, slices.Collect(maps.Values(rt.byClass[i]))...)
+		}()
+	}
+	return allRoutes
 }
 
 // Lookup returns the best valid route for the network number.
 func (rt *RouteTable) Lookup(network ddp.Network) *Route {
-	rt.routesByNetworkMu[network].RLock()
-	defer rt.routesByNetworkMu[network].RUnlock()
+	rt.byNetworkMu[network].RLock()
+	defer rt.byNetworkMu[network].RUnlock()
 
 	// Routes are sorted by distance, so we can return the first valid route.
-	for _, r := range rt.routesByNetwork[network] {
+	for _, r := range rt.byNetwork[network] {
 		if r.Valid() {
 			return r
 		}
@@ -153,31 +168,29 @@ func (rt *RouteTable) Lookup(network ddp.Network) *Route {
 
 // DeleteTarget deletes the route target and all its routes.
 func (rt *RouteTable) DeleteTarget(target RouteTarget) {
+	class := ClassFromTarget(target)
 	targetKey := target.RouteTargetKey()
 	networks := make(map[ddp.Network]struct{})
 
-	// Scan allRoutes to find and delete routes for the target.
+	// Scan routesByTargetClass to find and delete routes for the target.
 	func() {
-		rt.allRoutesMu.Lock()
-		defer rt.allRoutesMu.Unlock()
-		for _, r := range rt.allRoutes {
+		rt.byClassMu[class].Lock()
+		defer rt.byClassMu[class].Unlock()
+		for _, r := range rt.byClass[class] {
 			if r.TargetKey != targetKey {
 				continue
 			}
-			for n := r.NetStart; n <= r.NetEnd; n++ {
-				networks[n] = struct{}{}
-			}
-			delete(rt.allRoutes, r.RouteKey)
+			delete(rt.byClass[class], r.RouteKey)
 		}
 	}()
 
 	// Delete target routes from each network number.
 	for n := range networks {
 		func() {
-			rt.routesByNetworkMu[n].Lock()
-			defer rt.routesByNetworkMu[n].Unlock()
+			rt.byNetworkMu[n].Lock()
+			defer rt.byNetworkMu[n].Unlock()
 
-			oldRoutes := rt.routesByNetwork[n]
+			oldRoutes := rt.byNetwork[n]
 			newRoutes := make([]*Route, 0, len(oldRoutes))
 			for _, route := range oldRoutes {
 				if route.Target.RouteTargetKey() == targetKey {
@@ -185,43 +198,44 @@ func (rt *RouteTable) DeleteTarget(target RouteTarget) {
 				}
 				newRoutes = append(newRoutes, route)
 			}
-			rt.routesByNetwork[n] = newRoutes
+			rt.byNetwork[n] = newRoutes
 		}()
 	}
 }
 
 // DeleteRoute deletes the route specified by the (target, netStart) tuple.
 func (rt *RouteTable) DeleteRoute(target RouteTarget, netStart ddp.Network) error {
+	class := ClassFromTarget(target)
 	routeKey := RouteKey{
 		TargetKey: target.RouteTargetKey(),
 		NetStart:  netStart,
 	}
 
-	// Find and delete the route from allRoutes.
+	// Find and delete the route from byClass
 	route := func() *Route {
-		rt.allRoutesMu.Lock()
-		defer rt.allRoutesMu.Unlock()
-		defer delete(rt.allRoutes, routeKey)
-		return rt.allRoutes[routeKey]
+		rt.byClassMu[class].Lock()
+		defer rt.byClassMu[class].Unlock()
+		defer delete(rt.byClass[class], routeKey)
+		return rt.byClass[class][routeKey]
 	}()
 	if route == nil {
 		return fmt.Errorf("route %v not found", routeKey)
 	}
 
-	// Delete the route from routesByNetwork.
+	// Delete the route from byNetwork.
 	for n := route.NetStart; n <= route.NetEnd; n++ {
 		func() {
-			rt.routesByNetworkMu[n].Lock()
-			defer rt.routesByNetworkMu[n].Unlock()
+			rt.byNetworkMu[n].Lock()
+			defer rt.byNetworkMu[n].Unlock()
 
-			oldRoutes := rt.routesByNetwork[n]
+			oldRoutes := rt.byNetwork[n]
 			newRoutes := make([]*Route, 0, len(oldRoutes))
 			for _, r := range oldRoutes {
 				if r.TargetKey != routeKey.TargetKey {
 					newRoutes = append(newRoutes, r)
 				}
 			}
-			rt.routesByNetwork[n] = newRoutes
+			rt.byNetwork[n] = newRoutes
 		}()
 	}
 
@@ -230,14 +244,15 @@ func (rt *RouteTable) DeleteRoute(target RouteTarget, netStart ddp.Network) erro
 
 // find looks up a route by target and network range start.
 func (rt *RouteTable) find(target RouteTarget, netStart ddp.Network) (*Route, error) {
+	class := ClassFromTarget(target)
 	routeKey := RouteKey{
 		TargetKey: target.RouteTargetKey(),
 		NetStart:  netStart,
 	}
 
-	rt.allRoutesMu.RLock()
-	defer rt.allRoutesMu.RUnlock()
-	route := rt.allRoutes[routeKey]
+	rt.byClassMu[class].RLock()
+	defer rt.byClassMu[class].RUnlock()
+	route := rt.byClass[class][routeKey]
 	if route == nil {
 		return nil, fmt.Errorf("route %v not found", routeKey)
 	}
@@ -265,6 +280,7 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 		return nil, fmt.Errorf("invalid network range [%d, %d] for nonextended network", netStart, netEnd)
 	}
 
+	class := ClassFromTarget(target)
 	routeKey := RouteKey{
 		TargetKey: target.RouteTargetKey(),
 		NetStart:  netStart,
@@ -274,9 +290,9 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 	insert := false
 	update := false
 	func() {
-		rt.allRoutesMu.Lock()
-		defer rt.allRoutesMu.Unlock()
-		route = rt.allRoutes[routeKey]
+		rt.byClassMu[class].Lock()
+		defer rt.byClassMu[class].Unlock()
+		route = rt.byClass[class][routeKey]
 		if route != nil {
 			// Update
 			route.LastSeen = time.Now()
@@ -296,7 +312,7 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 			Distance: metric,
 			LastSeen: time.Now(),
 		}
-		rt.allRoutes[routeKey] = route
+		rt.byClass[class][routeKey] = route
 	}()
 
 	if !insert && !update {
@@ -305,13 +321,13 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 
 	for n := netStart; n <= netEnd; n++ {
 		func() {
-			rt.routesByNetworkMu[n].Lock()
-			defer rt.routesByNetworkMu[n].Unlock()
+			rt.byNetworkMu[n].Lock()
+			defer rt.byNetworkMu[n].Unlock()
 
 			if insert {
-				rt.routesByNetwork[n] = append(rt.routesByNetwork[n], route)
+				rt.byNetwork[n] = append(rt.byNetwork[n], route)
 			}
-			slices.SortFunc(rt.routesByNetwork[n], func(a, b *Route) int {
+			slices.SortFunc(rt.byNetwork[n], func(a, b *Route) int {
 				return cmp.Compare(a.Distance, b.Distance)
 			})
 		}()
@@ -320,45 +336,57 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 	return route, nil
 }
 
-// ValidRoutes returns all valid routes.
-func (rt *RouteTable) ValidRoutes() []*Route {
-	rt.allRoutesMu.RLock()
-	defer rt.allRoutesMu.RUnlock()
-
-	valid := make([]*Route, 0, len(rt.allRoutes))
-	for _, r := range rt.allRoutes {
-		if r.Valid() {
-			valid = append(valid, r)
-		}
-	}
-	return valid
-}
-
-// ValidLocalRoutes returns all valid routes that were not learned via AURP.
-func (rt *RouteTable) ValidLocalRoutes() []*Route {
-	rt.allRoutesMu.RLock()
-	defer rt.allRoutesMu.RUnlock()
-
-	valid := make([]*Route, 0, len(rt.allRoutes))
-	for _, r := range rt.allRoutes {
-		if _, isAURP := r.Target.(*AURPPeer); isAURP {
-			continue
-		}
-		if !r.Valid() {
-			continue
-		}
-		// Something is reflecting AURP routes back to jrouter.
-		// On the assumption that they're doing the right thing with route
-		// distances (reflected route should have higher distance) then
-		// we can quickly check using routesByNetwork to see if there's a lower
-		// distance route to an AURP peer for the same network.
-		if best := rt.Lookup(r.NetStart); best != nil {
-			if _, isAURP := best.Target.(*AURPPeer); isAURP {
-				continue
+// ValidRoutes yields all valid routes.
+func (rt *RouteTable) ValidRoutes(yield func(*Route) bool) {
+	for c := range TargetClassCount {
+		for r := range rt.ValidRoutesForClass(c) {
+			if !yield(r) {
+				return
 			}
 		}
-
-		valid = append(valid, r)
 	}
-	return valid
+}
+
+// ValidRoutesForClass returns an iterator that yields all valid routes for a
+// given target class.
+func (rt *RouteTable) ValidRoutesForClass(class TargetClass) iter.Seq[*Route] {
+	return func(yield func(*Route) bool) {
+		rt.byClassMu[class].RLock()
+		defer rt.byClassMu[class].RUnlock()
+
+		for _, r := range rt.byClass[class] {
+			if !r.Valid() {
+				continue
+			}
+			if !yield(r) {
+				return
+			}
+		}
+	}
+}
+
+// TargetClass is an enum type for representing the broad classes of route
+// targets.
+type TargetClass int
+
+// Target class values.
+const (
+	TargetClassDirect        TargetClass = iota // directly attached EtherTalk / LocalTalk / etc network
+	TargetClassAURPPeer                         // another router over AURP
+	TargetClassAppleTalkPeer                    // another router via EtherTalk / LocalTalk / etc
+	TargetClassCount                            // how many valid target types there are - insert new classes above.
+)
+
+// ClassFromTarget returns the TargetClass for a target.
+func ClassFromTarget(target RouteTarget) TargetClass {
+	switch target.(type) {
+	case *EtherTalkPort:
+		return TargetClassDirect
+	case *AURPPeer:
+		return TargetClassAURPPeer
+	case *EtherTalkPeer:
+		return TargetClassAppleTalkPeer
+	default:
+		panic(fmt.Sprintf("invalid RouteTarget type %T", target))
+	}
 }

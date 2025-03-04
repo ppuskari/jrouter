@@ -620,8 +620,22 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 					log.Printf("AURP Peer: Received RI-Req but was not expecting one (sender state was %v)", p.sstate)
 				}
 
+				// TODO: Load ExtraAdvertisedZones and HiddenZones
+
+				// Build up the slice of network tuples
 				var nets aurp.NetworkTuples
-				for _, r := range p.RouteTable.ValidLocalRoutes() {
+
+				// TODO: filter these by HiddenZones
+				for r := range p.RouteTable.ValidRoutesForClass(TargetClassDirect) {
+					nets = append(nets, aurp.NetworkTuple{
+						Extended:   r.Extended,
+						RangeStart: r.NetStart,
+						RangeEnd:   r.NetEnd,
+						Distance:   r.Distance,
+					})
+				}
+				// TODO: filter these by ExtraAdvertisedZones and HiddenZones
+				for r := range p.RouteTable.ValidRoutesForClass(TargetClassAppleTalkPeer) {
 					nets = append(nets, aurp.NetworkTuple{
 						Extended:   r.Extended,
 						RangeStart: r.NetStart,

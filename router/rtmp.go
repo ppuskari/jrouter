@@ -237,26 +237,25 @@ func (port *EtherTalkPort) broadcastRTMPData() error {
 
 func (port *EtherTalkPort) rtmpDataPackets(splitHorizon bool) []*rtmp.DataPacket {
 	// Build up a slice of routing tuples.
-	routes := port.Router.RouteTable.ValidRoutes()
-	tuples := make([]rtmp.NetworkTuple, 0, len(routes))
-	for _, rt := range routes {
-		if rt.Target.RouteTargetKey() == port.RouteTargetKey() {
+	var tuples []rtmp.NetworkTuple
+	for r := range port.Router.RouteTable.ValidRoutes {
+		if r.Target.RouteTargetKey() == port.RouteTargetKey() {
 			// If the route is actually a direct connection to this port,
 			// don't include it.
 			// (It's manually set as the first tuple anyway.)
 			continue
 		}
-		etPeer, _ := rt.Target.(*EtherTalkPeer)
+		etPeer, _ := r.Target.(*EtherTalkPeer)
 		if splitHorizon && etPeer != nil && etPeer.Port == port {
 			// If the route is through a peer accessible on this port, don't
 			// include it.
 			continue
 		}
 		tuples = append(tuples, rtmp.NetworkTuple{
-			Extended:   rt.Extended,
-			RangeStart: rt.NetStart,
-			RangeEnd:   rt.NetEnd,
-			Distance:   rt.Distance,
+			Extended:   r.Extended,
+			RangeStart: r.NetStart,
+			RangeEnd:   r.NetEnd,
+			Distance:   r.Distance,
 		})
 	}
 	// "The first tuple in RTMP Data packets sent on extended
