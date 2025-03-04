@@ -87,10 +87,19 @@ type RouteKey struct {
 // RouteTableObserver implementations can receive notifications of route table
 // changes. (TODO, not yet implemented)
 type RouteTableObserver interface {
-	RouteAdded(*Route)
-	RouteDeleted(*Route)
-	RouteDistanceChanged(*Route)
-	RouteForwarderChanged(*Route)
+	// NetworkAdded is called when networks become routable.
+	NetworkAdded(*Route)
+
+	// NetworkDeleted is called when networks become _un_routable.
+	NetworkDeleted(*Route)
+
+	// NetworkDistanceChanged is called when the best routing distance
+	// for a network has changed.
+	NetworkDistanceChanged(*Route)
+
+	// NetworkRouteChanged is called when the best routing path for a network
+	// has changed (from e.g. a direct EtherTalk connection to an AURP peer).
+	NetworkRouteChanged(*Route)
 }
 
 // RouteTable is an in-memory database of routes.
@@ -109,7 +118,7 @@ type RouteTable struct {
 	networksByZoneMu sync.RWMutex
 	networksByZone   map[string][]ddp.Network
 
-	// observers can observe
+	// observers can observe changes to routing information
 	observersMu sync.RWMutex
 	observers   map[RouteTableObserver]struct{}
 }
@@ -138,6 +147,14 @@ func (rt *RouteTable) RemoveObserver(obs RouteTableObserver) {
 	rt.observersMu.Lock()
 	defer rt.observersMu.Unlock()
 	delete(rt.observers, obs)
+}
+
+func (rt *RouteTable) notifyObservers(r *Route, event func(RouteTableObserver, *Route)) {
+	rt.observersMu.RLock()
+	defer rt.observersMu.RUnlock()
+	for o := range rt.observers {
+		event(o, r)
+	}
 }
 
 // Dump returns all routes in the table.
@@ -170,7 +187,10 @@ func (rt *RouteTable) Lookup(network ddp.Network) *Route {
 func (rt *RouteTable) DeleteTarget(target RouteTarget) {
 	class := ClassFromTarget(target)
 	targetKey := target.RouteTargetKey()
-	networks := make(map[ddp.Network]struct{})
+
+	type routeChange struct{ oldBest, newBest *Route }
+	var routeChanges []*routeChange
+	networks := make(map[ddp.Network]*routeChange)
 
 	// Scan routesByTargetClass to find and delete routes for the target.
 	func() {
@@ -179,6 +199,11 @@ func (rt *RouteTable) DeleteTarget(target RouteTarget) {
 		for _, r := range rt.byClass[class] {
 			if r.TargetKey != targetKey {
 				continue
+			}
+			rc := new(routeChange)
+			routeChanges = append(routeChanges, rc)
+			for n := r.NetStart; n <= r.NetEnd; n++ {
+				networks[n] = rc
 			}
 			delete(rt.byClass[class], r.RouteKey)
 		}
@@ -193,13 +218,33 @@ func (rt *RouteTable) DeleteTarget(target RouteTarget) {
 			oldRoutes := rt.byNetwork[n]
 			newRoutes := make([]*Route, 0, len(oldRoutes))
 			for _, route := range oldRoutes {
+				if networks[n].oldBest == nil && route.Valid() {
+					networks[n].oldBest = route
+				}
 				if route.Target.RouteTargetKey() == targetKey {
 					continue
 				}
 				newRoutes = append(newRoutes, route)
+				if networks[n].newBest == nil && route.Valid() {
+					networks[n].newBest = route
+				}
 			}
 			rt.byNetwork[n] = newRoutes
 		}()
+	}
+
+	// Notify observers of necessary changes
+	for _, rc := range routeChanges {
+		switch {
+		case rc.newBest == nil:
+			rt.notifyObservers(rc.oldBest, RouteTableObserver.NetworkDeleted)
+
+		case rc.newBest.TargetKey != rc.oldBest.TargetKey:
+			rt.notifyObservers(rc.newBest, RouteTableObserver.NetworkRouteChanged)
+
+		case rc.newBest.Distance != rc.oldBest.Distance:
+			rt.notifyObservers(rc.newBest, RouteTableObserver.NetworkDistanceChanged)
+		}
 	}
 }
 
@@ -209,6 +254,12 @@ func (rt *RouteTable) DeleteRoute(target RouteTarget, netStart ddp.Network) erro
 	routeKey := RouteKey{
 		TargetKey: target.RouteTargetKey(),
 		NetStart:  netStart,
+	}
+
+	// Lookup the old best route for the network for comparisons.
+	oldBest := rt.Lookup(netStart)
+	if oldBest == nil {
+		return fmt.Errorf("network %d not found", netStart)
 	}
 
 	// Find and delete the route from byClass
@@ -239,6 +290,18 @@ func (rt *RouteTable) DeleteRoute(target RouteTarget, netStart ddp.Network) erro
 		}()
 	}
 
+	// Figure out if observers need notifying, and notify them.
+	newBest := rt.Lookup(route.NetStart)
+	switch {
+	case newBest == nil:
+		rt.notifyObservers(oldBest, RouteTableObserver.NetworkDeleted)
+
+	case newBest.TargetKey != oldBest.TargetKey:
+		rt.notifyObservers(newBest, RouteTableObserver.NetworkRouteChanged)
+
+	case newBest.Distance != oldBest.Distance:
+		rt.notifyObservers(newBest, RouteTableObserver.NetworkDistanceChanged)
+	}
 	return nil
 }
 
@@ -261,13 +324,44 @@ func (rt *RouteTable) find(target RouteTarget, netStart ddp.Network) (*Route, er
 
 // UpdateRoute updates the distance for an existing route.
 func (rt *RouteTable) UpdateRoute(target RouteTarget, netStart ddp.Network, distance uint8) error {
+	oldBest := rt.Lookup(netStart)
+	if oldBest == nil {
+		return fmt.Errorf("network %d not found", netStart)
+	}
+
 	route, err := rt.find(target, netStart)
 	if err != nil {
 		return err
 	}
 
-	route.Distance = distance
 	route.LastSeen = time.Now()
+	if distance != route.Distance {
+		route.Distance = distance
+	}
+
+	for n := route.NetStart; n <= route.NetEnd; n++ {
+		func() {
+			rt.byNetworkMu[n].Lock()
+			defer rt.byNetworkMu[n].Unlock()
+			slices.SortFunc(rt.byNetwork[n], func(a, b *Route) int {
+				return cmp.Compare(a.Distance, b.Distance)
+			})
+		}()
+	}
+
+	// Figure out if observers need notifying, and notify them.
+	newBest := rt.Lookup(route.NetStart)
+	switch {
+	case newBest == nil:
+		// It was here and now it is not? wtf
+
+	case newBest.TargetKey != oldBest.TargetKey:
+		rt.notifyObservers(newBest, RouteTableObserver.NetworkRouteChanged)
+
+	case newBest.Distance != oldBest.Distance:
+		rt.notifyObservers(newBest, RouteTableObserver.NetworkDistanceChanged)
+	}
+
 	return nil
 }
 
@@ -279,6 +373,8 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 	if netStart != netEnd && !extended {
 		return nil, fmt.Errorf("invalid network range [%d, %d] for nonextended network", netStart, netEnd)
 	}
+
+	oldBest := rt.Lookup(netStart) // may not exist yet
 
 	class := ClassFromTarget(target)
 	routeKey := RouteKey{
@@ -331,6 +427,22 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 				return cmp.Compare(a.Distance, b.Distance)
 			})
 		}()
+	}
+
+	newBest := rt.Lookup(netStart)
+
+	switch {
+	case newBest == nil:
+		// wat
+
+	case oldBest == nil:
+		rt.notifyObservers(newBest, RouteTableObserver.NetworkAdded)
+
+	case oldBest.TargetKey != newBest.TargetKey:
+		rt.notifyObservers(newBest, RouteTableObserver.NetworkRouteChanged)
+
+	case oldBest.Distance != newBest.Distance:
+		rt.notifyObservers(newBest, RouteTableObserver.NetworkDistanceChanged)
 	}
 
 	return route, nil

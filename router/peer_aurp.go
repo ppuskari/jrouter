@@ -152,8 +152,14 @@ func NewAURPPeer(routes *RouteTable, udpConn *net.UDPConn, peerAddr string, radd
 }
 
 func (p *AURPPeer) addPendingEvent(ec aurp.EventCode, route *Route) {
+	// Don't save up route updates happening while sender is unconnected
+	if p.SenderState() == SenderUnconnected {
+		return
+	}
 	// Don't advertise routes to AURP peers to other AURP peers
-	if _, isAURP := route.Target.(*AURPPeer); isAURP {
+	// NRC is effectively an ND where the route is now available by a different
+	// AURP peer
+	if _, isAURP := route.Target.(*AURPPeer); isAURP && ec != aurp.EventCodeNRC {
 		return
 	}
 	et := aurp.EventTuple{
@@ -172,19 +178,23 @@ func (p *AURPPeer) addPendingEvent(ec aurp.EventCode, route *Route) {
 	p.pendingEvents = append(p.pendingEvents, et)
 }
 
-func (p *AURPPeer) RouteAdded(route *Route) {
+// NetworkAdded implements RouteTableObserver.
+func (p *AURPPeer) NetworkAdded(route *Route) {
 	p.addPendingEvent(aurp.EventCodeNA, route)
 }
 
-func (p *AURPPeer) RouteDeleted(route *Route) {
+// NetworkDeleted implements RouteTableObserver.
+func (p *AURPPeer) NetworkDeleted(route *Route) {
 	p.addPendingEvent(aurp.EventCodeND, route)
 }
 
-func (p *AURPPeer) RouteDistanceChanged(route *Route) {
+// NetworkDistanceChanged implements RouteTableObserver.
+func (p *AURPPeer) NetworkDistanceChanged(route *Route) {
 	p.addPendingEvent(aurp.EventCodeNDC, route)
 }
 
-func (p *AURPPeer) RouteForwarderChanged(route *Route) {
+// NetworkRouteChanged implements RouteTableObserver.
+func (p *AURPPeer) NetworkRouteChanged(route *Route) {
 	p.addPendingEvent(aurp.EventCodeNRC, route)
 }
 
