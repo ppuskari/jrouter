@@ -229,6 +229,9 @@ func (port *EtherTalkPort) RouteTargetKey() string {
 	return "EtherTalkPort|" + port.Device
 }
 
+// Class returns TargetClassDirect.
+func (port *EtherTalkPort) Class() TargetClass { return TargetClassDirect }
+
 func (port *EtherTalkPort) String() string {
 	return port.Device
 }

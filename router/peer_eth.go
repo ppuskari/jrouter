@@ -46,6 +46,9 @@ func (p *EtherTalkPeer) RouteTargetKey() string {
 	return fmt.Sprintf("EtherTalkPeer|%s|%d.%d", p.Port.Device, p.PeerAddr.Network, p.PeerAddr.Node)
 }
 
+// Class returns TargetClassAppleTalkPeer.
+func (p *EtherTalkPeer) Class() TargetClass { return TargetClassAppleTalkPeer }
+
 func (p *EtherTalkPeer) String() string {
 	return fmt.Sprintf("%d.%d via %s", p.PeerAddr.Network, p.PeerAddr.Node, p.Port.Device)
 }

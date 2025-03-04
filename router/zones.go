@@ -30,6 +30,8 @@ func (rt *RouteTable) AddZonesToRoute(target RouteTarget, netStart ddp.Network, 
 		return err
 	}
 
+	oldBest := rt.Lookup(netStart)
+
 	if route.ZoneNames == nil {
 		route.ZoneNames = make(StringSet)
 	}
@@ -40,6 +42,22 @@ func (rt *RouteTable) AddZonesToRoute(target RouteTarget, netStart ddp.Network, 
 	for _, zn := range zs {
 		rt.networksByZone[zn] = append(rt.networksByZone[zn], netStart)
 	}
+
+	newBest := rt.Lookup(netStart)
+	switch {
+	case newBest == nil:
+	// still not valid for some reason
+
+	case oldBest == nil:
+		rt.notifyObservers(newBest, RouteTableObserver.NetworkAdded)
+
+	case oldBest.TargetKey != newBest.TargetKey:
+		rt.notifyObservers(newBest, RouteTableObserver.NetworkRouteChanged)
+
+	case oldBest.Distance != newBest.Distance:
+		rt.notifyObservers(newBest, RouteTableObserver.NetworkDistanceChanged)
+	}
+
 	return nil
 }
 

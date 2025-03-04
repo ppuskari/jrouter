@@ -214,6 +214,9 @@ func (p *AURPPeer) RouteTargetKey() string {
 	return "AURPPeer|" + p.RemoteAddr.String()
 }
 
+// Class returns TargetClassAURPPeer.
+func (p *AURPPeer) Class() TargetClass { return TargetClassAURPPeer }
+
 func (p *AURPPeer) String() string {
 	return p.RemoteAddr.String()
 }

@@ -73,6 +73,9 @@ type RouteTarget interface {
 	// Forward should send the packet to the route target.
 	Forward(context.Context, *ddp.ExtPacket) error
 
+	// Class returns the target class for this target.
+	Class() TargetClass
+
 	// RouteTargetKey is used for determining if two targets are the same.
 	RouteTargetKey() string
 }
@@ -185,7 +188,7 @@ func (rt *RouteTable) Lookup(network ddp.Network) *Route {
 
 // DeleteTarget deletes the route target and all its routes.
 func (rt *RouteTable) DeleteTarget(target RouteTarget) {
-	class := ClassFromTarget(target)
+	class := target.Class()
 	targetKey := target.RouteTargetKey()
 
 	type routeChange struct{ oldBest, newBest *Route }
@@ -235,22 +238,13 @@ func (rt *RouteTable) DeleteTarget(target RouteTarget) {
 
 	// Notify observers of necessary changes
 	for _, rc := range routeChanges {
-		switch {
-		case rc.newBest == nil:
-			rt.notifyObservers(rc.oldBest, RouteTableObserver.NetworkDeleted)
-
-		case rc.newBest.TargetKey != rc.oldBest.TargetKey:
-			rt.notifyObservers(rc.newBest, RouteTableObserver.NetworkRouteChanged)
-
-		case rc.newBest.Distance != rc.oldBest.Distance:
-			rt.notifyObservers(rc.newBest, RouteTableObserver.NetworkDistanceChanged)
-		}
+		rt.notifyObserversOfChange(rc.oldBest, rc.newBest)
 	}
 }
 
 // DeleteRoute deletes the route specified by the (target, netStart) tuple.
 func (rt *RouteTable) DeleteRoute(target RouteTarget, netStart ddp.Network) error {
-	class := ClassFromTarget(target)
+	class := target.Class()
 	routeKey := RouteKey{
 		TargetKey: target.RouteTargetKey(),
 		NetStart:  netStart,
@@ -290,24 +284,14 @@ func (rt *RouteTable) DeleteRoute(target RouteTarget, netStart ddp.Network) erro
 		}()
 	}
 
-	// Figure out if observers need notifying, and notify them.
 	newBest := rt.Lookup(route.NetStart)
-	switch {
-	case newBest == nil:
-		rt.notifyObservers(oldBest, RouteTableObserver.NetworkDeleted)
-
-	case newBest.TargetKey != oldBest.TargetKey:
-		rt.notifyObservers(newBest, RouteTableObserver.NetworkRouteChanged)
-
-	case newBest.Distance != oldBest.Distance:
-		rt.notifyObservers(newBest, RouteTableObserver.NetworkDistanceChanged)
-	}
+	rt.notifyObserversOfChange(oldBest, newBest)
 	return nil
 }
 
 // find looks up a route by target and network range start.
 func (rt *RouteTable) find(target RouteTarget, netStart ddp.Network) (*Route, error) {
-	class := ClassFromTarget(target)
+	class := target.Class()
 	routeKey := RouteKey{
 		TargetKey: target.RouteTargetKey(),
 		NetStart:  netStart,
@@ -349,18 +333,8 @@ func (rt *RouteTable) UpdateRoute(target RouteTarget, netStart ddp.Network, dist
 		}()
 	}
 
-	// Figure out if observers need notifying, and notify them.
 	newBest := rt.Lookup(route.NetStart)
-	switch {
-	case newBest == nil:
-		// It was here and now it is not? wtf
-
-	case newBest.TargetKey != oldBest.TargetKey:
-		rt.notifyObservers(newBest, RouteTableObserver.NetworkRouteChanged)
-
-	case newBest.Distance != oldBest.Distance:
-		rt.notifyObservers(newBest, RouteTableObserver.NetworkDistanceChanged)
-	}
+	rt.notifyObserversOfChange(oldBest, newBest)
 
 	return nil
 }
@@ -376,8 +350,8 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 
 	oldBest := rt.Lookup(netStart) // may not exist yet
 
-	class := ClassFromTarget(target)
-	routeKey := RouteKey{
+	class := target.Class()
+	key := RouteKey{
 		TargetKey: target.RouteTargetKey(),
 		NetStart:  netStart,
 	}
@@ -388,7 +362,7 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 	func() {
 		rt.byClassMu[class].Lock()
 		defer rt.byClassMu[class].Unlock()
-		route = rt.byClass[class][routeKey]
+		route = rt.byClass[class][key]
 		if route != nil {
 			// Update
 			route.LastSeen = time.Now()
@@ -401,14 +375,14 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 		// Route insert.
 		insert = true
 		route = &Route{
-			RouteKey: routeKey,
+			RouteKey: key,
 			Extended: extended,
 			NetEnd:   netEnd,
 			Target:   target,
 			Distance: metric,
 			LastSeen: time.Now(),
 		}
-		rt.byClass[class][routeKey] = route
+		rt.byClass[class][key] = route
 	}()
 
 	if !insert && !update {
@@ -430,13 +404,21 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 	}
 
 	newBest := rt.Lookup(netStart)
+	rt.notifyObserversOfChange(oldBest, newBest)
 
+	return route, nil
+}
+
+func (rt *RouteTable) notifyObserversOfChange(oldBest, newBest *Route) {
 	switch {
-	case newBest == nil:
-		// wat
+	case oldBest == nil && newBest == nil:
+		// neither old nor new route is valid (yet)
 
-	case oldBest == nil:
+	case oldBest == nil: // newBest != nil
 		rt.notifyObservers(newBest, RouteTableObserver.NetworkAdded)
+
+	case newBest == nil: // oldBest != nil
+		rt.notifyObservers(oldBest, RouteTableObserver.NetworkDeleted)
 
 	case oldBest.TargetKey != newBest.TargetKey:
 		rt.notifyObservers(newBest, RouteTableObserver.NetworkRouteChanged)
@@ -444,8 +426,6 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 	case oldBest.Distance != newBest.Distance:
 		rt.notifyObservers(newBest, RouteTableObserver.NetworkDistanceChanged)
 	}
-
-	return route, nil
 }
 
 // ValidRoutes yields all valid routes.
@@ -488,17 +468,3 @@ const (
 	TargetClassAppleTalkPeer                    // another router via EtherTalk / LocalTalk / etc
 	TargetClassCount                            // how many valid target types there are - insert new classes above.
 )
-
-// ClassFromTarget returns the TargetClass for a target.
-func ClassFromTarget(target RouteTarget) TargetClass {
-	switch target.(type) {
-	case *EtherTalkPort:
-		return TargetClassDirect
-	case *AURPPeer:
-		return TargetClassAURPPeer
-	case *EtherTalkPeer:
-		return TargetClassAppleTalkPeer
-	default:
-		panic(fmt.Sprintf("invalid RouteTarget type %T", target))
-	}
-}
