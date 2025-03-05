@@ -1,11 +1,13 @@
 package router
 
 import (
+	"cmp"
 	"context"
+	"slices"
 	"testing"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
+	gocmp "github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
@@ -13,7 +15,7 @@ import (
 // Helpful [cmp.Option]s
 var (
 	ignoreUnexportedRoute = cmpopts.IgnoreUnexported(Route{})
-	ignoreTimes           = cmp.FilterValues(func(time.Time, time.Time) bool { return true }, cmp.Ignore())
+	ignoreTimes           = gocmp.FilterValues(func(time.Time, time.Time) bool { return true }, gocmp.Ignore())
 	comparableTarget      = cmpopts.EquateComparable(fakeTarget{})
 	comparableObserver    = cmpopts.EquateComparable(&fakeObserver{})
 )
@@ -22,9 +24,44 @@ type fakeObserver struct {
 	events []observerEvent
 }
 
+func (o *fakeObserver) sortEventSubranges() {
+	for i, j := 0, 0; i < len(o.events); i = j {
+		for j = i + 1; j <= len(o.events); j++ {
+			if j < len(o.events) && o.events[i].Event == o.events[j].Event {
+				continue
+			}
+			break
+		}
+
+		slices.SortFunc(o.events[i:j], func(a, b observerEvent) int {
+			switch o.events[i].Event {
+			case "added":
+				return cmp.Or(
+					cmp.Compare(a.To.TargetKey, b.To.TargetKey),
+					cmp.Compare(a.To.NetStart, b.To.NetStart),
+				)
+			case "deleted":
+				return cmp.Or(
+					cmp.Compare(a.From.TargetKey, b.From.TargetKey),
+					cmp.Compare(a.From.NetStart, b.From.NetStart),
+				)
+			case "changed":
+				return cmp.Or(
+					cmp.Compare(a.From.TargetKey, b.From.TargetKey),
+					cmp.Compare(a.To.TargetKey, b.To.TargetKey),
+					cmp.Compare(a.From.NetStart, b.From.NetStart),
+					cmp.Compare(a.To.NetStart, b.To.NetStart),
+				)
+			}
+			return 0
+		})
+	}
+}
+
 func (o *fakeObserver) NetworkAdded(r Route) {
 	o.events = append(o.events, observerEvent{Event: "added", To: r})
 }
+
 func (o *fakeObserver) NetworkDeleted(r Route) {
 	o.events = append(o.events, observerEvent{Event: "deleted", From: r})
 }
@@ -55,13 +92,13 @@ func TestRouteTable_AddObserver_RemoveObserver(t *testing.T) {
 	wantObservers := map[RouteTableObserver]struct{}{
 		obs: {},
 	}
-	if diff := cmp.Diff(rt.observers, wantObservers, comparableObserver, ignoreUnexportedRoute); diff != "" {
+	if diff := gocmp.Diff(rt.observers, wantObservers, comparableObserver, ignoreUnexportedRoute); diff != "" {
 		t.Errorf("rt.observers diff (-got +want):\n%s", diff)
 	}
 
 	rt.RemoveObserver(obs)
 	wantObservers = map[RouteTableObserver]struct{}{}
-	if diff := cmp.Diff(rt.observers, wantObservers, comparableObserver, ignoreUnexportedRoute); diff != "" {
+	if diff := gocmp.Diff(rt.observers, wantObservers, comparableObserver, ignoreUnexportedRoute); diff != "" {
 		t.Errorf("rt.observers diff (-got +want):\n%s", diff)
 	}
 }
@@ -101,7 +138,7 @@ func TestRouteTable_Upsert_Insertion(t *testing.T) {
 	// The observer should have not been informed of the new routes, because
 	// they are invalid without zones.
 	var wantEvents []observerEvent
-	if diff := cmp.Diff(obs.events, wantEvents, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
+	if diff := gocmp.Diff(obs.events, wantEvents, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
 		t.Errorf("obs.added diff (-got +want):\n%s", diff)
 	}
 
@@ -117,7 +154,7 @@ func TestRouteTable_Upsert_Insertion(t *testing.T) {
 	for _, want := range []Route{directRoute, aurpRoute} {
 		for n := ddp.Network(want.NetStart); n <= want.NetEnd; n++ {
 			got := rt.Lookup(n)
-			if diff := cmp.Diff(got, want, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
+			if diff := gocmp.Diff(got, want, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
 				t.Errorf("rt.Lookup(%d) = %v, want %v", n, got, want)
 			}
 		}
@@ -128,7 +165,7 @@ func TestRouteTable_Upsert_Insertion(t *testing.T) {
 		{Event: "added", To: directRoute},
 		{Event: "added", To: aurpRoute},
 	}
-	if diff := cmp.Diff(obs.events, wantEvents, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
+	if diff := gocmp.Diff(obs.events, wantEvents, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
 		t.Errorf("obs.added diff (-got +want):\n%s", diff)
 	}
 }
@@ -147,24 +184,34 @@ func TestRouteTable_Upsert_Updating(t *testing.T) {
 		t.Errorf("rt.AddZonesToRoute(etPeer, 300, \"TimeZone\") = %v", err)
 	}
 
+	// Check that it's there
+	for _, n := range []ddp.Network{300, 301} {
+		got := rt.Lookup(n)
+		if diff := gocmp.Diff(got, oldRoute, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
+			t.Errorf("rt.Lookup(%d) = %v, want %v", n, got, oldRoute)
+		}
+	}
+
 	// Now update it by re-upserting
 	newRoute, err := rt.UpsertRoute(etPeer, true, 300, 301, 3)
 	if err != nil {
 		t.Errorf("rt.UpsertRoute(etPeer, true, 300, 301, 3) error = %v", err)
 	}
 
-	for n := ddp.Network(300); n <= 301; n++ {
+	// Check that it changed
+	for _, n := range []ddp.Network{300, 301} {
 		gotRoute := rt.Lookup(n)
-		if diff := cmp.Diff(gotRoute, newRoute, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
+		if diff := gocmp.Diff(gotRoute, newRoute, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
 			t.Errorf("rt.Lookup(%d) = %v, want %v", n, gotRoute, newRoute)
 		}
 	}
 
+	// Check the generated events
 	wantEvents := []observerEvent{
 		{Event: "added", To: oldRoute},
 		{Event: "changed", From: oldRoute, To: newRoute},
 	}
-	if diff := cmp.Diff(obs.events, wantEvents, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
+	if diff := gocmp.Diff(obs.events, wantEvents, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
 		t.Errorf("obs.changed diff (-got +want):\n%s", diff)
 	}
 }
@@ -183,6 +230,14 @@ func TestRouteTable_DeleteRoute(t *testing.T) {
 		t.Errorf("rt.AddZonesToRoute(etPeer, 300, \"TimeZone\") = %v", err)
 	}
 
+	// Check that it's there
+	for _, n := range []ddp.Network{300, 301} {
+		got := rt.Lookup(n)
+		if diff := gocmp.Diff(got, oldRoute, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
+			t.Errorf("rt.Lookup(%d) = %v, want %v", n, got, oldRoute)
+		}
+	}
+
 	// Delete it
 	if err := rt.DeleteRoute(etPeer, 300); err != nil {
 		t.Errorf("rt.DeleteRoute(etPeer, 300) = %v", err)
@@ -199,7 +254,7 @@ func TestRouteTable_DeleteRoute(t *testing.T) {
 		{Event: "added", To: oldRoute},
 		{Event: "deleted", From: oldRoute},
 	}
-	if diff := cmp.Diff(obs.events, wantEvents, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
+	if diff := gocmp.Diff(obs.events, wantEvents, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
 		t.Errorf("obs.changed diff (-got +want):\n%s", diff)
 	}
 }
@@ -226,6 +281,20 @@ func TestRouteTable_DeleteTarget(t *testing.T) {
 		t.Errorf("rt.AddZonesToRoute(etPeer, 500, \"TimeZone 2\") = %v", err)
 	}
 
+	// Check that they're both there
+	for _, n := range []ddp.Network{300, 301} {
+		got := rt.Lookup(n)
+		if diff := gocmp.Diff(got, oldRoute1, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
+			t.Errorf("rt.Lookup(%d) = %v, want %v", n, got, oldRoute1)
+		}
+	}
+	for _, n := range []ddp.Network{500, 501} {
+		got := rt.Lookup(n)
+		if diff := gocmp.Diff(got, oldRoute2, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
+			t.Errorf("rt.Lookup(%d) = %v, want %v", n, got, oldRoute2)
+		}
+	}
+
 	// Delete the target -> deletes all routes
 	rt.DeleteTarget(etPeer)
 
@@ -242,7 +311,8 @@ func TestRouteTable_DeleteTarget(t *testing.T) {
 		{Event: "deleted", From: oldRoute1},
 		{Event: "deleted", From: oldRoute2},
 	}
-	if diff := cmp.Diff(obs.events, wantEvents, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
+	obs.sortEventSubranges()
+	if diff := gocmp.Diff(obs.events, wantEvents, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
 		t.Errorf("obs.changed diff (-got +want):\n%s", diff)
 	}
 }
