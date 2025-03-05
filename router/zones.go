@@ -58,7 +58,7 @@ func (rt *RouteTable) ZonesForNetworks(networks []ddp.Network) map[ddp.Network][
 
 	for _, n := range networks {
 		r := rt.Lookup(n)
-		if r.Target == nil {
+		if r.Zero() {
 			continue
 		}
 		func() {
@@ -84,7 +84,7 @@ func (rt *RouteTable) RoutesForZone(zone string) []Route {
 				return
 			}
 			r := rt.Lookup(n) // reader side of lock is shared, so we're good.
-			if r.Target == nil {
+			if r.Zero() {
 				return
 			}
 			routes = append(routes, r)

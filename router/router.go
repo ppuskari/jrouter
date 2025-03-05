@@ -49,7 +49,7 @@ func (rtr *Router) Forward(ctx context.Context, ddpkt *ddp.ExtPacket) error {
 // (It does not check or adjust the hop count.)
 func (rtr *Router) Output(ctx context.Context, ddpkt *ddp.ExtPacket) error {
 	route := rtr.RouteTable.Lookup(ddpkt.DstNet)
-	if route.Target == nil {
+	if route.Zero() {
 		return fmt.Errorf("no route for packet (dstnet %d); dropping packet", ddpkt.DstNet)
 	}
 

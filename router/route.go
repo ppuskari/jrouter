@@ -225,14 +225,14 @@ func (rt *RouteTable) DeleteTarget(target RouteTarget) {
 			oldRoutes := rt.byNetwork[n].Routes
 			newRoutes := make([]Route, 0, len(oldRoutes))
 			for _, r := range oldRoutes {
-				if rc.From.Target == nil && r.Valid() {
+				if rc.From.Zero() && r.Valid() {
 					rc.From = r
 				}
 				if r.Target.RouteTargetKey() == targetKey {
 					continue
 				}
 				newRoutes = append(newRoutes, r)
-				if rc.To.Target == nil && r.Valid() {
+				if rc.To.Zero() && r.Valid() {
 					rc.To = r
 				}
 			}
@@ -256,7 +256,7 @@ func (rt *RouteTable) DeleteRoute(target RouteTarget, netStart ddp.Network) erro
 
 	// Lookup the old best route for the network for comparisons.
 	oldBest := rt.Lookup(netStart)
-	if oldBest.Target == nil {
+	if oldBest.Zero() {
 		return fmt.Errorf("network %d not found", netStart)
 	}
 
@@ -306,12 +306,12 @@ func (rt *RouteTable) find(target RouteTarget, netStart ddp.Network) Route {
 // UpdateDistance updates the distance for an existing route.
 func (rt *RouteTable) UpdateDistance(target RouteTarget, netStart ddp.Network, distance uint8) error {
 	oldBest := rt.Lookup(netStart)
-	if oldBest.Target == nil {
+	if oldBest.Zero() {
 		return fmt.Errorf("network %d not found", netStart)
 	}
 
 	oldRoute := rt.find(target, netStart)
-	if oldRoute.Target == nil {
+	if oldRoute.Zero() {
 		return fmt.Errorf("route (%v,%d) not found", target, netStart)
 	}
 
@@ -412,15 +412,15 @@ func (rt *RouteTable) informObservers(oldBest, newBest Route) {
 	defer rt.observersMu.RUnlock()
 
 	switch {
-	case oldBest.Target == nil && newBest.Target == nil:
+	case oldBest.Zero() && newBest.Zero():
 		// neither old nor new route is valid (yet), no notifying.
 
-	case oldBest.Target == nil: // newBest.Target != nil
+	case oldBest.Zero(): // newBest.Target != nil
 		for o := range rt.observers {
 			o.NetworkAdded(newBest)
 		}
 
-	case newBest.Target == nil: // oldBest != nil
+	case newBest.Zero(): // oldBest != nil
 		for o := range rt.observers {
 			o.NetworkDeleted(oldBest)
 		}
