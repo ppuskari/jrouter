@@ -59,7 +59,10 @@
     table thead tr th {
         border-bottom: 1px solid;
     }
-    td, 
+    tr:nth-child(even) {
+        background-color: #eee;
+    }
+    td,
     th {
         padding: 2px 8px;
     }
@@ -73,6 +76,9 @@
         padding: 0.5em 0em 0.5em 1.5em;
         border-left: 0.1em #ccc dotted;
         border-bottom: 0.1em #ccc dotted;
+    }
+    ul {
+        margin: 0;
     }
     </style>
 </head>
