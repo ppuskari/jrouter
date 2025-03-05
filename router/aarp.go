@@ -19,7 +19,7 @@ package router
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"math/rand/v2"
 	"sync"
 	"time"
@@ -173,7 +173,7 @@ func (a *AARPMachine) Run(ctx context.Context) error {
 			a.mu.Unlock()
 
 			if err := a.probe(); err != nil {
-				log.Printf("Couldn't broadcast a Probe: %v", err)
+				slog.Error("AARP: Couldn't broadcast a Probe", "error", err)
 			}
 
 		case ethFrame, open := <-a.incomingCh:
@@ -192,39 +192,39 @@ func (a *AARPMachine) Run(ctx context.Context) error {
 
 			var aapkt aarp.Packet
 			if err := aarp.Unmarshal(payload, &aapkt); err != nil {
-				log.Printf("Couldn't unmarshal AARP packet: %v", err)
+				slog.Error("AARP: Couldn't unmarshal packet", "error", err)
 				continue
 			}
 
 			switch aapkt.Opcode {
 			case aarp.RequestOp:
-				log.Printf("AARP: Who has %d.%d? Tell %d.%d",
+				slog.Debug(fmt.Sprintf("AARP: Who has %d.%d? Tell %d.%d",
 					aapkt.Dst.Proto.Network, aapkt.Dst.Proto.Node,
 					aapkt.Src.Proto.Network, aapkt.Src.Proto.Node,
-				)
+				))
 				// Glean that aapkt.Src.Proto -> aapkt.Src.Hardware
 				a.addressMappingTable.Learn(aapkt.Src.Proto, aapkt.Src.Hardware)
-				// log.Printf("AARP: Gleaned that %d.%d -> %v", aapkt.Src.Proto.Network, aapkt.Src.Proto.Node, aapkt.Src.Hardware)
+				// slog.Debug(fmt.Sprintf("AARP: Gleaned that %d.%d -> %v", aapkt.Src.Proto.Network, aapkt.Src.Proto.Node, aapkt.Src.Hardware))
 
 				if aapkt.Dst.Proto != a.myAddr.Proto {
-					log.Printf("AARP: not replying to request for %d.%d (not my address)", aapkt.Dst.Proto.Network, aapkt.Dst.Proto.Node)
+					slog.Debug(fmt.Sprintf("AARP: not replying to request for %d.%d (not my address)", aapkt.Dst.Proto.Network, aapkt.Dst.Proto.Node))
 					continue
 				}
 				if !a.assigned {
-					log.Printf("AARP: not replying to request for %d.%d (address still tentative)", aapkt.Dst.Proto.Network, aapkt.Dst.Proto.Node)
+					slog.Debug(fmt.Sprintf("AARP: not replying to request for %d.%d (address still tentative)", aapkt.Dst.Proto.Network, aapkt.Dst.Proto.Node))
 					continue
 				}
 
 				// Hey that's me! Let them know!
 				if err := a.heyThatsMe(aapkt.Src); err != nil {
-					log.Printf("AARP: Couldn't respond to Request: %v", err)
+					slog.Error("AARP: Couldn't respond to Request", "error", err)
 					continue
 				}
 
 			case aarp.ResponseOp:
-				log.Printf("AARP: %d.%d is at %v",
+				slog.Debug(fmt.Sprintf("AARP: %d.%d is at %v",
 					aapkt.Dst.Proto.Network, aapkt.Dst.Proto.Node, aapkt.Dst.Hardware,
-				)
+				))
 				a.addressMappingTable.Learn(aapkt.Dst.Proto, aapkt.Dst.Hardware)
 
 				if aapkt.Dst.Proto != a.myAddr.Proto {
@@ -235,9 +235,9 @@ func (a *AARPMachine) Run(ctx context.Context) error {
 				}
 
 			case aarp.ProbeOp:
-				log.Printf("AARP: %v probing to see if %d.%d is available",
+				slog.Debug(fmt.Sprintf("AARP: %v probing to see if %d.%d is available",
 					aapkt.Src.Hardware, aapkt.Src.Proto.Network, aapkt.Src.Proto.Node,
-				)
+				))
 				// AMT should not be updated, because the address is tentative
 
 				if aapkt.Dst.Proto != a.myAddr.Proto {
@@ -250,7 +250,7 @@ func (a *AARPMachine) Run(ctx context.Context) error {
 				}
 
 				if err := a.heyThatsMe(aapkt.Src); err != nil {
-					log.Printf("AARP: Couldn't respond to Probe: %v", err)
+					slog.Error("AARP: Couldn't respond to Probe", "error", err)
 					continue
 				}
 			}
@@ -328,7 +328,7 @@ func (a *AARPMachine) heyThatsMe(targ aarp.AddrPair) error {
 	if err != nil {
 		return err
 	}
-	//log.Printf("AARP: sending packet %+v", respFrame)
+	//slog.Debug("AARP: sending packet", "resp-frame", respFrame)
 	// Instead of broadcasting the reply, send it to the target specifically?
 	respFrame.Dst = targ.Hardware
 	return a.send(respFrame)

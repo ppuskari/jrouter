@@ -19,7 +19,7 @@ package router
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"drjosh.dev/jrouter/atalk"
@@ -107,7 +107,7 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 
 	case ddp.ProtoRTMPResp:
 		// It's a peer router on the AppleTalk network!
-		log.Print("RTMP: Got Response or Data")
+		slog.Debug("RTMP: Got Response or Data")
 		dataPkt, err := rtmp.UnmarshalDataPacket(pkt.Data)
 		if err != nil {
 			return fmt.Errorf("unmarshal RTMP Data packet: %w", err)
@@ -178,14 +178,10 @@ func (port *EtherTalkPort) RunRTMP(ctx context.Context) (err error) {
 	// Await local address assignment before doing anything
 	<-port.AARPMachine.Assigned()
 
-	setStatus("Initial RTMP Data broadcast")
-
-	// Initial broadcast
-	if err := port.broadcastRTMPData(); err != nil {
-		log.Printf("RTMP: Couldn't broadcast Data: %v", err)
-	}
-
 	setStatus("Starting broadcast loop")
+
+	first := make(chan struct{}, 1)
+	first <- struct{}{}
 
 	bcastTicker := time.NewTicker(10 * time.Second)
 	defer bcastTicker.Stop()
@@ -196,12 +192,14 @@ func (port *EtherTalkPort) RunRTMP(ctx context.Context) (err error) {
 			return ctx.Err()
 
 		case <-bcastTicker.C:
-			setStatus("Broadcasting RTMP Data")
-			if err := port.broadcastRTMPData(); err != nil {
-				st := fmt.Sprintf("Couldn't broadcast Data: %v", err)
-				setStatus(st)
-				log.Print(st)
-			}
+			// continue below
+		case <-first:
+			// continue below
+		}
+		setStatus("Broadcasting RTMP Data")
+		if err := port.broadcastRTMPData(); err != nil {
+			setStatus(fmt.Sprintf("Couldn't broadcast Data: %v", err))
+			slog.Error("RTMP: Couldn't broadcast Data", "error", err)
 		}
 	}
 }

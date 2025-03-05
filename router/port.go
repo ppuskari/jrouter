@@ -21,7 +21,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
-	"log"
+	"log/slog"
 	"strconv"
 
 	"drjosh.dev/jrouter/atalk"
@@ -62,14 +62,14 @@ func (port *EtherTalkPort) Serve(ctx context.Context) {
 			return
 		}
 		if err != nil {
-			log.Printf("Couldn't read AppleTalk / AARP packet data: %v", err)
+			slog.Error("Couldn't read AppleTalk / AARP packet data", "error", err)
 			return
 		}
 
 		ethFrame := new(ethertalk.Packet)
 		if err := ethertalk.Unmarshal(rawPkt, ethFrame); err != nil {
 			atalkInvalidPacketsInCounter.With(prometheus.Labels{"port": port.Device}).Inc()
-			log.Printf("Couldn't unmarshal EtherTalk frame: %v", err)
+			slog.Error("Couldn't unmarshal EtherTalk frame", "error", err)
 			continue
 		}
 
@@ -80,7 +80,7 @@ func (port *EtherTalkPort) Serve(ctx context.Context) {
 
 		switch ethFrame.SNAPProto {
 		case ethertalk.AARPProto:
-			// log.Print("Got an AARP frame")
+			// slog.Debug("Got an AARP frame")
 			promLabels := prometheus.Labels{"port": port.Device}
 			aarpPacketsInCounter.With(promLabels).Inc()
 			aarpBytesInCounter.With(promLabels).Add(float64(len(rawPkt)))
@@ -88,12 +88,12 @@ func (port *EtherTalkPort) Serve(ctx context.Context) {
 			port.AARPMachine.Handle(ctx, ethFrame)
 
 		case ethertalk.AppleTalkProto:
-			// log.Print("Got an AppleTalk frame")
+			// slog.Debug("Got an AppleTalk frame")
 
 			// Workaround for strict length checking in sfiera/multitalk
 			payload := ethFrame.Payload
 			if len(payload) < 2 {
-				log.Printf("Couldn't unmarshal DDP packet: too small (length = %d)", len(payload))
+				slog.Error("Couldn't unmarshal DDP packet: too small", "payload-length", len(payload))
 			}
 			if size := binary.BigEndian.Uint16(payload[:2]) & 0x3ff; len(payload) > int(size) {
 				payload = payload[:size]
@@ -101,7 +101,7 @@ func (port *EtherTalkPort) Serve(ctx context.Context) {
 
 			ddpkt := new(ddp.ExtPacket)
 			if err := ddp.ExtUnmarshal(payload, ddpkt); err != nil {
-				log.Printf("Couldn't unmarshal DDP packet: %v", err)
+				slog.Error("Couldn't unmarshal DDP packet", "error", err)
 				continue
 			}
 
@@ -118,10 +118,10 @@ func (port *EtherTalkPort) Serve(ctx context.Context) {
 			atalkPacketsInCounter.With(promLabels).Inc()
 			atalkBytesInCounter.With(promLabels).Add(float64(len(rawPkt)))
 
-			// log.Printf("DDP: src (%d.%d s %d) dst (%d.%d s %d) proto %d data len %d",
+			// slog.Debug(fmt.Sprintf("DDP: src (%d.%d s %d) dst (%d.%d s %d) proto %d data len %d",
 			// 	ddpkt.SrcNet, ddpkt.SrcNode, ddpkt.SrcSocket,
 			// 	ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket,
-			// 	ddpkt.Proto, len(ddpkt.Data))
+			// 	ddpkt.Proto, len(ddpkt.Data)))
 
 			// Glean address info for AMT, but only if SrcNet is our net
 			// (If it's not our net, then it was routed from elsewhere, and
@@ -129,7 +129,7 @@ func (port *EtherTalkPort) Serve(ctx context.Context) {
 			if ddpkt.SrcNet >= port.NetStart && ddpkt.SrcNet <= port.NetEnd {
 				srcAddr := ddp.Addr{Network: ddpkt.SrcNet, Node: ddpkt.SrcNode}
 				port.AARPMachine.Learn(srcAddr, ethFrame.Src)
-				// log.Printf("DDP: Gleaned that %d.%d -> %v", srcAddr.Network, srcAddr.Node, ethFrame.Src)
+				// slog.Debug(fmt.Sprintf("DDP: Gleaned that %d.%d -> %v", srcAddr.Network, srcAddr.Node, ethFrame.Src))
 			}
 
 			// Packet for us? First, who am I?
@@ -148,7 +148,7 @@ func (port *EtherTalkPort) Serve(ctx context.Context) {
 			if ddpkt.DstNet != 0 && !(ddpkt.DstNet >= port.NetStart && ddpkt.DstNet <= port.NetEnd) {
 				// Is it for a network in the routing table?
 				if err := port.Router.Forward(ctx, ddpkt); err != nil {
-					log.Printf("DDP: Couldn't forward packet: %v", err)
+					slog.Error("DDP: Couldn't forward packet", "error", err)
 				}
 				continue
 			}
@@ -164,30 +164,34 @@ func (port *EtherTalkPort) Serve(ctx context.Context) {
 			switch ddpkt.DstSocket {
 			case 1: // The RTMP socket
 				if err := port.HandleRTMP(ctx, ddpkt); err != nil {
-					log.Printf("RTMP: Couldn't handle: %v", err)
+					slog.Error("RTMP: Couldn't handle packet", "error", err)
 				}
 
 			case 2: // The NIS (name information socket / NBP socket)
 				if err := port.HandleNBP(ctx, ddpkt); err != nil {
-					log.Printf("NBP: Couldn't handle: %v", err)
+					slog.Error("NBP: Couldn't handle packet", "error", err)
 				}
 
 			case 4: // The AEP socket
 				if err := port.Router.HandleAEP(ctx, ddpkt); err != nil {
-					log.Printf("AEP: Couldn't handle: %v", err)
+					slog.Error("AEP: Couldn't handle packet", "error", err)
 				}
 
 			case 6: // The ZIS (zone information socket / ZIP socket)
 				if err := port.HandleZIP(ctx, ddpkt); err != nil {
-					log.Printf("ZIP: couldn't handle: %v", err)
+					slog.Error("ZIP: Couldn't handle packet", "error", err)
 				}
 
 			default:
-				log.Printf("DDP: No handler for socket %d", ddpkt.DstSocket)
+				slog.Error("DDP: No handler for socket", "dst-socket", ddpkt.DstSocket)
 			}
 
 		default:
-			log.Printf("Read unknown packet %s -> %s with payload %x", ethFrame.Src, ethFrame.Dst, ethFrame.Payload)
+			slog.Error("Read unknown packet",
+				"ethernet-src", ethFrame.Src,
+				"ethernet-dst", ethFrame.Dst,
+				"payload", ethFrame.Payload,
+			)
 
 		}
 	}
