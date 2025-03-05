@@ -75,6 +75,14 @@ func (r Route) Valid() bool {
 	return true
 }
 
+// ZoneNames returns the zone names for the network associated with this route.
+func (r Route) ZoneNames() []string {
+	if r.Zero() {
+		return nil
+	}
+	return r.network.ZoneNames.ToSlice()
+}
+
 type routeChange struct{ From, To Route }
 
 // RouteTarget implementations can forward packets somewhere.
@@ -240,7 +248,6 @@ func (rt *RouteTable) DeleteTarget(target RouteTarget) {
 		}()
 	}
 
-	// Notify observers of necessary changes
 	for _, rc := range routeChanges {
 		rt.informObservers(rc.From, rc.To)
 	}
