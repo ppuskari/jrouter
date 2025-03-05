@@ -263,20 +263,23 @@ func main() {
 		}
 		slog.Debug("Resolved address", "configured-addr", peerStr, "raddr", raddr)
 
-		if raddr.IP.To4() == nil {
+		// Conversion using To4 is necessary so that peers don't all collide in
+		// the peersByIP map.
+		raddr4 := raddr.IP.To4()
+		if raddr4 == nil {
 			slog.Warn("Resolved peer address is not an IPv4 address, skipping", "configured-addr", peerStr, "raddr", raddr)
 			continue
 		}
 
-		if raddr.IP.Equal(localIP) {
+		if raddr4.Equal(localIP) {
 			slog.Debug("Not adding self as peer", "configured-addr", peerStr, "raddr", raddr)
 			continue
 		}
 
-		peer := router.NewAURPPeer(routes, ln, peerStr, raddr.IP, localDI, nil, nextConnID)
+		peer := router.NewAURPPeer(routes, ln, peerStr, raddr4, localDI, nil, nextConnID)
 		aurp.Inc(&nextConnID)
 		peersMu.Lock()
-		peersByIP[[4]byte(raddr.IP)] = peer
+		peersByIP[[4]byte(raddr4)] = peer
 		peersMu.Unlock()
 		goPeerHandler(peer)
 	}
@@ -285,13 +288,12 @@ func main() {
 	rooter := &router.Router{
 		Config:     cfg,
 		RouteTable: routes,
-		// ZoneTable:  zones,
 	}
 
 	// Attach ports to router
 	rooter.Ports = append(rooter.Ports, ethertalkPorts...)
 	for _, etPort := range ethertalkPorts {
-		// Attach router to ports
+		// Attach router to port
 		etPort.Router = rooter
 
 		// Add port to routing table
