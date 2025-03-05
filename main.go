@@ -48,7 +48,10 @@ import (
 	"github.com/sfiera/multitalk/pkg/ethernet"
 )
 
-var configFilePath = flag.String("config", "jrouter.yaml", "Path to configuration file to use")
+var (
+	configFilePath = flag.String("config", "jrouter.yaml", "Path to configuration file to use")
+	verbose        = flag.Bool("v", false, "Enables debug logs")
+)
 
 func main() {
 	// For some reason it occasionally panics and the panics have no traceback?
@@ -57,11 +60,24 @@ func main() {
 	// I think some dependency is calling recover in a defer too broadly.
 
 	flag.Parse()
-	slog.Info(meta.NameVersion)
 
+	// -------------------------------- Logger --------------------------------
+	//
+	logLevel := slog.LevelInfo
+	if *verbose {
+		logLevel = slog.LevelDebug
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: logLevel,
+	}))
+
+	logger.Info(meta.NameVersion)
+
+	// -------------------------------- Config --------------------------------
+	//
 	cfg, err := router.LoadConfig(*configFilePath)
 	if err != nil {
-		slog.Error("Couldn't load configuration file", "error", err)
+		logger.Error("Couldn't load configuration file", "error", err)
 		os.Exit(1)
 	}
 
@@ -69,7 +85,7 @@ func main() {
 	if localIP == nil {
 		iaddrs, err := net.InterfaceAddrs()
 		if err != nil {
-			slog.Error("Couldn't read network interface addresses", "error", err)
+			logger.Error("Couldn't read network interface addresses", "error", err)
 			os.Exit(1)
 		}
 		for _, iaddr := range iaddrs {
@@ -86,45 +102,49 @@ func main() {
 			}
 		}
 		if localIP == nil {
-			slog.Error("No global unicast IPv4 addresses on any network interfaces, and no valid local_ip address in configuration")
+			logger.Error("No global unicast IPv4 addresses on any network interfaces, and no valid local_ip address in configuration")
 			os.Exit(1)
 		}
 	}
 	localDI := aurp.IPDomainIdentifier(localIP)
 
-	slog.Debug("Starting up", "localIP", localIP, "ethertalk-config", cfg.EtherTalk)
+	logger.Debug("Starting up", "localIP", localIP, "ethertalk-config", cfg.EtherTalk)
 
+	// ----------------------------- UDP listener -----------------------------
+	//
 	ln, err := net.ListenUDP("udp4", &net.UDPAddr{Port: int(cfg.ListenPort)})
 	if err != nil {
-		slog.Error("AURP: Couldn't listen on udp4", "port", cfg.ListenPort, "error", err)
+		logger.Error("AURP: Couldn't listen on udp4", "port", cfg.ListenPort, "error", err)
 		os.Exit(1)
 	}
 	defer ln.Close()
-	slog.Info("AURP: listening", "localaddr", ln.LocalAddr())
+	logger.Info("AURP: listening", "localaddr", ln.LocalAddr())
 
 	cctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	// SIGTERM is what Docker sends the container process to let it clean up.
 	// Fortunately syscall.SIGTERM is defined even when GOOS=windows.
-	slog.Info("Press ^C or send SIGINT or SIGTERM to stop the router gracefully")
+	logger.Info("Press ^C or send SIGINT or SIGTERM to stop the router gracefully")
 	ctx, _ := signal.NotifyContext(cctx, os.Interrupt, syscall.SIGTERM)
 
 	// --------------------------------- HTTP ---------------------------------
+	//
 	if cfg.MonitoringAddr == "" {
-		slog.Warn("monitoring_addr is empty - disabling the monitoring HTTP server")
+		logger.Warn("monitoring_addr is empty - disabling the monitoring HTTP server")
 	} else {
 		http.HandleFunc("/status", status.Handle)
 		http.Handle("/metrics", promhttp.Handler())
 		go func() {
 			err := http.ListenAndServe(cfg.MonitoringAddr, nil)
-			slog.Error("http.ListenAndServe", "error", err)
+			logger.Error("http.ListenAndServe", "error", err)
 		}()
 	}
 
 	// --------------------------------- Pcap ---------------------------------
+	//
 	if len(cfg.EtherTalk) == 0 {
-		slog.Error("The ethertalk config in jrouter.yaml was empty; at least one entry is required")
+		logger.Error("The ethertalk config in jrouter.yaml was empty; at least one entry is required")
 		os.Exit(1)
 	}
 
@@ -134,7 +154,7 @@ func main() {
 		// First check the interface
 		iface, err := net.InterfaceByName(etcfg.Device)
 		if err != nil {
-			slog.Error("Couldn't find interface", "device", etcfg.Device, "error", err)
+			logger.Error("Couldn't find interface", "device", etcfg.Device, "error", err)
 			os.Exit(1)
 		}
 
@@ -143,7 +163,7 @@ func main() {
 			// Override myHWAddr with the configured address
 			netHWAddr, err := net.ParseMAC(etcfg.EthAddr)
 			if err != nil {
-				slog.Error("Couldn't parse ethertalk.ethernet_addr value", "ethernet_addr", etcfg.EthAddr, "error", err)
+				logger.Error("Couldn't parse ethertalk.ethernet_addr value", "ethernet_addr", etcfg.EthAddr, "error", err)
 				os.Exit(1)
 			}
 			myHWAddr = ethernet.Addr(netHWAddr)
@@ -151,18 +171,19 @@ func main() {
 
 		handle, err := pcap.OpenLive(etcfg.Device, 4096, true, 100*time.Millisecond)
 		if err != nil {
-			slog.Error("Couldn't open device for packet capture", "device", etcfg.Device, "error", err)
+			logger.Error("Couldn't open device for packet capture", "device", etcfg.Device, "error", err)
 			os.Exit(1)
 		}
 		bpfFilter := fmt.Sprintf("(atalk or aarp) and (ether multicast or ether dst %s)", myHWAddr)
 		if err := handle.SetBPFFilter(bpfFilter); err != nil {
 			handle.Close()
-			slog.Error("Couldn't set BPF filter on packet capture", "error", err)
+			logger.Error("Couldn't set BPF filter on packet capture", "error", err)
 			os.Exit(1)
 		}
 		defer handle.Close()
 
 		ethertalkPorts = append(ethertalkPorts, &router.EtherTalkPort{
+			Logger:          logger,
 			Device:          etcfg.Device,
 			EthernetAddr:    myHWAddr,
 			NetStart:        etcfg.NetStart,
@@ -175,6 +196,7 @@ func main() {
 	}
 
 	// -------------------------------- Tables --------------------------------
+	//
 	routes := router.NewRouteTable()
 	status.AddItem(ctx, "Routing table", routingTableTemplate, func(context.Context) (any, error) {
 		rs := routes.Dump()
@@ -185,6 +207,7 @@ func main() {
 	})
 
 	// -------------------------------- Peers ---------------------------------
+	//
 	var peersMu sync.Mutex
 	peersByIP := make(map[[4]byte]*router.AURPPeer)
 	status.AddItem(ctx, "AURP Peers", peerTableTemplate, func(context.Context) (any, error) {
@@ -228,13 +251,14 @@ func main() {
 	}
 
 	// ------------------------- Configured peer setup ------------------------
+	//
 	if cfg.PeerListURL != "" {
-		slog.Info("Fetching peer list", "peerlist-url", cfg.PeerListURL)
+		logger.Info("Fetching peer list", "peerlist-url", cfg.PeerListURL)
 		existing := len(cfg.Peers)
 		func() {
 			resp, err := http.Get(cfg.PeerListURL)
 			if err != nil {
-				slog.Error("Couldn't fetch peer list", "error", err)
+				logger.Error("Couldn't fetch peer list", "error", err)
 				os.Exit(1)
 			}
 			defer resp.Body.Close()
@@ -248,35 +272,35 @@ func main() {
 				cfg.Peers = append(cfg.Peers, p)
 			}
 			if err := sc.Err(); err != nil {
-				slog.Error("Couldn't scan peer list response", "error", err)
+				logger.Error("Couldn't scan peer list response", "error", err)
 				os.Exit(1)
 			}
 		}()
-		slog.Info("Fetched list", "length", len(cfg.Peers)-existing)
+		logger.Info("Fetched list", "length", len(cfg.Peers)-existing)
 	}
 
 	for _, peerStr := range cfg.Peers {
 		raddr, err := net.ResolveIPAddr("ip4", peerStr)
 		if err != nil {
-			slog.Warn("Couldn't resolve address, skipping", "error", err)
+			logger.Warn("Couldn't resolve address, skipping", "error", err)
 			continue
 		}
-		slog.Debug("Resolved address", "configured-addr", peerStr, "raddr", raddr)
+		logger.Debug("Resolved address", "configured-addr", peerStr, "raddr", raddr)
 
 		// Conversion using To4 is necessary so that peers don't all collide in
 		// the peersByIP map.
 		raddr4 := raddr.IP.To4()
 		if raddr4 == nil {
-			slog.Warn("Resolved peer address is not an IPv4 address, skipping", "configured-addr", peerStr, "raddr", raddr)
+			logger.Warn("Resolved peer address is not an IPv4 address, skipping", "configured-addr", peerStr, "raddr", raddr)
 			continue
 		}
 
 		if raddr4.Equal(localIP) {
-			slog.Debug("Not adding self as peer", "configured-addr", peerStr, "raddr", raddr)
+			logger.Debug("Not adding self as peer", "configured-addr", peerStr, "raddr", raddr)
 			continue
 		}
 
-		peer := router.NewAURPPeer(routes, ln, peerStr, raddr4, localDI, nil, nextConnID)
+		peer := router.NewAURPPeer(logger, routes, ln, peerStr, raddr4, localDI, nil, nextConnID)
 		aurp.Inc(&nextConnID)
 		peersMu.Lock()
 		peersByIP[[4]byte(raddr4)] = peer
@@ -285,7 +309,9 @@ func main() {
 	}
 
 	// -------------------------------- Router --------------------------------
+	//
 	rooter := &router.Router{
+		Logger:     logger,
 		Config:     cfg,
 		RouteTable: routes,
 	}
@@ -298,16 +324,16 @@ func main() {
 
 		// Add port to routing table
 		if _, err := routes.UpsertRoute(etPort, true /* extended */, etPort.NetStart, etPort.NetEnd, 0); err != nil {
-			slog.Error("Couldn't create route for EtherTalk port", "error", err)
+			logger.Error("Couldn't create route for EtherTalk port", "error", err)
 			os.Exit(1)
 		}
 		if err := routes.AddZonesToNetwork(etPort.NetStart, etPort.AvailableZones.ToSlice()...); err != nil {
-			slog.Error("Couldn't add zones to route that was just created", "error", err)
+			logger.Error("Couldn't add zones to route that was just created", "error", err)
 			os.Exit(1)
 		}
 
 		// Run AARP and RTMP on each port.
-		etPort.AARPMachine = router.NewAARPMachine(etPort, etPort.EthernetAddr)
+		etPort.AARPMachine = router.NewAARPMachine(logger, etPort, etPort.EthernetAddr)
 		go etPort.AARPMachine.Run(ctx)
 		go etPort.RunRTMP(ctx)
 
@@ -326,6 +352,7 @@ func main() {
 	}
 
 	// ----------------------------- AURP inbound -----------------------------
+	//
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -351,20 +378,20 @@ func main() {
 			aurpPacketsInCounter.With(promLabels).Inc()
 			aurpBytesInCounter.With(promLabels).Add(float64(pktlen))
 
-			// slog.Debug("AURP: Received packet", "pktlen", pktlen, "raddr", raddr)
+			// logger.Debug("AURP: Received packet", "pktlen", pktlen, "raddr", raddr)
 
 			dh, pkt, parseErr := aurp.ParsePacket(pktbuf[:pktlen])
 			if parseErr != nil {
-				slog.Warn("AURP: Failed to parse packet", "error", parseErr, "pktlen", pktlen, "raddr", raddr)
+				logger.Warn("AURP: Failed to parse packet", "error", parseErr, "pktlen", pktlen, "raddr", raddr)
 				aurpInvalidPacketsInCounter.With(promLabels).Inc()
 				continue
 			}
 			if readErr != nil {
-				slog.Warn("AURP: Failed to read packet", "error", readErr, "pktlen", pktlen, "raddr", raddr)
+				logger.Warn("AURP: Failed to read packet", "error", readErr, "pktlen", pktlen, "raddr", raddr)
 				return
 			}
 
-			slog.Debug("AURP: Read packet from peer", "pkt-type", reflect.TypeOf(pkt), "raddr", raddr, "sourceDI", dh.SourceDI)
+			logger.Debug("AURP: Read packet from peer", "pkt-type", reflect.TypeOf(pkt), "raddr", raddr, "sourceDI", dh.SourceDI)
 
 			// Existing peer?
 			ra := [4]byte(raddr.IP)
@@ -372,12 +399,12 @@ func main() {
 			pr := peersByIP[ra]
 			if pr == nil {
 				if !cfg.OpenPeering {
-					slog.Warn("AURP: Got packet from peer not in config and open peering is disabled; dropping the packet", "raddr", raddr)
+					logger.Warn("AURP: Got packet from peer not in config and open peering is disabled; dropping the packet", "raddr", raddr)
 					peersMu.Unlock()
 					continue
 				}
 				// New peer!
-				pr = router.NewAURPPeer(routes, ln, "", raddr.IP, localDI, dh.SourceDI, nextConnID)
+				pr = router.NewAURPPeer(logger, routes, ln, "", raddr.IP, localDI, dh.SourceDI, nextConnID)
 				aurp.Inc(&nextConnID)
 				peersByIP[ra] = pr
 				goPeerHandler(pr)
@@ -400,17 +427,17 @@ func main() {
 			case aurp.PacketTypeAppleTalk:
 				apkt, ok := pkt.(*aurp.AppleTalkPacket)
 				if !ok {
-					slog.Error("AURP: Packet and domain header type conflict", "pkt-type", reflect.TypeOf(pkt), "dh-packettype", dh.PacketType)
+					logger.Error("AURP: Packet and domain header type conflict", "pkt-type", reflect.TypeOf(pkt), "dh-packettype", dh.PacketType)
 					continue
 				}
 
 				// Route or otherwise handle the encapsulated AppleTalk traffic
 				ddpkt := new(ddp.ExtPacket)
 				if err := ddp.ExtUnmarshal(apkt.Data, ddpkt); err != nil {
-					slog.Error("AURP: Couldn't unmarshal encapsulated DDP packet", "error", err)
+					logger.Error("AURP: Couldn't unmarshal encapsulated DDP packet", "error", err)
 					continue
 				}
-				// slog.Debug(fmt.Sprintf("DDP/AURP: Got %d.%d.%d -> %d.%d.%d proto %d data len %d",
+				// logger.Debug(fmt.Sprintf("DDP/AURP: Got %d.%d.%d -> %d.%d.%d proto %d data len %d",
 				// 	ddpkt.SrcNet, ddpkt.SrcNode, ddpkt.SrcSocket,
 				// 	ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket,
 				// 	ddpkt.Proto, len(ddpkt.Data)))
@@ -427,12 +454,12 @@ func main() {
 					// Is it NBP? FwdReq needs translating.
 					if ddpkt.DstSocket != 2 {
 						// Something else?? TODO
-						slog.Debug("DDP/AURP: I don't have anything 'listening' on that socket", "dst-socket", ddpkt.DstSocket)
+						logger.Debug("DDP/AURP: I don't have anything 'listening' on that socket", "dst-socket", ddpkt.DstSocket)
 						continue
 					}
 					// It's NBP, specifically it should be a FwdReq
 					if err := rooter.HandleNBPFromAURP(ctx, ddpkt); err != nil {
-						slog.Error("NBP/DDP/AURP handling", "error", err)
+						logger.Error("NBP/DDP/AURP handling", "error", err)
 					}
 					continue
 				}
@@ -444,11 +471,11 @@ func main() {
 				// another way, the whole network of AURP nodes acts as one huge
 				// "router".) Hence rooter.Output and not rooter.Forward.
 				if err := rooter.Output(ctx, ddpkt); err != nil {
-					slog.Error("DDP/AURP: Couldn't route packet", "error", err)
+					logger.Error("DDP/AURP: Couldn't route packet", "error", err)
 				}
 
 			default:
-				slog.Error("AURP: Unknown packet type", "dh-packettype", dh.PacketType)
+				logger.Error("AURP: Unknown packet type", "dh-packettype", dh.PacketType)
 			}
 		}
 	}()

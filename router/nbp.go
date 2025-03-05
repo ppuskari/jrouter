@@ -19,7 +19,6 @@ package router
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"drjosh.dev/jrouter/atalk"
 	"drjosh.dev/jrouter/atalk/nbp"
@@ -37,7 +36,7 @@ func (port *EtherTalkPort) HandleNBP(ctx context.Context, ddpkt *ddp.ExtPacket) 
 		return fmt.Errorf("invalid packet: %w", err)
 	}
 
-	slog.Debug(fmt.Sprintf("NBP: Got %v id %d with tuples %v", nbpkt.Function, nbpkt.NBPID, nbpkt.Tuples))
+	port.Logger.Debug(fmt.Sprintf("NBP: Got %v id %d with tuples %v", nbpkt.Function, nbpkt.NBPID, nbpkt.Tuples))
 
 	switch nbpkt.Function {
 	case nbp.FunctionLkUp:
@@ -46,7 +45,7 @@ func (port *EtherTalkPort) HandleNBP(ctx context.Context, ddpkt *ddp.ExtPacket) 
 		if err != nil || outDDP == nil {
 			return err
 		}
-		slog.Debug("NBP: Replying to LkUp with LkUp-Reply for myself")
+		port.Logger.Debug("NBP: Replying to LkUp with LkUp-Reply for myself")
 		// Note: AARP can block
 		return port.Send(ctx, outDDP)
 
@@ -108,7 +107,7 @@ func (port *EtherTalkPort) handleNBPBrRq(ctx context.Context, ddpkt *ddp.ExtPack
 				Data: nbpRaw,
 			}
 
-			slog.Debug("NBP: zone multicasting LkUp", "tuple", tuple)
+			port.Logger.Debug("NBP: zone multicasting LkUp", "tuple", tuple)
 			if err := etPort.ZoneMulticast(tuple.Zone, &outDDP); err != nil {
 				return err
 			}
@@ -122,7 +121,7 @@ func (port *EtherTalkPort) handleNBPBrRq(ctx context.Context, ddpkt *ddp.ExtPack
 			if outDDP2 == nil {
 				continue
 			}
-			slog.Debug("NBP: Replying to BrRq directly with LkUp-Reply for myself")
+			port.Logger.Debug("NBP: Replying to BrRq directly with LkUp-Reply for myself")
 			// Can reply to this BrRq on the same port we got it, because it
 			// wasn't routed
 			if err := port.Send(ctx, outDDP2); err != nil {
@@ -174,7 +173,7 @@ func (rtr *Router) handleNBPFwdReq(ctx context.Context, ddpkt *ddp.ExtPacket, nb
 		if !outPort.AvailableZones.Contains(tuple.Zone) {
 			continue
 		}
-		slog.Debug("NBP: Converting FwdReq to LkUp", "tuple", tuple)
+		rtr.Logger.Debug("NBP: Converting FwdReq to LkUp", "tuple", tuple)
 
 		// Convert it to a LkUp and broadcast on the corresponding port
 		nbpkt.Function = nbp.FunctionLkUp

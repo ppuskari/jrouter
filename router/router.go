@@ -19,11 +19,13 @@ package router
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
 type Router struct {
+	Logger     *slog.Logger
 	Config     *Config
 	RouteTable *RouteTable
 	Ports      []*EtherTalkPort

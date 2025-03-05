@@ -19,7 +19,6 @@ package router
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"drjosh.dev/jrouter/atalk"
@@ -107,7 +106,7 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 
 	case ddp.ProtoRTMPResp:
 		// It's a peer router on the AppleTalk network!
-		slog.Debug("RTMP: Got Response or Data")
+		port.Logger.Debug("RTMP: Got Response or Data")
 		dataPkt, err := rtmp.UnmarshalDataPacket(pkt.Data)
 		if err != nil {
 			return fmt.Errorf("unmarshal RTMP Data packet: %w", err)
@@ -199,7 +198,7 @@ func (port *EtherTalkPort) RunRTMP(ctx context.Context) (err error) {
 		setStatus("Broadcasting RTMP Data")
 		if err := port.broadcastRTMPData(); err != nil {
 			setStatus(fmt.Sprintf("Couldn't broadcast Data: %v", err))
-			slog.Error("RTMP: Couldn't broadcast Data", "error", err)
+			port.Logger.Error("RTMP: Couldn't broadcast Data", "error", err)
 		}
 	}
 }

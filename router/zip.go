@@ -19,7 +19,6 @@ package router
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"drjosh.dev/jrouter/atalk"
 	"drjosh.dev/jrouter/atalk/atp"
@@ -63,7 +62,7 @@ func (port *EtherTalkPort) handleZIPZIP(ctx context.Context, ddpkt *ddp.ExtPacke
 }
 
 func (port *EtherTalkPort) handleZIPQuery(ctx context.Context, ddpkt *ddp.ExtPacket, zipkt *zip.QueryPacket) error {
-	slog.Debug("ZIP: Got Query for networks", "networks", zipkt.Networks)
+	port.Logger.Debug("ZIP: Got Query for networks", "networks", zipkt.Networks)
 	networks := port.Router.RouteTable.ZonesForNetworks(zipkt.Networks)
 
 	sendReply := func(resp *zip.ReplyPacket) error {
@@ -109,7 +108,7 @@ func (port *EtherTalkPort) handleZIPQuery(ctx context.Context, ddpkt *ddp.ExtPac
 
 	if size <= atalk.DDPMaxDataSize {
 		// Send one non-extended reply packet with all the data
-		slog.Debug("ZIP: Replying with non-extended Reply", "networks", networks)
+		port.Logger.Debug("ZIP: Replying with non-extended Reply", "networks", networks)
 		return sendReply(&zip.ReplyPacket{
 			Extended: false,
 			// "Replies contain the number of zones lists indicated in
@@ -139,7 +138,7 @@ func (port *EtherTalkPort) handleZIPQuery(ctx context.Context, ddpkt *ddp.ExtPac
 			nets := map[ddp.Network][]string{
 				nn: chunk,
 			}
-			slog.Debug("ZIP: Replying with Extended Reply", "networks", nets)
+			port.Logger.Debug("ZIP: Replying with Extended Reply", "networks", nets)
 			err := sendReply(&zip.ReplyPacket{
 				Extended: true,
 				// "The network count in the header indicates, not the
@@ -159,7 +158,7 @@ func (port *EtherTalkPort) handleZIPQuery(ctx context.Context, ddpkt *ddp.ExtPac
 }
 
 func (port *EtherTalkPort) handleZIPReply(zipkt *zip.ReplyPacket) error {
-	slog.Debug("ZIP: Got Reply", "networks", zipkt.Networks)
+	port.Logger.Debug("ZIP: Got Reply", "networks", zipkt.Networks)
 
 	// Integrate new zone information into route table.
 	for n, zs := range zipkt.Networks {
@@ -171,7 +170,7 @@ func (port *EtherTalkPort) handleZIPReply(zipkt *zip.ReplyPacket) error {
 }
 
 func (port *EtherTalkPort) handleZIPGetNetInfo(ctx context.Context, ddpkt *ddp.ExtPacket, zipkt *zip.GetNetInfoPacket) error {
-	slog.Debug("ZIP: Got GetNetInfo", "zone", zipkt.ZoneName)
+	port.Logger.Debug("ZIP: Got GetNetInfo", "zone", zipkt.ZoneName)
 
 	// The request is zoneValid if the zone name is available on this network.
 	zoneValid := port.AvailableZones.Contains(zipkt.ZoneName)
@@ -199,7 +198,7 @@ func (port *EtherTalkPort) handleZIPGetNetInfo(ctx context.Context, ddpkt *ddp.E
 	if !zoneValid {
 		resp.DefaultZoneName = port.DefaultZoneName
 	}
-	slog.Debug("ZIP: Replying with GetNetInfo-Reply", "response-data", resp)
+	port.Logger.Debug("ZIP: Replying with GetNetInfo-Reply", "response-data", resp)
 
 	respRaw, err := resp.Marshal()
 	if err != nil {
