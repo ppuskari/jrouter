@@ -103,13 +103,13 @@ type AURPPeer struct {
 	// Connection to reply to packets on.
 	UDPConn *net.UDPConn
 
-	// The string that appeared in the config file / peer list file (with a
-	// ":387" appended as necessary).
-	// May be empty if this peer was not configured (it connected to us).
+	// The string that appeared in the config file / peer list file.
+	// May be empty if this peer was not configured (it connected to us, with
+	// open_peering enabled).
 	ConfiguredAddr string
 
 	// The resolved address of the peer.
-	// NOTE: The port is ignored and replaced with 387.
+	// NOTE: The UDP port is always assumed to be 387.
 	RemoteAddr net.IP
 
 	// Incoming packet channel.
@@ -146,10 +146,9 @@ func NewAURPPeer(routes *RouteTable, udpConn *net.UDPConn, peerAddr string, radd
 		},
 		UDPConn:        udpConn,
 		ConfiguredAddr: peerAddr,
-		// TODO: The port is assumed to be 387 - sensible?
-		RemoteAddr: raddr,
-		ReceiveCh:  make(chan aurp.Packet, 1024),
-		RouteTable: routes,
+		RemoteAddr:     raddr,
+		ReceiveCh:      make(chan aurp.Packet, 1024),
+		RouteTable:     routes,
 	}
 }
 
@@ -481,12 +480,15 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 					}
 
 					// In case it's a DNS name, re-resolve it before reconnecting
-					raddr, err := net.ResolveUDPAddr("udp4", p.ConfiguredAddr)
+					raddr, err := net.ResolveIPAddr("ip4", p.ConfiguredAddr)
 					if err != nil {
 						slog.Warn("Couldn't resolve UDP address, skipping", "configured-addr", p.ConfiguredAddr, "error", err)
 						break
 					}
 					slog.Debug("AURP Peer: resolved address", "configured-addr", p.ConfiguredAddr, "raddr", raddr)
+					if raddr.IP.To4() == nil {
+						slog.Warn("Resolved peer address is not an IPv4 address, skipping", "configured-addr", p.ConfiguredAddr, "raddr", raddr)
+					}
 					p.RemoteAddr = raddr.IP
 
 					p.bumpLastReconnect()

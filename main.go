@@ -30,7 +30,6 @@ import (
 	"os"
 	"os/signal"
 	"reflect"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -48,8 +47,6 @@ import (
 	"github.com/sfiera/multitalk/pkg/ddp"
 	"github.com/sfiera/multitalk/pkg/ethernet"
 )
-
-var hasPortRE = regexp.MustCompile(`:\d+$`)
 
 var configFilePath = flag.String("config", "jrouter.yaml", "Path to configuration file to use")
 
@@ -259,19 +256,20 @@ func main() {
 	}
 
 	for _, peerStr := range cfg.Peers {
-		if !hasPortRE.MatchString(peerStr) {
-			peerStr += ":387"
-		}
-
-		raddr, err := net.ResolveUDPAddr("udp4", peerStr)
+		raddr, err := net.ResolveIPAddr("ip4", peerStr)
 		if err != nil {
 			slog.Warn("Couldn't resolve address, skipping", "error", err)
 			continue
 		}
-		slog.Debug("resolved address", "peerStr", peerStr, "raddr", raddr)
+		slog.Debug("Resolved address", "configured-addr", peerStr, "raddr", raddr)
+
+		if raddr.IP.To4() == nil {
+			slog.Warn("Resolved peer address is not an IPv4 address, skipping", "configured-addr", peerStr, "raddr", raddr)
+			continue
+		}
 
 		if raddr.IP.Equal(localIP) {
-			slog.Debug("not adding self as peer", "peerStr", peerStr, "raddr", raddr)
+			slog.Debug("Not adding self as peer", "configured-addr", peerStr, "raddr", raddr)
 			continue
 		}
 
