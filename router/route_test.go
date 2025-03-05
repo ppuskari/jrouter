@@ -24,7 +24,7 @@ type fakeObserver struct {
 	events []observerEvent
 }
 
-func (o *fakeObserver) sortEventSubranges() {
+func (o *fakeObserver) sortDeleteEventSubranges() {
 	for i, j := 0, 0; i < len(o.events); i = j {
 		for j = i + 1; j <= len(o.events); j++ {
 			if j < len(o.events) && o.events[i].Event == o.events[j].Event {
@@ -33,27 +33,15 @@ func (o *fakeObserver) sortEventSubranges() {
 			break
 		}
 
+		if o.events[i].Event != "deleted" {
+			continue
+		}
+
 		slices.SortFunc(o.events[i:j], func(a, b observerEvent) int {
-			switch o.events[i].Event {
-			case "added":
-				return cmp.Or(
-					cmp.Compare(a.To.TargetKey, b.To.TargetKey),
-					cmp.Compare(a.To.NetStart, b.To.NetStart),
-				)
-			case "deleted":
-				return cmp.Or(
-					cmp.Compare(a.From.TargetKey, b.From.TargetKey),
-					cmp.Compare(a.From.NetStart, b.From.NetStart),
-				)
-			case "changed":
-				return cmp.Or(
-					cmp.Compare(a.From.TargetKey, b.From.TargetKey),
-					cmp.Compare(a.To.TargetKey, b.To.TargetKey),
-					cmp.Compare(a.From.NetStart, b.From.NetStart),
-					cmp.Compare(a.To.NetStart, b.To.NetStart),
-				)
-			}
-			return 0
+			return cmp.Or(
+				cmp.Compare(a.From.TargetKey, b.From.TargetKey),
+				cmp.Compare(a.From.NetStart, b.From.NetStart),
+			)
 		})
 	}
 }
@@ -311,7 +299,9 @@ func TestRouteTable_DeleteTarget(t *testing.T) {
 		{Event: "deleted", From: oldRoute1},
 		{Event: "deleted", From: oldRoute2},
 	}
-	obs.sortEventSubranges()
+	// Because DeleteTarget passes network changes through a map, the order may
+	// vary, so sort subranges of delete events into network order.
+	obs.sortDeleteEventSubranges()
 	if diff := gocmp.Diff(obs.events, wantEvents, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
 		t.Errorf("obs.changed diff (-got +want):\n%s", diff)
 	}
