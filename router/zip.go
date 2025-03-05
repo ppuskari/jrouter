@@ -163,7 +163,7 @@ func (port *EtherTalkPort) handleZIPReply(zipkt *zip.ReplyPacket) error {
 
 	// Integrate new zone information into route table.
 	for n, zs := range zipkt.Networks {
-		if err := port.Router.RouteTable.AddZonesToRoute(port, n, zs...); err != nil {
+		if err := port.Router.RouteTable.AddZonesToNetwork(n, zs...); err != nil {
 			return err
 		}
 	}

@@ -179,23 +179,25 @@ func (p *AURPPeer) addPendingEvent(ec aurp.EventCode, route *Route) {
 }
 
 // NetworkAdded implements RouteTableObserver.
-func (p *AURPPeer) NetworkAdded(route *Route) {
-	p.addPendingEvent(aurp.EventCodeNA, route)
+func (p *AURPPeer) NetworkAdded(newBest Route) {
+	p.addPendingEvent(aurp.EventCodeNA, &newBest)
 }
 
 // NetworkDeleted implements RouteTableObserver.
-func (p *AURPPeer) NetworkDeleted(route *Route) {
-	p.addPendingEvent(aurp.EventCodeND, route)
+func (p *AURPPeer) NetworkDeleted(oldBest Route) {
+	p.addPendingEvent(aurp.EventCodeND, &oldBest)
 }
 
-// NetworkDistanceChanged implements RouteTableObserver.
-func (p *AURPPeer) NetworkDistanceChanged(route *Route) {
-	p.addPendingEvent(aurp.EventCodeNDC, route)
-}
+// BestNetworkChanged implements RouteTableObserver.
+func (p *AURPPeer) BestNetworkChanged(oldBest, newBest Route) {
+	switch {
+	case oldBest.Target.Class() != TargetClassAURPPeer && newBest.Target.Class() == TargetClassAURPPeer:
+		// NRC is a fancy variation on ND.
+		p.addPendingEvent(aurp.EventCodeNRC, &newBest)
 
-// NetworkRouteChanged implements RouteTableObserver.
-func (p *AURPPeer) NetworkRouteChanged(route *Route) {
-	p.addPendingEvent(aurp.EventCodeNRC, route)
+	case oldBest.Distance != newBest.Distance:
+		p.addPendingEvent(aurp.EventCodeNDC, &newBest)
+	}
 }
 
 // Forward encapsulates the DDP packet in an AURP AppleTalkPacket and sends it
@@ -783,7 +785,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 						}
 
 					case aurp.EventCodeNDC:
-						if err := p.RouteTable.UpdateRoute(p, et.RangeStart, et.Distance+1); err != nil {
+						if err := p.RouteTable.UpdateDistance(p, et.RangeStart, et.Distance+1); err != nil {
 							log.Printf("AURP Peer: NDC event: couldn't update route: %v", err)
 						}
 
@@ -833,7 +835,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 			case *aurp.ZIRspPacket:
 				log.Printf("AURP Peer: Learned about these zones: %v", pkt.Zones)
 				for _, zt := range pkt.Zones {
-					p.RouteTable.AddZonesToRoute(p, zt.Network, zt.Name)
+					p.RouteTable.AddZonesToNetwork(zt.Network, zt.Name)
 				}
 
 			case *aurp.GDZLReqPacket:

@@ -35,7 +35,7 @@ const maxRouteAge = 10 * time.Minute // TODO: confirm
 // towards the destination, and some other data that affects whether the route
 // is used.
 type Route struct {
-	RouteKey
+	RouteKey // embeds TargetKey and NetStart
 
 	Extended bool
 	NetEnd   ddp.Network
@@ -46,27 +46,36 @@ type Route struct {
 	Distance uint8
 	LastSeen time.Time
 
-	// ZoneNames may be empty between learning the existence of a route and
-	// receiving zone information.
-	ZoneNames StringSet
+	// reference back to the netStart network
+	network *network
 }
 
 func (r Route) LastSeenAgo() string {
 	return ago(r.LastSeen)
 }
 
+// Zero reports whether the route is a zero value for Route (trivially invalid).
+func (r Route) Zero() bool {
+	return r.Target == nil || r.network == nil
+}
+
 // Valid reports whether the route is valid.
-// A valid route has one or more zone names, and if it is learned from a peer
-// router over EtherTalk is not too old.
-func (r *Route) Valid() bool {
-	if len(r.ZoneNames) == 0 {
+// A valid route has a target, one or more zone names, and if it is learned from
+// an AppleTalk router, the last data update is not too old.
+func (r Route) Valid() bool {
+	if r.Zero() {
 		return false
 	}
-	if _, isEtherTalkPeer := r.Target.(*EtherTalkPeer); isEtherTalkPeer {
+	if len(r.network.ZoneNames) == 0 {
+		return false
+	}
+	if r.Target.Class() == TargetClassAppleTalkPeer {
 		return time.Since(r.LastSeen) <= maxRouteAge
 	}
 	return true
 }
+
+type routeChange struct{ From, To Route }
 
 // RouteTarget implementations can forward packets somewhere.
 type RouteTarget interface {
@@ -90,19 +99,23 @@ type RouteKey struct {
 // RouteTableObserver implementations can receive notifications of route table
 // changes. (TODO, not yet implemented)
 type RouteTableObserver interface {
-	// NetworkAdded is called when networks become routable.
-	NetworkAdded(*Route)
+	// NetworkAdded is called when a network becomes routable.
+	NetworkAdded(best Route)
 
-	// NetworkDeleted is called when networks become _un_routable.
-	NetworkDeleted(*Route)
+	// NetworkDeleted is called when a network becomes _un_routable.
+	NetworkDeleted(oldBest Route)
 
-	// NetworkDistanceChanged is called when the best routing distance
-	// for a network has changed.
-	NetworkDistanceChanged(*Route)
+	// BestNetworkChanged is called when the best routing distance
+	// or route for a network has changed (from e.g. a direct EtherTalk
+	// connection to an AURP peer).
+	BestNetworkChanged(from, to Route)
+}
 
-	// NetworkRouteChanged is called when the best routing path for a network
-	// has changed (from e.g. a direct EtherTalk connection to an AURP peer).
-	NetworkRouteChanged(*Route)
+// network is a data structure representing an AppleTalk network.
+type network struct {
+	sync.RWMutex
+	Routes    []Route
+	ZoneNames StringSet
 }
 
 // RouteTable is an in-memory database of routes.
@@ -110,12 +123,11 @@ type RouteTable struct {
 	// byNetwork is used for packet forwarding, so it uses very fine-
 	// grained locking and structures per network number. (There are only 2^16
 	// of them, on a modern system that's tiny.)
-	byNetworkMu [1 << 16]sync.RWMutex
-	byNetwork   [1 << 16][]*Route
+	byNetwork [1 << 16]network
 
 	// byClassMu divides routes broadly by target type.
 	byClassMu [TargetClassCount]sync.RWMutex
-	byClass   [TargetClassCount]map[RouteKey]*Route
+	byClass   [TargetClassCount]map[RouteKey]Route
 
 	// networksByZone maps zone names to network numbers.
 	networksByZoneMu sync.RWMutex
@@ -133,7 +145,7 @@ func NewRouteTable() *RouteTable {
 		networksByZone: make(map[string][]ddp.Network),
 	}
 	for i := range TargetClassCount {
-		rt.byClass[i] = make(map[RouteKey]*Route)
+		rt.byClass[i] = make(map[RouteKey]Route)
 	}
 	return rt
 }
@@ -152,16 +164,8 @@ func (rt *RouteTable) RemoveObserver(obs RouteTableObserver) {
 	delete(rt.observers, obs)
 }
 
-func (rt *RouteTable) notifyObservers(r *Route, event func(RouteTableObserver, *Route)) {
-	rt.observersMu.RLock()
-	defer rt.observersMu.RUnlock()
-	for o := range rt.observers {
-		event(o, r)
-	}
-}
-
 // Dump returns all routes in the table.
-func (rt *RouteTable) Dump() (allRoutes []*Route) {
+func (rt *RouteTable) Dump() (allRoutes []Route) {
 	for i := range rt.byClass {
 		func() {
 			rt.byClassMu[i].RLock()
@@ -172,18 +176,19 @@ func (rt *RouteTable) Dump() (allRoutes []*Route) {
 	return allRoutes
 }
 
-// Lookup returns the best valid route for the network number.
-func (rt *RouteTable) Lookup(network ddp.Network) *Route {
-	rt.byNetworkMu[network].RLock()
-	defer rt.byNetworkMu[network].RUnlock()
+// Lookup returns the best valid route for the network number. If there is no
+// valid route, the zero Route is returned (it will have nil Target).
+func (rt *RouteTable) Lookup(network ddp.Network) Route {
+	rt.byNetwork[network].RLock()
+	defer rt.byNetwork[network].RUnlock()
 
 	// Routes are sorted by distance, so we can return the first valid route.
-	for _, r := range rt.byNetwork[network] {
+	for _, r := range rt.byNetwork[network].Routes {
 		if r.Valid() {
 			return r
 		}
 	}
-	return nil
+	return Route{}
 }
 
 // DeleteTarget deletes the route target and all its routes.
@@ -191,7 +196,6 @@ func (rt *RouteTable) DeleteTarget(target RouteTarget) {
 	class := target.Class()
 	targetKey := target.RouteTargetKey()
 
-	type routeChange struct{ oldBest, newBest *Route }
 	var routeChanges []*routeChange
 	networks := make(map[ddp.Network]*routeChange)
 
@@ -215,30 +219,30 @@ func (rt *RouteTable) DeleteTarget(target RouteTarget) {
 	// Delete target routes from each network number.
 	for n, rc := range networks {
 		func() {
-			rt.byNetworkMu[n].Lock()
-			defer rt.byNetworkMu[n].Unlock()
+			rt.byNetwork[n].Lock()
+			defer rt.byNetwork[n].Unlock()
 
-			oldRoutes := rt.byNetwork[n]
-			newRoutes := make([]*Route, 0, len(oldRoutes))
-			for _, route := range oldRoutes {
-				if rc.oldBest == nil && route.Valid() {
-					rc.oldBest = route
+			oldRoutes := rt.byNetwork[n].Routes
+			newRoutes := make([]Route, 0, len(oldRoutes))
+			for _, r := range oldRoutes {
+				if rc.From.Target == nil && r.Valid() {
+					rc.From = r
 				}
-				if route.Target.RouteTargetKey() == targetKey {
+				if r.Target.RouteTargetKey() == targetKey {
 					continue
 				}
-				newRoutes = append(newRoutes, route)
-				if rc.newBest == nil && route.Valid() {
-					rc.newBest = route
+				newRoutes = append(newRoutes, r)
+				if rc.To.Target == nil && r.Valid() {
+					rc.To = r
 				}
 			}
-			rt.byNetwork[n] = newRoutes
+			rt.byNetwork[n].Routes = newRoutes
 		}()
 	}
 
 	// Notify observers of necessary changes
 	for _, rc := range routeChanges {
-		rt.notifyObserversOfChange(rc.oldBest, rc.newBest)
+		rt.informObservers(rc.From, rc.To)
 	}
 }
 
@@ -252,45 +256,42 @@ func (rt *RouteTable) DeleteRoute(target RouteTarget, netStart ddp.Network) erro
 
 	// Lookup the old best route for the network for comparisons.
 	oldBest := rt.Lookup(netStart)
-	if oldBest == nil {
+	if oldBest.Target == nil {
 		return fmt.Errorf("network %d not found", netStart)
 	}
 
 	// Find and delete the route from byClass
-	route := func() *Route {
+	route, exists := func() (Route, bool) {
 		rt.byClassMu[class].Lock()
 		defer rt.byClassMu[class].Unlock()
-		defer delete(rt.byClass[class], routeKey)
-		return rt.byClass[class][routeKey]
+
+		route, found := rt.byClass[class][routeKey]
+		delete(rt.byClass[class], routeKey)
+		return route, found
 	}()
-	if route == nil {
+	if !exists {
 		return fmt.Errorf("route %v not found", routeKey)
 	}
 
 	// Delete the route from byNetwork.
 	for n := route.NetStart; n <= route.NetEnd; n++ {
 		func() {
-			rt.byNetworkMu[n].Lock()
-			defer rt.byNetworkMu[n].Unlock()
+			rt.byNetwork[n].Lock()
+			defer rt.byNetwork[n].Unlock()
 
-			oldRoutes := rt.byNetwork[n]
-			newRoutes := make([]*Route, 0, len(oldRoutes))
-			for _, r := range oldRoutes {
-				if r.TargetKey != routeKey.TargetKey {
-					newRoutes = append(newRoutes, r)
-				}
-			}
-			rt.byNetwork[n] = newRoutes
+			rt.byNetwork[n].Routes = slices.DeleteFunc(rt.byNetwork[n].Routes, func(r Route) bool {
+				return r.TargetKey == routeKey.TargetKey
+			})
 		}()
 	}
 
 	newBest := rt.Lookup(route.NetStart)
-	rt.notifyObserversOfChange(oldBest, newBest)
+	rt.informObservers(oldBest, newBest)
 	return nil
 }
 
 // find looks up a route by target and network range start.
-func (rt *RouteTable) find(target RouteTarget, netStart ddp.Network) (*Route, error) {
+func (rt *RouteTable) find(target RouteTarget, netStart ddp.Network) Route {
 	class := target.Class()
 	routeKey := RouteKey{
 		TargetKey: target.RouteTargetKey(),
@@ -299,53 +300,57 @@ func (rt *RouteTable) find(target RouteTarget, netStart ddp.Network) (*Route, er
 
 	rt.byClassMu[class].RLock()
 	defer rt.byClassMu[class].RUnlock()
-	route := rt.byClass[class][routeKey]
-	if route == nil {
-		return nil, fmt.Errorf("route %v not found", routeKey)
-	}
-	return route, nil
+	return rt.byClass[class][routeKey]
 }
 
-// UpdateRoute updates the distance for an existing route.
-func (rt *RouteTable) UpdateRoute(target RouteTarget, netStart ddp.Network, distance uint8) error {
+// UpdateDistance updates the distance for an existing route.
+func (rt *RouteTable) UpdateDistance(target RouteTarget, netStart ddp.Network, distance uint8) error {
 	oldBest := rt.Lookup(netStart)
-	if oldBest == nil {
+	if oldBest.Target == nil {
 		return fmt.Errorf("network %d not found", netStart)
 	}
 
-	route, err := rt.find(target, netStart)
-	if err != nil {
-		return err
+	oldRoute := rt.find(target, netStart)
+	if oldRoute.Target == nil {
+		return fmt.Errorf("route (%v,%d) not found", target, netStart)
 	}
 
-	route.LastSeen = time.Now()
-	if distance != route.Distance {
-		route.Distance = distance
+	newRoute := oldRoute // shallow clone
+
+	newRoute.LastSeen = time.Now()
+	if distance != oldRoute.Distance {
+		newRoute.Distance = distance
 	}
 
-	for n := route.NetStart; n <= route.NetEnd; n++ {
+	for n := oldRoute.NetStart; n <= oldRoute.NetEnd; n++ {
 		func() {
-			rt.byNetworkMu[n].Lock()
-			defer rt.byNetworkMu[n].Unlock()
-			slices.SortFunc(rt.byNetwork[n], func(a, b *Route) int {
+			rt.byNetwork[n].Lock()
+			defer rt.byNetwork[n].Unlock()
+			for i, r := range rt.byNetwork[n].Routes {
+				if r.RouteKey == oldRoute.RouteKey {
+					rt.byNetwork[n].Routes[i] = newRoute
+				}
+			}
+			slices.SortFunc(rt.byNetwork[n].Routes, func(a, b Route) int {
 				return cmp.Compare(a.Distance, b.Distance)
 			})
 		}()
 	}
 
-	newBest := rt.Lookup(route.NetStart)
-	rt.notifyObserversOfChange(oldBest, newBest)
+	newBest := rt.Lookup(oldRoute.NetStart)
+	rt.informObservers(oldBest, newBest)
 
 	return nil
 }
 
-// UpsertRoute inserts a new route or updates an existing route.
-func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, netEnd ddp.Network, metric uint8) (*Route, error) {
+// UpsertRoute inserts a new route or updates an existing route. It always
+// returns a new Route.
+func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, netEnd ddp.Network, metric uint8) (Route, error) {
 	if netStart > netEnd {
-		return nil, fmt.Errorf("invalid network range [%d, %d]", netStart, netEnd)
+		return Route{}, fmt.Errorf("invalid network range [%d, %d]", netStart, netEnd)
 	}
 	if netStart != netEnd && !extended {
-		return nil, fmt.Errorf("invalid network range [%d, %d] for nonextended network", netStart, netEnd)
+		return Route{}, fmt.Errorf("invalid network range [%d, %d] for nonextended network", netStart, netEnd)
 	}
 
 	oldBest := rt.Lookup(netStart) // may not exist yet
@@ -356,80 +361,79 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 		NetStart:  netStart,
 	}
 
-	var route *Route
-	insert := false
+	newRoute := Route{
+		RouteKey: key,
+		Extended: extended,
+		NetEnd:   netEnd,
+		Target:   target,
+		Distance: metric,
+		LastSeen: time.Now(),
+
+		network: &rt.byNetwork[netStart],
+	}
+
 	update := false
 	func() {
 		rt.byClassMu[class].Lock()
 		defer rt.byClassMu[class].Unlock()
-		route = rt.byClass[class][key]
-		if route != nil {
-			// Update
-			route.LastSeen = time.Now()
-			if route.Distance != metric {
-				route.Distance = metric
-				update = true
-			}
-			return
-		}
-		// Route insert.
-		insert = true
-		route = &Route{
-			RouteKey: key,
-			Extended: extended,
-			NetEnd:   netEnd,
-			Target:   target,
-			Distance: metric,
-			LastSeen: time.Now(),
-		}
-		rt.byClass[class][key] = route
+		_, update = rt.byClass[class][key]
+		rt.byClass[class][key] = newRoute
 	}()
-
-	if !insert && !update {
-		return route, nil
-	}
 
 	for n := netStart; n <= netEnd; n++ {
 		func() {
-			rt.byNetworkMu[n].Lock()
-			defer rt.byNetworkMu[n].Unlock()
+			rt.byNetwork[n].Lock()
+			defer rt.byNetwork[n].Unlock()
 
-			if insert {
-				rt.byNetwork[n] = append(rt.byNetwork[n], route)
+			if update {
+				for i, r := range rt.byNetwork[n].Routes {
+					if r.RouteKey == key {
+						rt.byNetwork[n].Routes[i] = newRoute
+					}
+				}
+			} else {
+				rt.byNetwork[n].Routes = append(rt.byNetwork[n].Routes, newRoute)
 			}
-			slices.SortFunc(rt.byNetwork[n], func(a, b *Route) int {
+
+			slices.SortFunc(rt.byNetwork[n].Routes, func(a, b Route) int {
 				return cmp.Compare(a.Distance, b.Distance)
 			})
 		}()
 	}
 
 	newBest := rt.Lookup(netStart)
-	rt.notifyObserversOfChange(oldBest, newBest)
+	rt.informObservers(oldBest, newBest)
 
-	return route, nil
+	return newRoute, nil
 }
 
-func (rt *RouteTable) notifyObserversOfChange(oldBest, newBest *Route) {
+func (rt *RouteTable) informObservers(oldBest, newBest Route) {
+	rt.observersMu.RLock()
+	defer rt.observersMu.RUnlock()
+
 	switch {
-	case oldBest == nil && newBest == nil:
-		// neither old nor new route is valid (yet)
+	case oldBest.Target == nil && newBest.Target == nil:
+		// neither old nor new route is valid (yet), no notifying.
 
-	case oldBest == nil: // newBest != nil
-		rt.notifyObservers(newBest, RouteTableObserver.NetworkAdded)
+	case oldBest.Target == nil: // newBest.Target != nil
+		for o := range rt.observers {
+			o.NetworkAdded(newBest)
+		}
 
-	case newBest == nil: // oldBest != nil
-		rt.notifyObservers(oldBest, RouteTableObserver.NetworkDeleted)
+	case newBest.Target == nil: // oldBest != nil
+		for o := range rt.observers {
+			o.NetworkDeleted(oldBest)
+		}
 
-	case oldBest.TargetKey != newBest.TargetKey:
-		rt.notifyObservers(newBest, RouteTableObserver.NetworkRouteChanged)
-
-	case oldBest.Distance != newBest.Distance:
-		rt.notifyObservers(newBest, RouteTableObserver.NetworkDistanceChanged)
+	case oldBest.TargetKey != newBest.TargetKey || oldBest.Distance != newBest.Distance:
+		for o := range rt.observers {
+			o.BestNetworkChanged(oldBest, newBest)
+		}
 	}
 }
 
 // ValidRoutes yields all valid routes.
-func (rt *RouteTable) ValidRoutes(yield func(*Route) bool) {
+func (rt *RouteTable) ValidRoutes(yield func(Route) bool) {
 	for c := range TargetClassCount {
 		for r := range rt.ValidRoutesForClass(c) {
 			if !yield(r) {
@@ -441,8 +445,8 @@ func (rt *RouteTable) ValidRoutes(yield func(*Route) bool) {
 
 // ValidRoutesForClass returns an iterator that yields all valid routes for a
 // given target class.
-func (rt *RouteTable) ValidRoutesForClass(class TargetClass) iter.Seq[*Route] {
-	return func(yield func(*Route) bool) {
+func (rt *RouteTable) ValidRoutesForClass(class TargetClass) iter.Seq[Route] {
+	return func(yield func(Route) bool) {
 		rt.byClassMu[class].RLock()
 		defer rt.byClassMu[class].RUnlock()
 

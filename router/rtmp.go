@@ -129,7 +129,7 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 			if err != nil {
 				return fmt.Errorf("upsert EtherTalk route: %v", err)
 			}
-			if len(route.ZoneNames) == 0 {
+			if len(port.Router.RouteTable.byNetwork[nt.RangeStart].ZoneNames) == 0 {
 				noZones = append(noZones, route.NetStart)
 			}
 		}

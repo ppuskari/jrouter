@@ -23,40 +23,30 @@ import (
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
-// AddZonesToRoute adds zone names to the route specified by (target, netStart).
-func (rt *RouteTable) AddZonesToRoute(target RouteTarget, netStart ddp.Network, zs ...string) error {
-	route, err := rt.find(target, netStart)
-	if err != nil {
-		return err
-	}
+// AddZonesToRoute adds zone names to the network.
+func (rt *RouteTable) AddZonesToNetwork(n ddp.Network, zs ...string) error {
+	oldBest := rt.Lookup(n)
 
-	oldBest := rt.Lookup(netStart)
+	func() {
+		rt.byNetwork[n].Lock()
+		defer rt.byNetwork[n].Unlock()
 
-	if route.ZoneNames == nil {
-		route.ZoneNames = make(StringSet)
-	}
-	route.ZoneNames.Insert(zs...)
+		if rt.byNetwork[n].ZoneNames == nil {
+			rt.byNetwork[n].ZoneNames = make(StringSet)
+		}
+		rt.byNetwork[n].ZoneNames.Insert(zs...)
+	}()
 
-	rt.networksByZoneMu.Lock()
-	defer rt.networksByZoneMu.Unlock()
-	for _, zn := range zs {
-		rt.networksByZone[zn] = append(rt.networksByZone[zn], netStart)
-	}
+	func() {
+		rt.networksByZoneMu.Lock()
+		defer rt.networksByZoneMu.Unlock()
+		for _, zn := range zs {
+			rt.networksByZone[zn] = append(rt.networksByZone[zn], n)
+		}
+	}()
 
-	newBest := rt.Lookup(netStart)
-	switch {
-	case newBest == nil:
-	// still not valid for some reason
-
-	case oldBest == nil:
-		rt.notifyObservers(newBest, RouteTableObserver.NetworkAdded)
-
-	case oldBest.TargetKey != newBest.TargetKey:
-		rt.notifyObservers(newBest, RouteTableObserver.NetworkRouteChanged)
-
-	case oldBest.Distance != newBest.Distance:
-		rt.notifyObservers(newBest, RouteTableObserver.NetworkDistanceChanged)
-	}
+	newBest := rt.Lookup(n)
+	rt.informObservers(oldBest, newBest)
 
 	return nil
 }
@@ -68,28 +58,37 @@ func (rt *RouteTable) ZonesForNetworks(networks []ddp.Network) map[ddp.Network][
 
 	for _, n := range networks {
 		r := rt.Lookup(n)
-		if r == nil {
+		if r.Target == nil {
 			continue
 		}
-		zs[n] = append(zs[n], r.ZoneNames.ToSlice()...)
+		func() {
+			rt.byNetwork[n].RLock()
+			defer rt.byNetwork[n].RUnlock()
+			zs[n] = append(zs[n], rt.byNetwork[n].ZoneNames.ToSlice()...)
+		}()
 	}
 
 	return zs
 }
 
-// RoutesForZone returns all valid routes containing the zone name.
+// RoutesForZone returns best routes for the zone name.
 // (Zones can span multiple different networks.) This is used for handling
 // NBP BrRq.
-func (rt *RouteTable) RoutesForZone(zone string) []*Route {
-	var routes []*Route
+func (rt *RouteTable) RoutesForZone(zone string) []Route {
+	var routes []Route
 	for _, n := range rt.networksForZone(zone) {
-		r := rt.Lookup(n)
-		if r == nil {
-			continue
-		}
-		if r.ZoneNames.Contains(zone) {
+		func() {
+			rt.byNetwork[n].RLock()
+			defer rt.byNetwork[n].RUnlock()
+			if !rt.byNetwork[n].ZoneNames.Contains(zone) {
+				return
+			}
+			r := rt.Lookup(n) // reader side of lock is shared, so we're good.
+			if r.Target == nil {
+				return
+			}
 			routes = append(routes, r)
-		}
+		}()
 	}
 	return routes
 }

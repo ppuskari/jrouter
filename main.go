@@ -172,7 +172,7 @@ func main() {
 	routes := router.NewRouteTable()
 	status.AddItem(ctx, "Routing table", routingTableTemplate, func(context.Context) (any, error) {
 		rs := routes.Dump()
-		slices.SortFunc(rs, func(ra, rb *router.Route) int {
+		slices.SortFunc(rs, func(ra, rb router.Route) int {
 			return cmp.Compare(ra.NetStart, rb.NetStart)
 		})
 		return rs, nil
@@ -286,11 +286,12 @@ func main() {
 		etPort.Router = rooter
 
 		// Add port to routing table
-		route, err := routes.UpsertRoute(etPort, true /* extended */, etPort.NetStart, etPort.NetEnd, 0)
-		if err != nil {
+		if _, err := routes.UpsertRoute(etPort, true /* extended */, etPort.NetStart, etPort.NetEnd, 0); err != nil {
 			log.Fatalf("Couldn't create route for EtherTalk port: %v", err)
 		}
-		route.ZoneNames = etPort.AvailableZones
+		if err := routes.AddZonesToNetwork(etPort.NetStart, etPort.AvailableZones.ToSlice()...); err != nil {
+			log.Fatalf("Couldn't add zones to route that was just created: %v", err)
+		}
 
 		// Run AARP and RTMP on each port.
 		etPort.AARPMachine = router.NewAARPMachine(etPort, etPort.EthernetAddr)
