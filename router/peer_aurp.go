@@ -642,6 +642,8 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 
 				// TODO: filter these by HiddenZones
 				for r := range p.RouteTable.ValidRoutesForClass(TargetClassDirect) {
+					// Being direct, the best route should be the direct, and
+					// the best distance should always be 0.
 					nets = append(nets, aurp.NetworkTuple{
 						Extended:   r.Extended,
 						RangeStart: r.NetStart,
@@ -651,11 +653,19 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				}
 				// TODO: filter these by ExtraAdvertisedZones and HiddenZones
 				for r := range p.RouteTable.ValidRoutesForClass(TargetClassAppleTalkPeer) {
+					// Check there isn't a lower distance AURP route for the
+					// same network. If there is, per split-horizon it should be
+					// hidden.
+					best := p.RouteTable.Lookup(r.NetStart)
+					if best.Zero() || best.Target.Class() == TargetClassAURPPeer {
+						continue
+					}
+
 					nets = append(nets, aurp.NetworkTuple{
-						Extended:   r.Extended,
-						RangeStart: r.NetStart,
-						RangeEnd:   r.NetEnd,
-						Distance:   r.Distance,
+						Extended:   best.Extended,
+						RangeStart: best.NetStart,
+						RangeEnd:   best.NetEnd,
+						Distance:   best.Distance,
 					})
 				}
 				p.Transport.LocalSeq = 1

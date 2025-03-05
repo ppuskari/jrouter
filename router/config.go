@@ -52,14 +52,14 @@ type Config struct {
 	// OpenPeering allowsrouters other than those listed under peers.
 	OpenPeering bool `yaml:"open_peering"`
 
-	// Extra AdvertiseZones is a set of extra zones that are not managed by
+	// TODO: ExtraAdvertisedZones is a set of extra zones that are not managed by
 	// jouter but that can be advertised over AURP if a valid route becomes
 	// available through the local EtherTalk (e.g. from a neighbouring netatalk
 	// router).
-	ExtraAdvertisedZones []string `yaml:"extra_advertised_zones"`
+	// ExtraAdvertisedZones []string `yaml:"extra_advertised_zones"`
 
-	// HideZones prevents zones from being advertised over AURP.
-	HiddenZones []string `yaml:"hidden_zones"`
+	// TODO HiddenZones prevents zones from being advertised over AURP.
+	// HiddenZones []string `yaml:"hidden_zones"`
 
 	// Peers sets a list of peer routers to connect to and allow connections
 	// from.
