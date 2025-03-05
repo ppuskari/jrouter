@@ -19,15 +19,23 @@ var (
 )
 
 type fakeObserver struct {
-	added, deleted []Route
-	changed        []routeChange
+	events []observerEvent
 }
 
-func (o *fakeObserver) NetworkAdded(r Route)   { o.added = append(o.added, r) }
-func (o *fakeObserver) NetworkDeleted(r Route) { o.deleted = append(o.deleted, r) }
+func (o *fakeObserver) NetworkAdded(r Route) {
+	o.events = append(o.events, observerEvent{Event: "added", To: r})
+}
+func (o *fakeObserver) NetworkDeleted(r Route) {
+	o.events = append(o.events, observerEvent{Event: "deleted", From: r})
+}
 
 func (o *fakeObserver) BestNetworkChanged(from, to Route) {
-	o.changed = append(o.changed, routeChange{from, to})
+	o.events = append(o.events, observerEvent{Event: "changed", From: from, To: to})
+}
+
+type observerEvent struct {
+	Event    string
+	From, To Route
 }
 
 type fakeTarget struct {
@@ -92,8 +100,8 @@ func TestRouteTable_Upsert_Insertion(t *testing.T) {
 
 	// The observer should have not been informed of the new routes, because
 	// they are invalid without zones.
-	var wantObsAdded []Route
-	if diff := cmp.Diff(obs.added, wantObsAdded, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
+	var wantEvents []observerEvent
+	if diff := cmp.Diff(obs.events, wantEvents, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
 		t.Errorf("obs.added diff (-got +want):\n%s", diff)
 	}
 
@@ -116,8 +124,11 @@ func TestRouteTable_Upsert_Insertion(t *testing.T) {
 	}
 
 	// Both routes should have been published.
-	wantObsAdded = []Route{directRoute, aurpRoute}
-	if diff := cmp.Diff(obs.added, wantObsAdded, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
+	wantEvents = []observerEvent{
+		{Event: "added", To: directRoute},
+		{Event: "added", To: aurpRoute},
+	}
+	if diff := cmp.Diff(obs.events, wantEvents, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
 		t.Errorf("obs.added diff (-got +want):\n%s", diff)
 	}
 }
@@ -149,18 +160,89 @@ func TestRouteTable_Upsert_Updating(t *testing.T) {
 		}
 	}
 
-	wantObsChanged := []routeChange{
-		{From: oldRoute, To: newRoute},
+	wantEvents := []observerEvent{
+		{Event: "added", To: oldRoute},
+		{Event: "changed", From: oldRoute, To: newRoute},
 	}
-	if diff := cmp.Diff(obs.changed, wantObsChanged, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
+	if diff := cmp.Diff(obs.events, wantEvents, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
 		t.Errorf("obs.changed diff (-got +want):\n%s", diff)
 	}
 }
 
 func TestRouteTable_DeleteRoute(t *testing.T) {
-	// TODO
+	rt := NewRouteTable()
+	obs := &fakeObserver{}
+	rt.AddObserver(obs)
+
+	etPeer := fakeTarget{key: "etPeer", class: TargetClassAppleTalkPeer}
+	oldRoute, err := rt.UpsertRoute(etPeer, true, 300, 301, 1)
+	if err != nil {
+		t.Errorf("rt.UpsertRoute(etPeer, true, 300, 301, 1) error = %v", err)
+	}
+	if err := rt.AddZonesToNetwork(300, "TimeZone"); err != nil {
+		t.Errorf("rt.AddZonesToRoute(etPeer, 300, \"TimeZone\") = %v", err)
+	}
+
+	// Delete it
+	if err := rt.DeleteRoute(etPeer, 300); err != nil {
+		t.Errorf("rt.DeleteRoute(etPeer, 300) = %v", err)
+	}
+
+	for n := ddp.Network(300); n <= 301; n++ {
+		got := rt.Lookup(n)
+		if !got.Zero() {
+			t.Errorf("rt.Lookup(%d) = %v, want zero route", n, got)
+		}
+	}
+
+	wantEvents := []observerEvent{
+		{Event: "added", To: oldRoute},
+		{Event: "deleted", From: oldRoute},
+	}
+	if diff := cmp.Diff(obs.events, wantEvents, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
+		t.Errorf("obs.changed diff (-got +want):\n%s", diff)
+	}
 }
 
 func TestRouteTable_DeleteTarget(t *testing.T) {
-	// TODO
+	rt := NewRouteTable()
+	obs := &fakeObserver{}
+	rt.AddObserver(obs)
+
+	etPeer := fakeTarget{key: "etPeer", class: TargetClassAppleTalkPeer}
+	oldRoute1, err := rt.UpsertRoute(etPeer, true, 300, 301, 1)
+	if err != nil {
+		t.Errorf("rt.UpsertRoute(etPeer, true, 300, 301, 1) error = %v", err)
+	}
+	if err := rt.AddZonesToNetwork(300, "TimeZone"); err != nil {
+		t.Errorf("rt.AddZonesToRoute(etPeer, 300, \"TimeZone\") = %v", err)
+	}
+
+	oldRoute2, err := rt.UpsertRoute(etPeer, true, 500, 501, 1)
+	if err != nil {
+		t.Errorf("rt.UpsertRoute(etPeer, true, 500, 501, 1) error = %v", err)
+	}
+	if err := rt.AddZonesToNetwork(500, "TimeZone 2"); err != nil {
+		t.Errorf("rt.AddZonesToRoute(etPeer, 500, \"TimeZone 2\") = %v", err)
+	}
+
+	// Delete the target -> deletes all routes
+	rt.DeleteTarget(etPeer)
+
+	for _, n := range []ddp.Network{300, 301, 500, 501} {
+		got := rt.Lookup(n)
+		if !got.Zero() {
+			t.Errorf("rt.Lookup(%d) = %v, want zero route", n, got)
+		}
+	}
+
+	wantEvents := []observerEvent{
+		{Event: "added", To: oldRoute1},
+		{Event: "added", To: oldRoute2},
+		{Event: "deleted", From: oldRoute1},
+		{Event: "deleted", From: oldRoute2},
+	}
+	if diff := cmp.Diff(obs.events, wantEvents, ignoreTimes, comparableTarget, ignoreUnexportedRoute); diff != "" {
+		t.Errorf("obs.changed diff (-got +want):\n%s", diff)
+	}
 }

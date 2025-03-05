@@ -83,8 +83,6 @@ func (r Route) ZoneNames() []string {
 	return r.network.ZoneNames.ToSlice()
 }
 
-type routeChange struct{ From, To Route }
-
 // RouteTarget implementations can forward packets somewhere.
 type RouteTarget interface {
 	// Forward should send the packet to the route target.
@@ -204,6 +202,7 @@ func (rt *RouteTable) DeleteTarget(target RouteTarget) {
 	class := target.Class()
 	targetKey := target.RouteTargetKey()
 
+	type routeChange struct{ from, to Route }
 	var routeChanges []*routeChange
 	networks := make(map[ddp.Network]*routeChange)
 
@@ -233,15 +232,15 @@ func (rt *RouteTable) DeleteTarget(target RouteTarget) {
 			oldRoutes := rt.byNetwork[n].Routes
 			newRoutes := make([]Route, 0, len(oldRoutes))
 			for _, r := range oldRoutes {
-				if rc.From.Zero() && r.Valid() {
-					rc.From = r
+				if rc.from.Zero() && r.Valid() {
+					rc.from = r
 				}
 				if r.Target.RouteTargetKey() == targetKey {
 					continue
 				}
 				newRoutes = append(newRoutes, r)
-				if rc.To.Zero() && r.Valid() {
-					rc.To = r
+				if rc.to.Zero() && r.Valid() {
+					rc.to = r
 				}
 			}
 			rt.byNetwork[n].Routes = newRoutes
@@ -249,7 +248,7 @@ func (rt *RouteTable) DeleteTarget(target RouteTarget) {
 	}
 
 	for _, rc := range routeChanges {
-		rt.informObservers(rc.From, rc.To)
+		rt.informObservers(rc.from, rc.to)
 	}
 }
 
