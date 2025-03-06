@@ -42,6 +42,7 @@ import (
 	"drjosh.dev/jrouter/status"
 
 	"github.com/google/gopacket/pcap"
+	"github.com/lmittmann/tint"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sfiera/multitalk/pkg/ddp"
@@ -51,6 +52,7 @@ import (
 var (
 	configFilePath = flag.String("config", "jrouter.yaml", "Path to configuration file to use")
 	verbose        = flag.Bool("v", false, "Enables debug logs")
+	noColour       = flag.Bool("no-colour", false, "Disables colour in log output")
 )
 
 func main() {
@@ -67,8 +69,9 @@ func main() {
 	if *verbose {
 		logLevel = slog.LevelDebug
 	}
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: logLevel,
+	logger := slog.New(tint.NewHandler(os.Stderr, &tint.Options{
+		NoColor: *noColour,
+		Level:   logLevel,
 	}))
 
 	logger.Info(meta.NameVersion)
