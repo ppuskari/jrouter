@@ -53,6 +53,7 @@ var (
 	configFilePath = flag.String("config", "jrouter.yaml", "Path to configuration file to use")
 	verbose        = flag.Bool("v", false, "Enables debug logs")
 	noColour       = flag.Bool("no-colour", false, "Disables colour in log output")
+	version        = flag.Bool("version", false, "Prints the program version and exits")
 )
 
 func main() {
@@ -62,6 +63,11 @@ func main() {
 	// I think some dependency is calling recover in a defer too broadly.
 
 	flag.Parse()
+
+	if *version {
+		fmt.Println(meta.NameVersion)
+		return
+	}
 
 	// -------------------------------- Logger --------------------------------
 	//
