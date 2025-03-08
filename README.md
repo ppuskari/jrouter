@@ -26,8 +26,8 @@ Home-grown alternative implementation of Apple Internet Router 3.0
 
 ## Caveats & known bugs
 
-* For expediency I made it act as a _seed router_. At some point I might add
-  "soft seed" functionality.
+* For expediency I made it act as a _seed router_ only. I hope to add "non-seed"
+  and "soft-seed" mode soon!
 * I have not yet tested with `netatalk` on the same host. I have seen reports
   that it is (at best) very flaky (zones appearing and disappearing). For now I
   recommend running `jrouter` and `netatalk` on separate hosts.
