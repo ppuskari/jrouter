@@ -24,33 +24,40 @@ Home-grown alternative implementation of Apple Internet Router 3.0
   `http://[your router]:[port you configured]/status` to see information about
   the state of jrouter.
 
-## Caveats
-
-Things I plan to fix Real Soon Now:
-
-* Some packet types need splitting to fit within limits. Some of these aren't
-  implemented yet (mainly encapsulated). The unimplemented ones seem unlikely to
-  hit those limits unless you are running a lot of routers or zones locally.
-* The AURP implementation is mostly there, but not fully complete. The main
-  thing missing is sequence number checking.
-
-Things I plan to fix At Some Point:
+## Caveats & known bugs
 
 * For expediency I made it act as a _seed router_. At some point I might add
   "soft seed" functionality.
+* I have not yet tested with `netatalk` on the same host. I have seen reports
+  that it is (at best) very flaky (zones appearing and disappearing). For now I
+  recommend running `jrouter` and `netatalk` on separate hosts.
+* Some packet types aren't currently split correctly to fit within limits. This
+  mainly affects routers with lots of distinct routes in the local EtherTalk
+  network.
+* The AURP implementation is about 95% complete. The main thing missing is
+  sequence number checking.
 
+The issues in this repo should be updated as things get fixed.
 
 ## How to use
 
-WARNING: It Sorta Works™
+WARNING: It Sorta Works™. See "Caveats & known bugs" above.
 
-First, set up a `jrouter.yaml` (use the one in this repo as an example).
+First, write a `jrouter.yaml` config file.
+Use [the jrouter.yaml in this repo](/josh/jrouter/src/branch/main/jrouter.yaml)
+as both an example and for documentation of config options.
 
-TODO: explain the configuration file
+Then choose from the options below:
 
 ### Running with Docker
 
-There is a container image available at `gitea.drjosh.dev/josh/jrouter:latest`.
+Multiarch (x86_64 and arm64) container images are available from this server.
+
+* `gitea.drjosh.dev/josh/jrouter:latest` - latest release version
+* `gitea.drjosh.dev/josh/jrouter:0.0.12` - specific patch version
+* `gitea.drjosh.dev/josh/jrouter:0.0` - latest patch release for minor version
+* `gitea.drjosh.dev/josh/jrouter:0` - latest minor & patch release for major version
+* `gitea.drjosh.dev/josh/jrouter:dev` - pre-release that I'm currently testing
 
 Example `docker run` command:
 
@@ -94,7 +101,7 @@ services:
 2. Run these commands (for Debian-variety Linuxen, e.g. Ubuntu, Raspbian, Mint...):
   ```shell
   sudo apt install git build-essential libpcap-dev
-  go install drjosh.dev/jrouter@latest
+  go install drjosh.dev/jrouter@latest   # or substitute @latest with @(version) e.g. @v0.0.12
   sudo setcap 'CAP_NET_BIND_SERVICE=ep CAP_NET_RAW=ep' ~/go/bin/jrouter
   ```
 3. Configure `jrouter.yaml`
@@ -109,6 +116,11 @@ Notes:
 * `build-essential` and`libpcap-dev` are needed for [gopacket](https://github.com/google/gopacket), which uses [CGo](https://pkg.go.dev/cmd/cgo)
 * `NET_BIND_SERVICE` is needed for `jrouter` to bind UDP port 387 (for talking between AIRs)
 * `NET_RAW` is needed for `jrouter` to listen for and send EtherTalk packets
+* By default `jrouter` looks for `jrouter` in the current directory. It can be
+  changed with the `config` flag:
+  ```shell
+  jrouter -config /etc/jrouter/jrouter.yaml
+  ```
 
 TODO: instructions for non-Linux / non-Debian-like machines
 

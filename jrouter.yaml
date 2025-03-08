@@ -27,8 +27,9 @@ monitoring_addr: ":9459"
 ethertalk:
   - device: en0 # Name of the device - required.
     # ethernet_addr overrides the "hardware" address used by jrouter.
-    # This is useful if you have another AppleTalk software running on the same
-    # machine, e.g. netatalk, and you do not want jrouter to steal its packets.
+    # This may be useful if you have another AppleTalk software running on the
+    # same machine, e.g. netatalk, and you do not want jrouter to steal its
+    # packets.
     #ethernet_addr: '08:00:07:fe:dc:ba'
     # Name of the AppleTalk zone - required.
     zone_name: The Twilight Zone
@@ -38,13 +39,17 @@ ethertalk:
 
 # open_peering lets the server accept incoming connections from unknown servers.
 # If you disable this, only the configured peers will be connected.
+# For now I recommend enabling this.
 open_peering: true
 
 # peers lists IP addresses or domain names of peers to actively connect to.
+# It is optional if you use peerlist_url (below).
 peers:
   - 192.0.2.1
   - example.net
 
 # peerlist_url provides an address to download a plain-text file containing
-# peers to actively connect to.
+# peers to actively connect to. It is pulled once on startup, so to get new
+# peers added this way, you currently have to restart jrouter.
+# It is optional if you use peers (above).
 peerlist_url: http://example.com/peers.txt
