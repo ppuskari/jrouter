@@ -1,5 +1,5 @@
 FROM golang:alpine AS builder
-ARG VERSION_SUFFIX=-dev
+ARG VERSION_SUFFIX='-dev'
 WORKDIR /go/src/jrouter
 COPY . .
 RUN --mount=type=cache,target=/var/cache/apk \
