@@ -16,6 +16,7 @@ docker buildx build \
 
 # Do for each release
 docker buildx build \
+  --build-arg VERSION_SUFFIX='' \
   --tag gitea.drjosh.dev/josh/jrouter:latest \
   --tag gitea.drjosh.dev/josh/jrouter:0.0.12 \
   --tag gitea.drjosh.dev/josh/jrouter:0.0 \
