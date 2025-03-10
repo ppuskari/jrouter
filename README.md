@@ -144,6 +144,27 @@ Notes:
 * `--cap-add NET_RAW` and `--net host` is needed for EtherTalk access to the network interface.
 * By using `--net host`, the default AURP port (387) will be bound without `-p`.
 
+## Bibliography / Acknowledgements
+
+This software wouldn't be possible without:
+
+* [Sidhu, G S, Andrews, R F, & Oppenheimer, A B (1990), _Inside AppleTalk_, 2nd edn, Addison-Wesley, Reading, Mass.](https://vintageapple.org/macbooks/pdf/Inside_AppleTalk_Second_Edition_1990.pdf)
+* [Apple Computer Inc. (1993), _AppleTalk Update-Based Routing Protocol: Enhanced AppleTalk Routing_, Cupertino, Calif.](/josh/jrouter/src/branch/main/docs/AURP_Enhanced_ATalk_Routing.pdf)
+* [Apple Internet Router 3.0](https://macintoshgarden.org/apps/apple-internet-router) itself
+* [sfiera/multitalk](https://github.com/sfiera/multitalk)
+* [tcpdump and libpcap](https://www.tcpdump.org/)
+* [google/gopacket](https://github.com/google/gopacket)
+* Encouragement from #GlobalTalk and #MARCHintosh
+
+## Non-acknowledgements
+
+Aside from standard reformatting and analysis tools (gofmt, gopls) this software
+is 100% organically written.
+
+I do not use LLMs or generative "AI" in my work. I _will not_ use LLMs or
+generative "AI" in my work. I write enough bugs on my own, I don't need a
+stochastic parrot to hallucinate more for me.
+
 ## Bug reports? Feature requests? Complaints? Praise?
 
 You can contact me on the Fediverse at @DrJosh9000@cloudisland.nz, or email me at josh.deprez@gmail.com.

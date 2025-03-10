@@ -21,4 +21,5 @@
 # Go workspace file
 go.work
 
-jrouter-prod.yaml
+# macOS!!!!
+.DS_Store
