@@ -1,4 +1,4 @@
-FROM scratch
+FROM alpine:latest
 ARG TARGETARCH
 ARG VERSION
 LABEL maintainer="Josh Deprez <josh.deprez@gmail.com>"
