@@ -49,6 +49,19 @@ as both an example and for documentation of config options.
 
 Then choose from the options below:
 
+### Installing on Debian / Raspbian directly
+
+There's not an APT repository yet, but you can always directly install .debs:
+
+1. Download a `jrouter_(VERSION)_linux_arm64.deb` from the Releases page
+2. `sudo dpkg -i jrouter_..._arm64.deb`
+3. Put `jrouter.yaml` into `/etc/jrouter/`
+
+Then (assuming you are using systemd, which you probably are):
+
+4. `sudo systemctl enable --now jrouter.service`
+5. To see logs, use `journalctl -f -u jrouter.service`
+
 ### Running with Docker
 
 Multiarch (x86_64 and arm64) container images are available from this server.
