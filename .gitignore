@@ -23,3 +23,6 @@ go.work
 
 # macOS!!!!
 .DS_Store
+
+dist/
+tmp/

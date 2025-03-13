@@ -1,0 +1,10 @@
+[Unit]
+Description=AURP to AppleTalk router
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/jrouter -config /etc/jrouter/jrouter.yaml
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

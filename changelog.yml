@@ -1,0 +1,2329 @@
+- semver: 0.0.12
+  date: 2025-03-05T17:52:25+11:00
+  packager: Josh Deprez <josh.deprez@gmail.com>
+  changes:
+    - commit: 89582fc4874cbd7a5811b969de5f592d73d4cc29
+      note: 'router: fix bug where peers with literal IP addresses go missing'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 6eabb12286b2a876203f7424b13ba97c8e869adb
+      note: 'router: ResolveIPAddr instead of ResolveUDPAddr'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: f758ba8cd57551019acbfb9d01f9384f8bf41a0a
+      note: 'router: migrate to slog'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 055b64109c86ce399c5cac313dda46de8069f8f6
+      note: 'status: alternate row shading, remove ul margin'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 2bc8b4ce804b29ec39c572b525680f9d6581d2d7
+      note: 'router: fix failed router table template'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 14bcd7e302101fabd5d2ea763cabd91c965dae60
+      note: 'router: tidy up'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 4cd7c7f018c79e780287f286bf7f5a1fa9b49fce
+      note: '[WIP] router: tweak event sorter'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: c335452e66b0d24fdc8571c31fb7d16d055f380e
+      note: '[WIP] router: deflake deleteTarget test'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 8d32389d4ef03e7fa10257337a5de50778a8f57a
+      note: '[WIP] router: check all events in test, more tests'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: f5c09e50a8c0e7f3bc8cf41a55486e92508e91d3
+      note: '[WIP] router: add Route.ZoneNames method'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: d0b1804bbd0abdcc8da58aa194d5e8fa785cb1ac
+      note: '[WIP] router: call Zero'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: f6ec403217a95ba779e1306c81bdfeb731444a5e
+      note: '[WIP] router: yet more reorganising in the route table'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 132dac11d92b963ed0f97ea80b95f37264fa5fb6
+      note: '[WIP] router: add TestRouteTable_Upsert_Updating'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: d7b5ddadf4ddd8eb827b16d83f209b3df591e190
+      note: '[WIP] router: add TestRouteTable_Addition'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 68918c93e746a03ccac8b6f5281295b88718db29
+      note: '[WIP] router: small tweak'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: d5e591ea2a35b2c8de19ddf861c473e145269575
+      note: '[WIP] router: fix observers and target deletion'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: e0bcbeebf4fb54a02352526f7f0f5ba583db0e2e
+      note: '[WIP] router: index routes by target class'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: bb4b3f4ea3fcc6075584e00afeb2091434d9f643
+      note: '[WIP] router: improve zone handling'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 69cde993a459640c86d619ea485bb44d9754803b
+      note: 'meta: spread version number around a bit more'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+- semver: 0.0.11
+  date: 2025-02-28T16:54:54+11:00
+  packager: Josh Deprez <josh.deprez@gmail.com>
+  changes:
+    - commit: f95c83f69f02eaf509aba9e81c4b8d2a7e2f2026
+      note: 'router: output decapd packets without hop count increment'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+- semver: 0.0.10
+  date: 2025-02-28T11:23:30+11:00
+  packager: Josh Deprez <josh.deprez@gmail.com>
+  changes:
+    - commit: 4f499f18313cdc3dd1fbbbfa6d44f21cc7d317b7
+      note: 'router: fix routes becoming invalid incorrectly'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+- semver: 0.0.9
+  date: 2025-02-28T09:30:03+11:00
+  packager: Josh Deprez <josh.deprez@gmail.com>
+  changes:
+    - commit: dde0f7dc3fcc66b21d5a73f187863c8d8177df55
+      note: 'router: ValidLocalRoutes: check for lower metric remote route'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 900ea8a68bce44aad347d7f32c292919238d88cc
+      note: 'router: only resort on update if metric changed'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: cb853633146d5f1e19a7641f066b1943d03bf6f4
+      note: 'router: resort routes after update'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 200b65c2273ac445819bf6c9b457d4b638c507a0
+      note: 'router: fix missing local zone name'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: c03f6e137fd43d8d317bb0799d8defc5fec1a5bf
+      note: 'router: route table overhaul'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+- semver: 0.0.8
+  date: 2025-02-23T20:39:51+11:00
+  packager: Josh Deprez <josh.deprez@gmail.com>
+  changes:
+    - commit: 76cceb7c08c8f78f1b6c128807e4e51baeec92b5
+      note: 'router: separate AARP and RTMP status sections per port'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+- semver: 0.0.7
+  date: 2025-02-23T20:22:06+11:00
+  packager: Josh Deprez <josh.deprez@gmail.com>
+  changes:
+    - commit: d30b7cb3f2b4eca105df50f9ccacd02da4f83d07
+      note: Multiple EtherTalk interfaces
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+- semver: 0.0.6
+  date: 2025-02-22T17:45:55+11:00
+  packager: Josh Deprez <josh.deprez@gmail.com>
+  changes:
+    - commit: 2e916f134c4cf2dfe922a3b56a13f40bc5eeffd3
+      note: 'main: handle SIGTERM like SIGINT'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+- semver: 0.0.5
+  date: 2025-02-22T17:17:01+11:00
+  packager: Josh Deprez <josh.deprez@gmail.com>
+  changes:
+    - commit: f629365623a31f9d896c2457b64c2d076b7c5c82
+      note: 'go.mod: updates and tidy'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 4fd06ea39723c10c79550803339868a27c365e0c
+      note: 'router: fix metrics help'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+- semver: 0.0.4
+  date: 2025-02-16T18:20:01+11:00
+  packager: Josh Deprez <josh.deprez@gmail.com>
+  changes:
+    - commit: 5108d732c0fe29c087eba6c83c0e3accbf1238df
+      note: 'router: fix metric names'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: b63b86345aa95bba2476245c8e473ff59dc9d4ca
+      note: 'config: mention /metrics in example file'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: f80dbd785f779fa76e80a529db58caebb2e5487d
+      note: 'router: add basic networking metrics'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+- semver: 0.0.3
+  date: 2025-02-14T22:12:13+11:00
+  packager: Josh Deprez <josh.deprez@gmail.com>
+  changes:
+    - commit: 8d1f27d095e8781637bf412490e6841b4e7c8b05
+      note: 'router: remove port from RemoteAddr entirely'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: cb934bc160ce7083e9127f3ddef41c85130c2323
+      note: 'dockerfile: cache mount for apk'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+- semver: 0.0.2
+  date: 2025-02-14T17:24:26+11:00
+  packager: Josh Deprez <josh.deprez@gmail.com>
+  changes:
+    - commit: d7c8b8814e6df1896ae0d937c2ac98f85188204f
+      note: 'router: assume port 387 for all peers'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: cc406ace0b2cca6937e3f942d756e10a6e7ad164
+      note: 'dockerfile: use apk add --no-cache'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: fbc3676ae5ae0725c325a759034c656e522857e1
+      note: 'main: make monitoring addr configurable'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 4830c22e1ddce3804433ef049a2fe57a8e927bf1
+      note: 'readme: Add example Compose file'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: a3c9a9466bf7b86986fc86f227080962060261a5
+      note: 'devnotes: Start writing'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 0e43a5f96261b56909a418ff22ea3026cd987def
+      note: 'readme: Move notes around'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 61fdaf575562ed4ffca50e5fa1f1915fdee6f810
+      note: 'readme: Mention pre-built container image'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+- semver: 0.0.1
+  date: 2024-10-18T13:20:47+11:00
+  packager: Josh Deprez <josh.deprez@gmail.com>
+  changes:
+    - commit: 698e22245fded540fe7dc3171beafc3a2f82f438
+      note: switch to vanity import path
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: ca0e81eaa1ad19d9ec87258972c4525e4a596582
+      note: Add Dockerfile
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 100d70dccf05ae43aa05145f4a6773220d870bfa
+      note: Ensure frame padding
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 0f8297e670e1dfb3fc3c0e389497a2b7510cf1ac
+      note: Update README.md
+      author:
+        name: josh
+        email: josh.deprez@gmail.com
+      committer:
+        name: josh
+        email: josh.deprez@gmail.com
+    - commit: 8d04a405f5e305ea0a596fad2205413fe8cfa985
+      note: More build/install notes
+      author:
+        name: josh
+        email: josh.deprez@gmail.com
+      committer:
+        name: josh
+        email: josh.deprez@gmail.com
+    - commit: 4dbf1b6f64ebde834df71829e81edf168a875083
+      note: Another strict size workaround
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 668fe5e7224806bac0bf91c67d8d1ac0247d283f
+      note: Merge branch 'main' of gitea:josh/jrouter
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 2f1b4c1ce18d8d752b3b1f0c565417b61771f510
+      note: Workaround for trailing data on AARP packets
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: d063075907a7528a1b611d29a9cdfebbfa3497ce
+      note: Add contact info
+      author:
+        name: josh
+        email: josh.deprez@gmail.com
+      committer:
+        name: josh
+        email: josh.deprez@gmail.com
+    - commit: d498f5d6cc56274405f69ce444fea18b3dc2208d
+      note: |-
+        Merge pull request 'Send RI-Upds to peers' (#14) from route-updates into main
+
+        Reviewed-on: https://gitea.drjosh.dev/josh/jrouter/pulls/14
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: a14ae919ff4c4b4f4e5ee1e167b78c99794ed40c
+      note: Send pending routing events
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 9c808cbf63a63cda50cfc1a3985fa2254f38fff6
+      note: Dry up creating new AURP peers
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 9e3b311b568643f3285e6f986986d38135a75482
+      note: Add route table observers
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: d25c2eb362005fb2e9a6345663fb9641224cc226
+      note: Send -> send
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 9fe09c0a9bc4f59527ea434c9d534f20abc94c16
+      note: refactor ago
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 331da095c3cb499aa2e09ebd0e7da04644ccf442
+      note: AURP peer timers in status
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 3067daa264da630b618ee608f3a985bf7030ed00
+      note: Fix Null event tuple coding
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 3a2cbdcde8c54994e83735e5685c034a7f36cc0f
+      note: Merge branch 'main' of gitea:josh/jrouter
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 19af36081cc642dea6c3369d17bf2234dc088e4c
+      note: Update README
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: f9d63e83584e84956fac36dbaa13a7ae58e23d66
+      note: |-
+        Merge pull request 'Table unification' (#2) from table-unification into main
+
+        Reviewed-on: https://gitea.drjosh.dev/josh/jrouter/pulls/2
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 376c09d1898d1ee51dafc5e8a21f4e1d4b4aca8e
+      note: More cleanups
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: c1f84c3f29f6c427df5898addb552f5c2613d39a
+      note: Cleanup
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 95eec9564f7e82a4ed9d52b204f839a0f837d8cf
+      note: Fix obvious bugs
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 10d4610e0d733cdee66c19174b6033ca9775fd96
+      note: Zone name slices -> sets
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 5f3bfe2f76b8fe7c269aad7a03b5b687e4fcda9b
+      note: 'AURP: send more routes / zones'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 7e9fe4ff985475ed42f42638199a1ebe36c88251
+      note: Unify route and zone tables
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 8ce8f52776d5bfafab96c746fb9b1d636358e405
+      note: |-
+        Merge pull request 'Multi-port refactor' (#1) from multi-port-refactor into main
+
+        Reviewed-on: https://gitea.drjosh.dev/josh/jrouter/pulls/1
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 0185722e19fcdf38616a70d6634d0a2b1228d7a9
+      note: Fix zone table in status
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 5866f091edfabf1c8e19c70b6c1aae4a87aea3f8
+      note: Fix BrRq-LkUp translation poisoning AARP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 60d1837ee8db00342d771f71a7e9aa2b883166dc
+      note: Fix ZIP GetNetInfo reply
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: d1ab38b2662aef5965dd845b0c619dcb24dbb79c
+      note: Fix crash in rtmpDataPackets
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 298ae0935f855b9c360fdb5e187d3f4d8063f476
+      note: Output / Forward
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: a239b7734f1d817ef33225040e26cd5f187f2e4a
+      note: refactor RTMP into port
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: fbd0a0371f50b454865d47352dbddbbe433ed0de
+      note: generalise NBP FwdReq handling
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 7b496a05199bae9aa0aaeb20989f302153ded9d1
+      note: Multi-port refactor
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 545087fbe8e26de60811912722d80d591d5828c0
+      note: update existing EtherTalk routes in upsert
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 214c72514bcc7f901a7b78e74c46b58bd037065a
+      note: fix /status route table?
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 7f8b0cb4510a929858f5f7c682d521d4f37060c0
+      note: 'WIP: routers on ethertalk'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: da4c729912cec0a26665d7f7ba3229f66fd4af7d
+      note: Update README
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 94f375f2565b2259dc13b8de8da0b51b562ea9bb
+      note: Filter AARP gleaning on all DDP to our network
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 0dd647b14b72d2df7198ddf809d84e42fbaa8ef5
+      note: sort connected peers first
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 2b1ec2832e6243ab2c42054bdf0c8b056f0f4123
+      note: sort peers
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 5790b9d61675eacd0fcfd21069ba583b9b953dc7
+      note: Use data in RI-Upds, add peer table to status
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 088b1d1a93fd866ab1f136a8985c55c58b34ee90
+      note: Switch for enums
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: cbe0a56aefe485079405795a7bb7038d0469d31d
+      note: Tweak statuses
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 12f0a08f2c9adf222b71ae49761f43d43cfec196
+      note: Add zone table to status
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: b3e8b5111d7354c05a58b467dd12e6171a3cef4c
+      note: fix routing table header
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 60183999af22294f351e6452c3dd47d326c204c3
+      note: more route table data
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: cee10fac06c62ef162fffe4bb92c50ad5c217e19
+      note: Routing table in status
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 8f3780e244097dc587a49a39fec1722439d63e31
+      note: zzz
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: fc2e385efc732932399c8ab3a7eac68c72c077b1
+      note: fix?
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: db32d69d651b0b4200a60c24055414dd0e43ab6e
+      note: table improvements
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 96ab3f990537705f66dabd9c9b9be3209b12c46d
+      note: AMT in status page
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 15621ec7e0e9dc5e46e723eba041419bfd30ecef
+      note: Vary title for executable
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 2d8897768b93bdd8b2cf44326bf03c3dbc71ee4e
+      note: Add generated fuzz corpuses
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: f82efc7f8e0b7a475202e140544d830646f3599a
+      note: Fuzz zip unmarshalers
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 910d52ca2d078a31c07fd2bebbb704b59a584431
+      note: Fuzz nbp.Unmarshal
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 3a1a05dd2ed356737a8907dc7b87fbee88b79c52
+      note: Fix another out of bounds
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: d3e10d9aa0c2fa17abc1773325fb3133189ec14c
+      note: Add fuzz test and fix panics found so far
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 9c3fddd7c658c311a2fa4f4e79948e6305260da1
+      note: SetTraceback("all")
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: f7071fa59edc3c3d3acada63d1ee126609fa49a2
+      note: Add receiver side reconnect
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: a932d9a35f24d0b2219cf5b16e8a288d2d84d92a
+      note: Fix nil pointer deref
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 8837065bca77382f7d7584783b2e4a9dbe6421fa
+      note: More waitgroup
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 35262a9e03b0a43c4a15d569f669dfeeb07bf622
+      note: Reorganise
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 339459d37ada487cb99b185cafd5fdc319f63ff8
+      note: More status
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: df22ea3a44f31b89cc81d26ac3c2ac30436e9e6d
+      note: Add RTMP status
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: e8e5ca31b5770ffbe1ae677142beb3b29498f3f2
+      note: Add AARP statuses
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 56a19199425db3ef423923fdca6ed062b5e2efe0
+      note: Fix status content
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 1212bd716edb12260da238508e3a0cfbd8e37067
+      note: Fix status title
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 3512b583e7069c0fd597fe49c3048ee39e47fa6c
+      note: Tweak comment
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 6e42fd4cc26504ad4fad9d464e260d80cf967c41
+      note: Well that was wrong
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: b52109fe282e1c3ebfd80410dae5a6d769de232d
+      note: Fix proto
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: d58534d5dfa455be599c9037ad78aa364015b99c
+      note: Fix NBP more?
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 3587b362dbf582bd463f4fe663bf15360b17979f
+      note: Add status page
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 1b33388e2af2fb03bee2c8779a087bb134db74da
+      note: Log more
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: f53f0233a91d5d00c5dcb7af5342d60d6c248e32
+      note: Try to fix local NBP BrRq
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: bb2a5dff276f45bdce2fc2176bcf2b449f35b390
+      note: Refactor that might not make sense
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 07e4e5069fb13977722265cc07af6b92241b8afe
+      note: Reset sendRetries?
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 1c274665d6712400c25d92e2a672b029c5dc35cd
+      note: Some refactoring
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 6dc524630388bbefec1ff4fa2471edc4865de3ad
+      note: Don't forget the protocol type
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: e87730543088bb9c4cffe7fb8838a76f221b3ade
+      note: Tweaks
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 3b850ad89e887e8d22d512ddcb222a9e62d00248
+      note: More log
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 39535114380f5c0c080ed6144347b67b204dfc51
+      note: Fix NBP replies for the router itself
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 5103850d6eb779c5fb309d5f145fc03758bf1ac7
+      note: Reconnect timer 10 minutes
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 3b5c71700cf952446ed06ee67539dec02384ae13
+      note: Add peer list function
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: ecbf63fddd2c6f6bca5c6ab3c64260642ad4bb10
+      note: Fix parseDomainIdentifier
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 6818df9754ac0c52797f51f0e7d8fd0215ff4b25
+      note: more log
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 6abf714861544f58d12707b0d4f1ba3136043431
+      note: Sender retries
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: e7d67344d330c34fe7c5cc4391746693a7b7df76
+      note: Update lastReconnect
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: b1d71d352544c2d929b4830d14c17e050a6f9893
+      note: It was a todo
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: dff5a3b0deefa3e11a4b684cad96ceaf971cf964
+      note: A bit more AURP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: a70dea7b396e3be0a2de0d1288d720e1b0868e07
+      note: Skip peers that don't resolve
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 677e5592e5c2818385715ccb1b4e0421c8395413
+      note: RI-Ack for RI-Upd
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: e37c4e48e2db437d9c96da775e0b78722c7c1d86
+      note: Another TODO to do
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 0005f827e5e92b46f0657d632838e8e8cc462f4b
+      note: Tweak ZI-Rsp
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: c8d46cef85935816d882e681228c42971aa4ac08
+      note: Retry RI-Req
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 5a25d6697b091735445723334ae751bd47485cbe
+      note: Progress
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 183e2d079b59fa6a5b796e2294cb2432a5c987a0
+      note: Add RTMP Loop Probe packet format
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 208b273bd15ffb15f67570adcee3f8243feaf7d4
+      note: Send multiple RTMP data packets when routing table is big
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 52b08a83f1725913423192d0d604b36151a9dd6d
+      note: Start massive refactor
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: c81c6002f89109e8cf08e233b770b716d2f2fed0
+      note: Split ZIP replies properly
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: c1efd9f91b1fd9b6271bcf20fa697b4c1df0e4ab
+      note: Fix ZIP ATP replies
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: e95df3db20ba66ef8f8e50d3c8a703893b315717
+      note: Add ethernet_addr comment to config
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 8cb46a5ace9af2fb696fa5116978a806b252a312
+      note: Add checkmarks
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 29aa297f3a39db623bb327cf529f93eed6e533d3
+      note: Update caveats
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: fb107af80941bba56511fd9a5a17d6f67682125a
+      note: Filter incoming packets
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 9ea98b19f60a03354355c18d01c1dec206c28253
+      note: Add Caveats
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: ced4a095a4f949ac84ff8966806b9c3f749dbbb7
+      note: Fix potential out of bounds
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: dac3fd706920e28153bd04f8466fd129a55c4830
+      note: That TODO was done
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: ed233b3f3ec811627fd7dee3895ab6a8eb77b73b
+      note: Implement zone multicast
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 0d12b55735acc03600921fa0bcb3d74ed72fef9b
+      note: Add missing return
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 793b098f9ee6261ef5125fa83ea6c18f1abc7a39
+      note: Pass args to function
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: d241d654d58326a697d34ee5c3b0febc07790079
+      note: Add BrRq-FwdReq translation
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 6b88025d19409578cbf142ab0113b7397629ef55
+      note: NBP LkUp-Reply minor cleanup
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: fd2ab2918bcffaa0728ddc0680a30cd8761e4ae8
+      note: remove route & zone ageing
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 830f0dfde025d0a8914d2d9fbfdb5aff1a5a0ea0
+      note: GetMyZone
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 3f189d5dfac0e2a5492bbdf3fa121845ce617fab
+      note: Don't forget libpcap-dev
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 5f5e888a4f10f8052619ad850402f1fa4605a9ba
+      note: Update README How to use
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 6b8ed2f8075cf48212c8cd77b8198c3cf2bbc36a
+      note: Size better
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 3be22b5b9b56835cdc439da21d1ca1d8c12e137f
+      note: More Size
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: add0c89a6717f881ae33742f02129653c4ba0f0d
+      note: Size
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 3e1ec391a3b39458f5c0f7c64e4a6a95a0d3b6a4
+      note: More log
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 465fbcd627d96fb1b03128cb0ccd28f03781e4e1
+      note: Adjust logging
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 5e48bdf880c90ab7ec482e54873be365f7301d99
+      note: WIP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 0c86aa6194d14612eadb9f86ba030dbcee312533
+      note: WIP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 2afb8795732f5c66d09a950043a91a3e37f5d24e
+      note: handle more ZIP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 8771139a4f29fa8f442b209d87a3919205b88762
+      note: implement more ZIP packets (ATP)
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: c7d5ecec494d8781c081d4c2fe64561cec18026b
+      note: Routing table simplifications
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: abbe8c542be42dffca3bfea93a03f3f8b4d68f50
+      note: Start on ATP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 31b7c345350d378de51f14cecde5e408373674dc
+      note: More ZIP, another note I found on NBP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 05215af5f77388353c74c86b1185c5722cacdb6a
+      note: reply to LkUp
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: b30d6fdef1ab1dffd8f5ee41141473451daa9c62
+      note: implement BrRq-LkUp translation
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 2870bc512ea7c5b650d74e134ef5f06c859788fe
+      note: refactor handleZIP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: faa7002c152f19351f66b6b4db9d37c1a591e788
+      note: whoops
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 90229d07b521919a5bf12969cc1b045365e81a91
+      note: routing table refactor
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 21b59920d897175e98ad23db0a2084e5595ba694
+      note: Less logging
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 282fb19803a2c8d067f5b8d9f4009946716e3861
+      note: metric?
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: db2963b9bb1e9177b891884fe88a47193e00260e
+      note: Better logs
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 8b1861fb90822f3a0a6ed63ebccd5a780bbab426
+      note: ???
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 3dc455713b68be8f59e5bf8b44bd42d7fa2638d5
+      note: no broadcast?
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: ab0f5345256ad2b819045dd963ce6832e582dd45
+      note: WIP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 7850f3c9a52d34d1a104c9a96795de664f727f77
+      note: debuggin
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 40867c23eae7b1d85df085b4a4d0de74108242d3
+      note: Start implementing ZIP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: e20eb9be2df2cb35bb8c697a47f09db0d3f55140
+      note: Advertise more routes
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 1105c1d49a70ef2cc0dc3602c64403edff5365d1
+      note: Add missing continue
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 23f9633b1e01eb66b3af94fdb1fbe58588b183b4
+      note: Remove NBP machine for now
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 5abfe1783708cab72a8e9e434f2d970331caef68
+      note: More log
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: e91dfcc3d9060279d878bfe4e34fa51f79c8191c
+      note: More AARP tweaks
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 1a83e4d5439a174deb4b5cf169055a48c52ec4e3
+      note: Start routing table
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 10c447c78dd2181e4340b1623239a84947557fa5
+      note: More logging
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: bf5f3f00cfe63e69f6bf2d590198960e5405566a
+      note: Improve AARP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: dbc3eaaf54e609310a8b638144bd183051e58e2d
+      note: Forward from AURP to EtherTalk
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 0d92cd7ba6e8598654936500582bcfdfc48a3e8e
+      note: Tweak AppleTalk loop
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: ce3aa5faf555f8c9a0fe60d12b02210a9112f790
+      note: Add NBP machine (WIP)
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 7f9a15bff1fb44a2da838ffc998a9e9587aabda0
+      note: Add NBP packet format
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 9e3520999b5c26c2c5eee6d7d58cdd64d7515db6
+      note: More Apache headers
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 7853e2096c58acfe887c4fc49ca66a48e8378b9d
+      note: faster first broadcast
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 1fa178687ae75896ecf063af5cfaba06f9f7f451
+      note: Add AEP, add AARP assigned chan
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 71880976d98a3f9931ce8179807b0381e67be766
+      note: More RTMP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: aa0268e08e5c44374804b7047dd30e680382653c
+      note: RTMP handling in machine
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: e75639a317babffa3d7f8d3c6eac2feb3c430658
+      note: Fix RTMP broadcast
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 07ea3688d58961d3da27eb2f3d8e7236518c7c04
+      note: More log
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 112012bf5b8e0bd931c7bcdb60f8f1254e691461
+      note: WIP RTMP machine
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 261ad84d2361f5262057bffc4431577b57b103a1
+      note: RTMP packet marshaling
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 3001499cae03a79d1edc8f92f22f4d64a61af5b4
+      note: Add RTMP packet formats
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: ce7b360dfffd505fe1537fb1776c385b055e00b8
+      note: Handle Pcap EOF
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: a59d7f7584ecc0f84b65c554d1a0c6513c82a489
+      note: Investigate ^C behaviour
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 2c4eb80595f9e6bbb6259c8182cbd96716003f10
+      note: Investigating ^C behaviour
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 8adfc73e7f658b085a353357f68372d0062f5118
+      note: Investigating ^C behaviour
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 7cb0a31100582a2da8bba68a92819f17f350162a
+      note: AARP machine improvements
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 7c3e508dd1182b37d7b9b58c72bfb9b3a1a3d3ea
+      note: Move AARPMachine constructor
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: d9909771658b4df45db9cd041606786eafa0751b
+      note: Finish implementing AARP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: dd68ef97b67efbb4256d69426fd0468d689aa062
+      note: Refactor AARP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 345bee49795eb1e3b76caf139e093ad8724e9563
+      note: '[WIP] AARP responses'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: fc5b07b975e2bb9535cdf8bf0d2f0d6b0ceb8a4c
+      note: 'aurp: Control extendedness of tuples'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: acf8400f4744cd21f92d548047bdea4ce22ccd2d
+      note: '[WIP] Send an AARP probe'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 5f7e07157e4d53950ed38e636bc25b69cbaf5223
+      note: '[WIP] Refactor AMT'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 7d7fa3a75307e3e7207a0cc1fed665f64ca6d6b8
+      note: '[WIP]'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 0234b6701ce671138c527c43a37620108a3412e2
+      note: '[WIP] Unmarshal DDP from AURP'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 9c997c1a415990c9e31bd27be09127c1bb036a7e
+      note: '[WIP] tweak DDP log'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 49fc568bee0663c56f3a23bd19c073a0002ee5cc
+      note: '[WIP] Glean from DDP'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: f2b3b20a7110d519889f983de80995e59a364792
+      note: 'WIP: Start implementing AARP'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 90649c3c9d75adfc715650938f88df2764008a72
+      note: '[WIP] AppleTalk'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: a03a02e3d85f47e2404f30dac28e98f3a0769d05
+      note: '[WIP] AppleTalk'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 62162d8c958b6f1cc36078d6e4da73304178947f
+      note: WIP AppleTalk
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: ed877ae7315f63dca184f2e3f5b538d33eca9d86
+      note: Enable promisc
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 59960986c9540295d7767b21f2d066ccf9544d48
+      note: '[WIP] AppleTalk listen loop'
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: f7fa4fb6889b5b0c8ad1b72c6916a837cb8eecc7
+      note: Refactor increments, rando connID
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 4afe8f17bbcb3e069f95280acde207c7a1ac2457
+      note: More TODOs
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: c734a5334ce6c1af51b9bb1ff68faea19eda4f42
+      note: Less tickling
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 0358eea5a4fd2e73224e4b48ea7ac5b68213720f
+      note: Handle GDZL and GZN
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: d45678b81245077e8cb4b4a7104444e3548df671
+      note: Tweak ZI-Rsp subcode logic
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 26e9f67dc52134853e76b2a25a9a53340b2c2a23
+      note: rstate = Connected after last RI-Rsp
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 53d6a21d5db6039f5542787d6005bf1329ff2c62
+      note: More of the protocol
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: febea0b653a71a0b4fd4b56e19089aade58eda96
+      note: Send RI-Req, add comments
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 7ebbb79e051c6c8227250669e3989cbf45c2511e
+      note: Try starting connection ID at 1
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: d5348838152ba941db8c78be9716b103841f7d16
+      note: Update README
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 2485351bd926865d86255b54714f2b0e93f10202
+      note: Add Apache header
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: dcbe66d3107ebc80ac3185c85772a32db5dce154
+      note: Direct network should be distnace 0
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: bed26e302022ee0896c4cfbfb6e1192914767b7b
+      note: Fix zone name
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: b76d695401656c7cc1679548499389dab79a9cb7
+      note: ??
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: f03dea91367c6e49de7df0fbda0fb0d375e57138
+      note: local seq
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 21fcf11e5e533f1c1b378a5be9658a73638bb84a
+      note: Add ZI-Rsp handling on RI-Ack
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: f5527d6db25379558f577548d5f23ec46ea2f1e9
+      note: Connect after incoming Open-Req
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 09e2522a1a41c70887569f12b83febd2b8460e2e
+      note: More state logging
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 81aba11a4af9831a5f4f12b21effad561f8601ed
+      note: Use read deadline to quit incoming loop
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 5ff41b76d41a72581536fb2c6878fc0c9cdacdcf
+      note: Log waiting for handlers
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 16be2ef41c8cdf006e5fdcfdc4f7bac5f04dc232
+      note: Fix lastSend tracking
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: d24fca67b8fe8cfbd9f85dcadf8ee7f2af3328c3
+      note: Send retry
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: a1b0f072f735a785ce074764c8fa5bb7c6b2e1da
+      note: Leave loop running
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 78ad28d70fe8975273fcefea646df6c87fc96fcc
+      note: Start adding states
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: c52a434909c6d53f785da5b8f4ca3a2151ccedd9
+      note: Refactor lastHeardFrom
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 65921893007137178ea8da897bb4e3167fb6bac9
+      note: Take 5
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 785f6962e321b01afbf4e1319da64238c784b6ff
+      note: Take 4
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 6a55dfa581d1500cf05d60ec529f7b5ebf9f2201
+      note: Take 3
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 36e5ebc9bd25c5f33f7535f9d0287afabc3206a6
+      note: Fix it even more
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: e3a6aecd518ebd76589f410a4cc66f5231304220
+      note: Fix ^C not closing packet loop
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 64f491fcba9276b382932a2efe602f4d48038f43
+      note: Handle SIGINT, send RD
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 520046d86adf96f36260cb206a9f17fb253cddb6
+      note: Tickle handling
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: b9ae3cc4263f63374dec98a2593377ce23f66896
+      note: Split peer type into separate file
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 86cd7879b6e451d1e27884bf8c9f2bdeebabeed3
+      note: ParsePacket returns domain header
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: ccfbfc31ba96d4cb07bb55320601ee2d6fe3c5cf
+      note: WIP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 2b2325534b06ccd17040b8c37d06d93a31462546
+      note: WIP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 4ecef258672d93719b39ec926d41c51d212e69c5
+      note: WIP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 1c69eb5f77edbcc15729ecc757b097e388c90175
+      note: WIP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 19f9d1c89165f8babfd1d879dfd288a2a7baf915
+      note: WIP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: b43fabc5b6132a88b5e35dcacdced6d45b045183
+      note: WIP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: b9660caa3d58ba45c293a9aa6ca9df45b51db7b8
+      note: Add LICENSE
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 56d69309ea9f67bf59d255b5b9b1de347b0f6553
+      note: Packet formats complete
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 3d66d67713b4216f764a77b0f11bc65afb2dfe9e
+      note: ZI-Req, ZI-Rsp
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: e18614bfec1721c4a792598d19f2dcd3b024fc65
+      note: RD
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 7e1549607df758fec3c4b662834569ad353a63c7
+      note: Depointerise headers
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 8a69986574b98f9fd693a0b3d6cade803a5457b9
+      note: Parse RI-Rsp contents
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 899963df1fb05f70480701546108891c4447c0e8
+      note: Split aurp.go up a bit
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 81bb5d80f95b04d3e64ac044b12947a7dc71cadd
+      note: RI-Upd
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: caad2d1d4fabb93c8a6b93a27dc74fd7d3f30109
+      note: RI-Req, RI-Rsp, RI-Ack
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 78c19bd166f1c5fe933620238c4069b57160d62f
+      note: WIP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 5bb3435dc93b3dc424f3f8ab51b70ba6d68338e5
+      note: WIP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: 30f8d709d2a86d9a3fab3bcedc2e34b30d3b0590
+      note: WIP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: b8abe34c280691454aac0e5283ad3a88f83eb1a9
+      note: WIP
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+    - commit: aa0a109bdee4e97cf5ece2008cf00bbd62c99568
+      note: Initial commit
+      author:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com
+      committer:
+        name: Josh Deprez
+        email: josh.deprez@gmail.com

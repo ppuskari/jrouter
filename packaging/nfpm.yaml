@@ -1,0 +1,39 @@
+# yaml-language-server: $schema=https://nfpm.goreleaser.com/static/schema.json
+
+name: "jrouter"
+arch: "${ARCH}"
+platform: "linux"
+version: "${VERSION}"
+version_schema: semver
+section: "net"
+priority: "optional"
+# depends:
+#   - libpcap
+maintainer: "Josh Deprez <josh.deprez@gmail.com>"
+description: |
+  Alternative ground-up reimplementation of Apple Internet Router 3.0 in Go.
+  In addition to acting as an AppleTalk router on local network interfaces,
+  it connects to peer AIR 3.0 (and compatible) AURP servers on the Internet to
+  learn about remote AppleTalk networks, and routes encapsulated packets between
+  local and remote networks.
+vendor: "@DrJosh9000@cloudisland.nz"
+homepage: "https://gitea.drjosh.dev/josh/jrouter"
+changelog: changelog.yml
+contents:
+  - src: dist/jrouter_${VERSION}_linux_${ARCH}
+    dst: /usr/bin/jrouter
+    expand: true
+
+  - src: jrouter.yaml
+    dst: /etc/jrouter/jrouter.yaml
+    type: config|noreplace
+
+  - src: packaging/deb/jrouter.service
+    dst: /usr/lib/systemd/system/jrouter.service
+
+  - src: packaging/deb/copyright
+    dst: /usr/share/doc/jrouter/copyright
+
+scripts:
+  postinstall: packaging/deb/postinst
+  preremove: packaging/deb/prerm

@@ -205,7 +205,7 @@ func Handle(w http.ResponseWriter, r *http.Request) {
 
 	data := &statusData{
 		Items:        rootItem.items,
-		Version:      meta.Version + meta.Suffix,
+		Version:      meta.Version,
 		Build:        build,
 		Hostname:     hostname,
 		Username:     username,

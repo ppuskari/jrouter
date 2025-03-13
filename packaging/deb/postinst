@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+
+if [ "$1" = "configure" ]
+then
+    # if command -v 'setcap' > /dev/null 2>&1 ; then
+    #     setcap 'CAP_NET_BIND_SERVICE=ep CAP_NET_RAW=ep' /usr/bin/jrouter
+    # fi
+
+    # Pick up the systemd service changes, but don't enable or start.
+    # User might not have configured jrouter.yaml yet.
+    if command -v 'systemctl' > /dev/null 2>&1 ; then
+        systemctl daemon-reload
+    fi
+fi

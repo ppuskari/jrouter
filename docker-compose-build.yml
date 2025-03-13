@@ -1,0 +1,30 @@
+x-builder: &builder
+  build:
+    dockerfile_inline: |
+      FROM golang:alpine
+      RUN --mount=type=cache,target=/var/cache/apk \
+         	apk add build-base libpcap-dev
+  volumes:
+    # Source code:
+    - ".:/go/src/jrouter"
+    # GOCACHE:
+    - "~/Library/Caches/go-build:/root/.cache/go-build"
+    # GOMODCACHE:
+    - "~/go/pkg/mod:/go/pkg/mod"
+  environment:
+    - VERSION
+  working_dir: /go/src/jrouter
+  command: |
+    /bin/sh -c 'CGO_ENABLED=1 go build -v \
+        -buildmode pie \
+        -ldflags "-s -w -extldflags=-static" \
+        -o "dist/jrouter_${VERSION}_$(go env GOOS)_$(go env GOARCH)" .'
+
+services:
+  build-arm64:
+    <<: *builder
+    platform: linux/arm64/v8
+
+  build-amd64:
+    <<: *builder
+    platform: linux/amd64
