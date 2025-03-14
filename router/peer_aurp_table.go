@@ -43,17 +43,17 @@ func (t *AURPPeerTable) LookupOrCreate(
 	peerAddr string,
 	raddr net.IP,
 	localDI, remoteDI aurp.DomainIdentifier,
-) (*AURPPeer, error) {
+) (peer *AURPPeer, existed bool, err error) {
 	raddr4 := raddr.To4()
 	if len(raddr4) != 4 {
-		return nil, fmt.Errorf("remote addr %v is not an IPv4 address", raddr)
+		return nil, false, fmt.Errorf("remote addr %v is not an IPv4 address", raddr)
 	}
 	key := [4]byte(raddr4)
 
 	if remoteDI == nil {
 		remoteDI = aurp.IPDomainIdentifier(raddr)
 	}
-	peer := &AURPPeer{
+	peer = &AURPPeer{
 		Transport: &aurp.Transport{
 			LocalDI:     localDI,
 			RemoteDI:    remoteDI,
@@ -69,14 +69,14 @@ func (t *AURPPeerTable) LookupOrCreate(
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	// Existing?
+	// Already exists?
 	if p := t.peersByIP[key]; p != nil {
-		return p, nil
+		return p, true, nil
 	}
 	// New.
 	t.peersByIP[key] = peer
 	aurp.Inc(&t.nextConnID)
-	return peer, nil
+	return peer, false, nil
 }
 
 // Lookup looks up the peer associated with this IP address. It returns an error

@@ -279,7 +279,7 @@ func main() {
 			continue
 		}
 
-		peer, err := aurpPeers.LookupOrCreate(logger, routes, ln, peerStr, raddr4, localDI, nil)
+		peer, _, err := aurpPeers.LookupOrCreate(logger, routes, ln, peerStr, raddr4, localDI, nil)
 		if err != nil {
 			logger.Warn("AURP: peer create", "error", err)
 			continue
@@ -374,24 +374,29 @@ func main() {
 			logger.Debug("AURP: Read packet from peer", "pkt-type", reflect.TypeOf(pkt), "raddr", raddr, "sourceDI", dh.SourceDI)
 
 			var peer *router.AURPPeer
+
 			if cfg.OpenPeering {
-				peer, err = aurpPeers.LookupOrCreate(logger, routes, ln, "", raddr.IP, localDI, dh.SourceDI)
+				p, existing, err := aurpPeers.LookupOrCreate(logger, routes, ln, "", raddr.IP, localDI, dh.SourceDI)
 				if err != nil {
 					logger.Warn("AURP: peer LookupOrCreate", "error", err)
 					continue
 				}
+				if !existing {
+					goPeerHandler(p)
+				}
+				peer = p
 			} else {
-				peer, err = aurpPeers.Lookup(raddr.IP)
+				p, err := aurpPeers.Lookup(raddr.IP)
 				if err != nil {
 					logger.Error("AURP: peer Lookup", "error", err)
 					continue
 				}
-				if peer == nil {
+				if p == nil {
 					logger.Warn("AURP: Got packet from peer not in config and open peering is disabled; dropping the packet", "raddr", raddr)
 					continue
 				}
+				peer = p
 			}
-			goPeerHandler(peer)
 
 			switch dh.PacketType {
 			case aurp.PacketTypeRouting:
