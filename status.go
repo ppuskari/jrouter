@@ -42,34 +42,3 @@ const routingTableTemplate = `
 	</tbody>
 </table>
 `
-
-const peerTableTemplate = `
-<table>
-	<thead><tr>
-		<th>Configured addr</th>
-		<th>Remote addr</th>
-		<th>Receiver state</th>
-		<th>Sender state</th>
-		<th>Last heard from</th>
-		<th>Last reconnect</th>
-		<th>Last update</th>
-		<th>Last send</th>
-		<th>Send retries</th>
-	</tr></thead>
-	<tbody>
-{{range $peer := . }}
-	<tr>
-		<td>{{$peer.ConfiguredAddr}}</td>
-		<td>{{$peer.RemoteAddr}}</td>
-		<td>{{$peer.ReceiverState}}</td>
-		<td>{{$peer.SenderState}}</td>
-		<td>{{$peer.LastHeardFromAgo}}</td>
-		<td>{{$peer.LastReconnectAgo}}</td>
-		<td>{{$peer.LastUpdateAgo}}</td>
-		<td>{{$peer.LastSendAgo}}</td>
-		<td>{{$peer.SendRetries}}</td>
-	</tr>
-{{end}}
-	</tbody>
-</table>
-`

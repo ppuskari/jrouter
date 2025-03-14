@@ -30,7 +30,7 @@ type Router struct {
 	Config     *Config
 	RouteTable *RouteTable
 	Ports      []*EtherTalkPort
-	//AURPPeers  *AURPPeersTable
+	AURPPeers  *AURPPeerTable
 }
 
 // Forward increments the hop count, then outputs the packet in the direction

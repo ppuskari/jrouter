@@ -217,33 +217,7 @@ func main() {
 
 	// -------------------------------- Peers ---------------------------------
 	//
-	var peersMu sync.Mutex
-	peersByIP := make(map[[4]byte]*router.AURPPeer)
-	status.AddItem(ctx, "AURP Peers", peerTableTemplate, func(context.Context) (any, error) {
-		var peerInfo []*router.AURPPeer
-		func() {
-			peersMu.Lock()
-			defer peersMu.Unlock()
-			peerInfo = make([]*router.AURPPeer, 0, len(peersByIP))
-			for _, p := range peersByIP {
-				peerInfo = append(peerInfo, p)
-			}
-		}()
-		slices.SortFunc(peerInfo, func(pa, pb *router.AURPPeer) int {
-			return cmp.Or(
-				-cmp.Compare(
-					bool2Int(pa.ReceiverState() == router.ReceiverConnected),
-					bool2Int(pb.ReceiverState() == router.ReceiverConnected),
-				),
-				-cmp.Compare(
-					bool2Int(pa.SenderState() == router.SenderConnected),
-					bool2Int(pb.SenderState() == router.SenderConnected),
-				),
-				cmp.Compare(pa.ConfiguredAddr, pb.ConfiguredAddr),
-			)
-		})
-		return peerInfo, nil
-	})
+	aurpPeers := router.NewAURPPeerTable(ctx)
 
 	var nextConnID uint16
 	for nextConnID == 0 {
@@ -311,9 +285,10 @@ func main() {
 
 		peer := router.NewAURPPeer(logger, routes, ln, peerStr, raddr4, localDI, nil, nextConnID)
 		aurp.Inc(&nextConnID)
-		peersMu.Lock()
-		peersByIP[[4]byte(raddr4)] = peer
-		peersMu.Unlock()
+		if err := aurpPeers.Insert(peer); err != nil {
+			logger.Warn("AURP: peer insert", "error", err)
+			continue
+		}
 		goPeerHandler(peer)
 	}
 
@@ -323,6 +298,7 @@ func main() {
 		Logger:     logger,
 		Config:     cfg,
 		RouteTable: routes,
+		AURPPeers:  aurpPeers,
 	}
 
 	// Attach ports to router
@@ -403,29 +379,31 @@ func main() {
 			logger.Debug("AURP: Read packet from peer", "pkt-type", reflect.TypeOf(pkt), "raddr", raddr, "sourceDI", dh.SourceDI)
 
 			// Existing peer?
-			ra := [4]byte(raddr.IP)
-			peersMu.Lock()
-			pr := peersByIP[ra]
-			if pr == nil {
+			peer, err := aurpPeers.Lookup(raddr.IP)
+			if err != nil {
+				logger.Error("AURP: peer lookup", "error", err)
+			}
+			if peer == nil {
 				if !cfg.OpenPeering {
 					logger.Warn("AURP: Got packet from peer not in config and open peering is disabled; dropping the packet", "raddr", raddr)
-					peersMu.Unlock()
 					continue
 				}
 				// New peer!
-				pr = router.NewAURPPeer(logger, routes, ln, "", raddr.IP, localDI, dh.SourceDI, nextConnID)
+				peer = router.NewAURPPeer(logger, routes, ln, "", raddr.IP, localDI, dh.SourceDI, nextConnID)
 				aurp.Inc(&nextConnID)
-				peersByIP[ra] = pr
-				goPeerHandler(pr)
+				if err := aurpPeers.Insert(peer); err != nil {
+					logger.Warn("AURP: peer insert", "error", err)
+					continue
+				}
+				goPeerHandler(peer)
 			}
-			peersMu.Unlock()
 
 			switch dh.PacketType {
 			case aurp.PacketTypeRouting:
 				// It's AURP routing data.
 				// Pass the packet to the goroutine in charge of this peer.
 				select {
-				case pr.ReceiveCh <- pkt:
+				case peer.ReceiveCh <- pkt:
 					// That's it for us.
 
 				case <-ctx.Done():
@@ -491,11 +469,4 @@ func main() {
 
 	// -------------------------------- Close ---------------------------------
 	wg.Wait()
-}
-
-func bool2Int(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }
