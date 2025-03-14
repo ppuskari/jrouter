@@ -19,10 +19,12 @@ package router
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"net"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"drjosh.dev/jrouter/aurp"
@@ -72,7 +74,8 @@ type AURPPeer struct {
 
 	// The internal states below are only set within the Handle loop, but can
 	// be read concurrently from outside.
-	mu            sync.RWMutex
+	running       atomic.Bool
+	mu            sync.RWMutex // hat for the below
 	rstate        ReceiverState
 	sstate        SenderState
 	lastReconnect time.Time
@@ -80,25 +83,6 @@ type AURPPeer struct {
 	lastSend      time.Time // TODO: clarify use of lastSend / sendRetries
 	lastUpdate    time.Time
 	sendRetries   int
-}
-
-func NewAURPPeer(logger *slog.Logger, routes *RouteTable, udpConn *net.UDPConn, peerAddr string, raddr net.IP, localDI, remoteDI aurp.DomainIdentifier, connID uint16) *AURPPeer {
-	if remoteDI == nil {
-		remoteDI = aurp.IPDomainIdentifier(raddr)
-	}
-	return &AURPPeer{
-		Transport: &aurp.Transport{
-			LocalDI:     localDI,
-			RemoteDI:    remoteDI,
-			LocalConnID: connID,
-		},
-		UDPConn:        udpConn,
-		ConfiguredAddr: peerAddr,
-		RemoteAddr:     raddr,
-		ReceiveCh:      make(chan aurp.Packet, 1024),
-		RouteTable:     routes,
-		logger:         logger.With("raddr", raddr, "remote-di", remoteDI),
-	}
 }
 
 func (p *AURPPeer) addPendingEvent(ec aurp.EventCode, route *Route) {
@@ -173,6 +157,9 @@ func (p *AURPPeer) String() string {
 	return p.RemoteAddr.String()
 }
 
+// Running reports whether the handler loop is running.
+func (p *AURPPeer) Running() bool { return p.running.Load() }
+
 // ReceiverState returns the current route-data receiver state.
 func (p *AURPPeer) ReceiverState() ReceiverState {
 	p.mu.RLock()
@@ -223,22 +210,32 @@ func (p *AURPPeer) SendRetries() int {
 	return p.sendRetries
 }
 
+// Handle handles incoming packets for this peer. It is safe to call multiple
+// times concurrently - only one will run.
 func (p *AURPPeer) Handle(ctx context.Context) error {
+	if !p.running.CompareAndSwap(false, true) {
+		return fmt.Errorf("handle loop for %v already running", p.RemoteAddr)
+	}
+	defer p.running.Store(false)
+
 	// Stop listening to events if the goroutine exits
 	defer p.RouteTable.RemoveObserver(p)
+
+	func() {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+
+		p.lastReconnect = time.Now()
+		p.lastHeardFrom = time.Now()
+		p.lastSend = time.Now() // TODO: clarify use of lastSend / sendRetries
+		p.lastUpdate = time.Now()
+		p.sendRetries = 0
+	}()
 
 	rticker := time.NewTicker(1 * time.Second)
 	defer rticker.Stop()
 	sticker := time.NewTicker(1 * time.Second)
 	defer sticker.Stop()
-
-	p.mu.Lock()
-	p.lastReconnect = time.Now()
-	p.lastHeardFrom = time.Now()
-	p.lastSend = time.Now() // TODO: clarify use of lastSend / sendRetries
-	p.lastUpdate = time.Now()
-	p.sendRetries = 0
-	p.mu.Unlock()
 
 	var lastRISent aurp.Packet
 

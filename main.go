@@ -24,7 +24,6 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
-	"math/rand/v2"
 	"net"
 	"net/http"
 	"os"
@@ -219,17 +218,14 @@ func main() {
 	//
 	aurpPeers := router.NewAURPPeerTable(ctx)
 
-	var nextConnID uint16
-	for nextConnID == 0 {
-		nextConnID = uint16(rand.IntN(0x10000))
-	}
-
 	var wg sync.WaitGroup
 	goPeerHandler := func(p *router.AURPPeer) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			p.Handle(ctx)
+			if err := p.Handle(ctx); err != nil {
+				logger.Error("AURP: running peer handler", "error", err)
+			}
 		}()
 	}
 
@@ -255,7 +251,7 @@ func main() {
 				cfg.Peers = append(cfg.Peers, p)
 			}
 			if err := sc.Err(); err != nil {
-				logger.Error("Couldn't scan peer list response", "error", err)
+				logger.Error("Couldn't scan peer list response", "peerlist-url", cfg.PeerListURL, "error", err)
 				os.Exit(1)
 			}
 		}()
@@ -283,10 +279,9 @@ func main() {
 			continue
 		}
 
-		peer := router.NewAURPPeer(logger, routes, ln, peerStr, raddr4, localDI, nil, nextConnID)
-		aurp.Inc(&nextConnID)
-		if err := aurpPeers.Insert(peer); err != nil {
-			logger.Warn("AURP: peer insert", "error", err)
+		peer, err := aurpPeers.LookupOrCreate(logger, routes, ln, peerStr, raddr4, localDI, nil)
+		if err != nil {
+			logger.Warn("AURP: peer create", "error", err)
 			continue
 		}
 		goPeerHandler(peer)
@@ -378,25 +373,25 @@ func main() {
 
 			logger.Debug("AURP: Read packet from peer", "pkt-type", reflect.TypeOf(pkt), "raddr", raddr, "sourceDI", dh.SourceDI)
 
-			// Existing peer?
-			peer, err := aurpPeers.Lookup(raddr.IP)
-			if err != nil {
-				logger.Error("AURP: peer lookup", "error", err)
-			}
-			if peer == nil {
-				if !cfg.OpenPeering {
+			var peer *router.AURPPeer
+			if cfg.OpenPeering {
+				peer, err = aurpPeers.LookupOrCreate(logger, routes, ln, "", raddr.IP, localDI, dh.SourceDI)
+				if err != nil {
+					logger.Warn("AURP: peer LookupOrCreate", "error", err)
+					continue
+				}
+			} else {
+				peer, err = aurpPeers.Lookup(raddr.IP)
+				if err != nil {
+					logger.Error("AURP: peer Lookup", "error", err)
+					continue
+				}
+				if peer == nil {
 					logger.Warn("AURP: Got packet from peer not in config and open peering is disabled; dropping the packet", "raddr", raddr)
 					continue
 				}
-				// New peer!
-				peer = router.NewAURPPeer(logger, routes, ln, "", raddr.IP, localDI, dh.SourceDI, nextConnID)
-				aurp.Inc(&nextConnID)
-				if err := aurpPeers.Insert(peer); err != nil {
-					logger.Warn("AURP: peer insert", "error", err)
-					continue
-				}
-				goPeerHandler(peer)
 			}
+			goPeerHandler(peer)
 
 			switch dh.PacketType {
 			case aurp.PacketTypeRouting:
