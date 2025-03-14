@@ -24,11 +24,13 @@ import (
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
+// Router implements the core routing logic.
 type Router struct {
 	Logger     *slog.Logger
 	Config     *Config
 	RouteTable *RouteTable
 	Ports      []*EtherTalkPort
+	//AURPPeers  *AURPPeersTable
 }
 
 // Forward increments the hop count, then outputs the packet in the direction

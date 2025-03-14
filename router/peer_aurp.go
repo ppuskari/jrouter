@@ -40,60 +40,6 @@ const (
 	updateTimer        = 10 * time.Second
 )
 
-type ReceiverState int
-
-const (
-	ReceiverUnconnected ReceiverState = iota
-	ReceiverConnected
-	ReceiverWaitForOpenRsp
-	ReceiverWaitForRIRsp
-	ReceiverWaitForTickleAck
-)
-
-func (rs ReceiverState) String() string {
-	switch rs {
-	case ReceiverUnconnected:
-		return "unconnected"
-	case ReceiverConnected:
-		return "connected"
-	case ReceiverWaitForOpenRsp:
-		return "waiting for Open-Rsp"
-	case ReceiverWaitForRIRsp:
-		return "waiting for RI-Rsp"
-	case ReceiverWaitForTickleAck:
-		return "waiting for Tickle-Ack"
-	default:
-		return "unknown"
-	}
-}
-
-type SenderState int
-
-const (
-	SenderUnconnected SenderState = iota
-	SenderConnected
-	SenderWaitForRIRspAck
-	SenderWaitForRIUpdAck
-	SenderWaitForRDAck
-)
-
-func (ss SenderState) String() string {
-	switch ss {
-	case SenderUnconnected:
-		return "unconnected"
-	case SenderConnected:
-		return "connected"
-	case SenderWaitForRIRspAck:
-		return "waiting for RI-Ack for RI-Rsp"
-	case SenderWaitForRIUpdAck:
-		return "waiting for RI-Ack for RI-Upd"
-	case SenderWaitForRDAck:
-		return "waiting for RI-Ack for RD"
-	default:
-		return "unknown"
-	}
-}
-
 // AURPPeer handles the peering with a peer AURP router.
 type AURPPeer struct {
 	// AURP-Tr state for producing packets.
@@ -227,30 +173,38 @@ func (p *AURPPeer) String() string {
 	return p.RemoteAddr.String()
 }
 
+// ReceiverState returns the current route-data receiver state.
 func (p *AURPPeer) ReceiverState() ReceiverState {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.rstate
 }
 
+// SenderState returns the current route-data sender state.
 func (p *AURPPeer) SenderState() SenderState {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.sstate
 }
 
+// LastReconnectAgo returns a description of how long ago the last reconnect
+// was.
 func (p *AURPPeer) LastReconnectAgo() string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return ago(p.lastReconnect)
 }
 
+// LastReconnectAgo returns a description of how long ago the last packet
+// was received from this peer.
 func (p *AURPPeer) LastHeardFromAgo() string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return ago(p.lastHeardFrom)
 }
 
+// LastSendAgo returns a description of how long ago the last packet
+// was sent to this peer.
 func (p *AURPPeer) LastSendAgo() string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -267,76 +221,6 @@ func (p *AURPPeer) SendRetries() int {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.sendRetries
-}
-
-func (p *AURPPeer) setRState(rstate ReceiverState) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.rstate = rstate
-}
-
-func (p *AURPPeer) setSState(sstate SenderState) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.sstate = sstate
-}
-
-func (p *AURPPeer) incSendRetries() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.sendRetries++
-}
-
-func (p *AURPPeer) resetSendRetries() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.sendRetries = 0
-}
-
-func (p *AURPPeer) bumpLastHeardFrom() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.lastHeardFrom = time.Now()
-}
-
-func (p *AURPPeer) bumpLastReconnect() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.lastReconnect = time.Now()
-}
-
-func (p *AURPPeer) bumpLastSend() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.lastSend = time.Now()
-}
-
-func (p *AURPPeer) bumpLastUpdate() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.lastUpdate = time.Now()
-}
-
-func (p *AURPPeer) disconnect() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.rstate = ReceiverUnconnected
-	p.sstate = SenderUnconnected
-}
-
-// send encodes and sends pkt to the remote host.
-func (p *AURPPeer) send(pkt aurp.Packet) (int, error) {
-	var b bytes.Buffer
-	if _, err := pkt.WriteTo(&b); err != nil {
-		return 0, err
-	}
-
-	promLabels := prometheus.Labels{"peer": p.RemoteAddr.String()}
-	aurpPacketsOutCounter.With(promLabels).Inc()
-	aurpBytesOutCounter.With(promLabels).Add(float64(b.Len()))
-
-	p.logger.Debug("AURP Peer: Sending", "pkt-type", reflect.TypeOf(pkt), "length", b.Len())
-	return p.UDPConn.WriteToUDP(b.Bytes(), &net.UDPAddr{IP: p.RemoteAddr, Port: 387})
 }
 
 func (p *AURPPeer) Handle(ctx context.Context) error {
@@ -888,5 +772,129 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				p.setRState(ReceiverConnected)
 			}
 		}
+	}
+}
+
+func (p *AURPPeer) setRState(rstate ReceiverState) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.rstate = rstate
+}
+
+func (p *AURPPeer) setSState(sstate SenderState) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.sstate = sstate
+}
+
+func (p *AURPPeer) incSendRetries() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.sendRetries++
+}
+
+func (p *AURPPeer) resetSendRetries() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.sendRetries = 0
+}
+
+func (p *AURPPeer) bumpLastHeardFrom() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.lastHeardFrom = time.Now()
+}
+
+func (p *AURPPeer) bumpLastReconnect() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.lastReconnect = time.Now()
+}
+
+func (p *AURPPeer) bumpLastSend() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.lastSend = time.Now()
+}
+
+func (p *AURPPeer) bumpLastUpdate() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.lastUpdate = time.Now()
+}
+
+func (p *AURPPeer) disconnect() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.rstate = ReceiverUnconnected
+	p.sstate = SenderUnconnected
+}
+
+// send encodes and sends pkt to the remote host.
+func (p *AURPPeer) send(pkt aurp.Packet) (int, error) {
+	var b bytes.Buffer
+	if _, err := pkt.WriteTo(&b); err != nil {
+		return 0, err
+	}
+
+	promLabels := prometheus.Labels{"peer": p.RemoteAddr.String()}
+	aurpPacketsOutCounter.With(promLabels).Inc()
+	aurpBytesOutCounter.With(promLabels).Add(float64(b.Len()))
+
+	p.logger.Debug("AURP Peer: Sending", "pkt-type", reflect.TypeOf(pkt), "length", b.Len())
+	return p.UDPConn.WriteToUDP(b.Bytes(), &net.UDPAddr{IP: p.RemoteAddr, Port: 387})
+}
+
+type ReceiverState int
+
+const (
+	ReceiverUnconnected ReceiverState = iota
+	ReceiverConnected
+	ReceiverWaitForOpenRsp
+	ReceiverWaitForRIRsp
+	ReceiverWaitForTickleAck
+)
+
+func (rs ReceiverState) String() string {
+	switch rs {
+	case ReceiverUnconnected:
+		return "unconnected"
+	case ReceiverConnected:
+		return "connected"
+	case ReceiverWaitForOpenRsp:
+		return "waiting for Open-Rsp"
+	case ReceiverWaitForRIRsp:
+		return "waiting for RI-Rsp"
+	case ReceiverWaitForTickleAck:
+		return "waiting for Tickle-Ack"
+	default:
+		return "unknown"
+	}
+}
+
+type SenderState int
+
+const (
+	SenderUnconnected SenderState = iota
+	SenderConnected
+	SenderWaitForRIRspAck
+	SenderWaitForRIUpdAck
+	SenderWaitForRDAck
+)
+
+func (ss SenderState) String() string {
+	switch ss {
+	case SenderUnconnected:
+		return "unconnected"
+	case SenderConnected:
+		return "connected"
+	case SenderWaitForRIRspAck:
+		return "waiting for RI-Ack for RI-Rsp"
+	case SenderWaitForRIUpdAck:
+		return "waiting for RI-Ack for RI-Upd"
+	case SenderWaitForRDAck:
+		return "waiting for RI-Ack for RD"
+	default:
+		return "unknown"
 	}
 }
