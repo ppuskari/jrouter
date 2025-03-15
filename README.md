@@ -8,7 +8,12 @@ Home-grown alternative implementation of Apple Internet Router 3.0
 * Function on modern operating systems
 * EtherTalk support
 * Be observable (there's a HTTP server with `/status` and `/metrics` pages)
-* (Stretch goal) TashTalk support
+
+### Stretch goals
+
+* Direct TashTalk support
+* Non-seed and soft-seed modes
+* Netatalk compatibility (on same host)
 
 ## Things that used to be caveats
 
