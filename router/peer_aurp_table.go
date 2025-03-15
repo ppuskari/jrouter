@@ -35,25 +35,28 @@ func NewAURPPeerTable(ctx context.Context) *AURPPeerTable {
 }
 
 // LookupOrCreate looks up a peer by raddr, or creates a peer if it is not
-// found. It returns an error if raddr is not an IPv4 address.
+// found. It returns an error if raddr is not an IPv4 address. If it creates a
+// new peer, it runs its handler in a new goroutine and increments wg.
 func (t *AURPPeerTable) LookupOrCreate(
+	ctx context.Context,
 	logger *slog.Logger,
+	wg *sync.WaitGroup,
 	routes *RouteTable,
 	udpConn *net.UDPConn,
 	peerAddr string,
 	raddr net.IP,
 	localDI, remoteDI aurp.DomainIdentifier,
-) (peer *AURPPeer, existed bool, err error) {
+) (*AURPPeer, error) {
 	raddr4 := raddr.To4()
 	if len(raddr4) != 4 {
-		return nil, false, fmt.Errorf("remote addr %v is not an IPv4 address", raddr)
+		return nil, fmt.Errorf("remote addr %v is not an IPv4 address", raddr)
 	}
 	key := [4]byte(raddr4)
 
 	if remoteDI == nil {
 		remoteDI = aurp.IPDomainIdentifier(raddr)
 	}
-	peer = &AURPPeer{
+	peer := &AURPPeer{
 		Transport: &aurp.Transport{
 			LocalDI:     localDI,
 			RemoteDI:    remoteDI,
@@ -71,12 +74,15 @@ func (t *AURPPeerTable) LookupOrCreate(
 	defer t.mu.Unlock()
 	// Already exists?
 	if p := t.peersByIP[key]; p != nil {
-		return p, true, nil
+		return p, nil
 	}
 	// New.
 	t.peersByIP[key] = peer
 	aurp.Inc(&t.nextConnID)
-	return peer, false, nil
+
+	wg.Add(1)
+	go peer.Handle(ctx, wg)
+	return peer, nil
 }
 
 // Lookup looks up the peer associated with this IP address. It returns an error

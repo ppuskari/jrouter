@@ -214,10 +214,6 @@ func main() {
 	//
 	aurpPeers := router.NewAURPPeerTable(ctx)
 
-	var wg sync.WaitGroup
-
-	// ------------------------- Configured peer setup ------------------------
-	//
 	if cfg.PeerListURL != "" {
 		logger.Info("Fetching peer list", "peerlist-url", cfg.PeerListURL)
 		existing := len(cfg.Peers)
@@ -245,6 +241,9 @@ func main() {
 		logger.Info("Fetched list", "length", len(cfg.Peers)-existing)
 	}
 
+	wg := new(sync.WaitGroup)
+	defer wg.Wait()
+
 	for _, peerStr := range cfg.Peers {
 		raddr, err := net.ResolveIPAddr("ip4", peerStr)
 		if err != nil {
@@ -266,18 +265,10 @@ func main() {
 			continue
 		}
 
-		peer, _, err := aurpPeers.LookupOrCreate(logger, routes, udpConn, peerStr, raddr4, localDI, nil)
-		if err != nil {
+		if _, err := aurpPeers.LookupOrCreate(ctx, logger, wg, routes, udpConn, peerStr, raddr4, localDI, nil); err != nil {
 			logger.Warn("AURP: peer create", "error", err)
 			continue
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := peer.Handle(ctx); err != nil {
-				logger.Error("AURP: running peer handler", "error", err)
-			}
-		}()
 	}
 
 	// -------------------------------- Router --------------------------------
@@ -312,27 +303,12 @@ func main() {
 
 		// Finally, start handling packets.
 		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			ctx, setStatus, _ := status.AddSimpleItem(ctx, fmt.Sprintf("EtherTalk inbound on %s", etPort.Device))
-			defer setStatus("EtherTalk Serve goroutine exited!")
-
-			setStatus(fmt.Sprintf("Listening on %s", etPort.Device))
-
-			etPort.Serve(ctx)
-		}()
+		go etPort.Serve(ctx, wg)
 	}
 
 	// ----------------------------- AURP inbound -----------------------------
 	//
 	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	go rooter.AURPInput(ctx, logger, wg, cfg, udpConn, localDI)
 
-		rooter.AURPInput(ctx, logger, cfg, udpConn, localDI)
-	}()
-
-	// -------------------------------- Close ---------------------------------
-	wg.Wait()
 }

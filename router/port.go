@@ -20,11 +20,14 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strconv"
+	"sync"
 
 	"drjosh.dev/jrouter/atalk"
+	"drjosh.dev/jrouter/status"
 	"github.com/google/gopacket/pcap"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sfiera/multitalk/pkg/ddp"
@@ -49,7 +52,14 @@ type EtherTalkPort struct {
 
 // Serve runs a loop that reads AARP or AppleTalk packets from the network
 // device, and handles them.
-func (port *EtherTalkPort) Serve(ctx context.Context) {
+func (port *EtherTalkPort) Serve(ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	ctx, setStatus, _ := status.AddSimpleItem(ctx, fmt.Sprintf("EtherTalk inbound on %s", port.Device))
+	defer setStatus("EtherTalk Serve goroutine exited!")
+
+	setStatus(fmt.Sprintf("Listening on %s", port.Device))
+
 	for {
 		if ctx.Err() != nil {
 			return

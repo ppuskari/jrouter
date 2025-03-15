@@ -19,7 +19,6 @@ package router
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"log/slog"
 	"net"
 	"reflect"
@@ -212,9 +211,11 @@ func (p *AURPPeer) SendRetries() int {
 
 // Handle handles incoming packets for this peer. It is safe to call multiple
 // times concurrently - only one will run.
-func (p *AURPPeer) Handle(ctx context.Context) error {
+func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
 	if !p.running.CompareAndSwap(false, true) {
-		return fmt.Errorf("handle loop for %v already running", p.RemoteAddr)
+		p.logger.Error("AURP: handle loop for peer already running", "raddr", p.RemoteAddr)
+		return
 	}
 	defer p.running.Store(false)
 
@@ -244,7 +245,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 	// Write an Open-Req packet
 	if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
 		p.logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
-		return err
+		return
 	}
 
 	p.setRState(ReceiverWaitForOpenRsp)
@@ -254,14 +255,14 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 		case <-ctx.Done():
 			if p.sstate == SenderUnconnected {
 				// Return immediately
-				return ctx.Err()
+				return
 			}
 			// Send a best-effort Router Down before returning
 			lastRISent = p.Transport.NewRDPacket(aurp.ErrCodeNormalClose)
 			if _, err := p.send(lastRISent); err != nil {
 				p.logger.Error("Couldn't send RD packet", "error", err)
 			}
-			return ctx.Err()
+			return
 
 		case <-rticker.C:
 			switch p.rstate {
@@ -280,7 +281,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				p.bumpLastSend()
 				if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
 					p.logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
-					return err
+					return
 				}
 
 			case ReceiverConnected:
@@ -290,7 +291,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				}
 				if _, err := p.send(p.Transport.NewTicklePacket()); err != nil {
 					p.logger.Error("AURP Peer: Couldn't send Tickle", "error", err)
-					return err
+					return
 				}
 				p.setRState(ReceiverWaitForTickleAck)
 				p.resetSendRetries()
@@ -311,7 +312,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				p.bumpLastSend()
 				if _, err := p.send(p.Transport.NewTicklePacket()); err != nil {
 					p.logger.Error("AURP Peer: Couldn't send Tickle", "error", err)
-					return err
+					return
 				}
 				// still in Wait For Tickle-Ack
 
@@ -332,7 +333,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				p.bumpLastSend()
 				if _, err := p.send(p.Transport.NewRIReqPacket()); err != nil {
 					p.logger.Error("AURP Peer: Couldn't send RI-Req packet", "error", err)
-					return err
+					return
 				}
 				// still in Wait For RI-Rsp
 
@@ -352,7 +353,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 					lastRISent = p.Transport.NewRIUpdPacket(events)
 					if _, err := p.send(lastRISent); err != nil {
 						p.logger.Error("AURP Peer: Couldn't send RI-Upd packet: %v", "error", err)
-						return err
+						return
 					}
 					p.setSState(SenderWaitForRIUpdAck)
 				}
@@ -382,7 +383,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 					p.bumpLastSend()
 					if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
 						p.logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
-						return err
+						return
 					}
 					p.setRState(ReceiverWaitForOpenRsp)
 				}
@@ -417,7 +418,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				lastRISent = p.Transport.NewRIUpdPacket(pending)
 				if _, err := p.send(lastRISent); err != nil {
 					p.logger.Error("AURP Peer: Couldn't send RI-Upd packet", "error", err)
-					return err
+					return
 				}
 				p.setSState(SenderWaitForRIUpdAck)
 
@@ -439,7 +440,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				p.bumpLastSend()
 				if _, err := p.send(lastRISent); err != nil {
 					p.logger.Error("AURP Peer: Couldn't re-send", "last-RI-sent-type", reflect.TypeOf(lastRISent), "error", err)
-					return err
+					return
 				}
 
 			case SenderWaitForRDAck:
@@ -480,7 +481,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 
 				if _, err := p.send(orsp); err != nil {
 					p.logger.Error("AURP Peer: Couldn't send Open-Rsp", "error", err)
-					return err
+					return
 				}
 				if orsp.RateOrErrCode >= 0 {
 					// Data sender is successfully in connected state
@@ -494,7 +495,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 					p.bumpLastSend()
 					if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
 						p.logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
-						return err
+						return
 					}
 					p.setRState(ReceiverWaitForOpenRsp)
 				}
@@ -516,7 +517,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				p.resetSendRetries()
 				if _, err := p.send(p.Transport.NewRIReqPacket()); err != nil {
 					p.logger.Error("AURP Peer: Couldn't send RI-Req packet", "error", err)
-					return err
+					return
 				}
 				p.setRState(ReceiverWaitForRIRsp)
 
@@ -562,7 +563,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				lastRISent = p.Transport.NewRIRspPacket(aurp.RoutingFlagLast, nets)
 				if _, err := p.send(lastRISent); err != nil {
 					p.logger.Error("AURP Peer: Couldn't send RI-Rsp packet", "error", err)
-					return err
+					return
 				}
 				p.setSState(SenderWaitForRIRspAck)
 
@@ -587,7 +588,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				// only set SZI for those ?
 				if _, err := p.send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, aurp.RoutingFlagSendZoneInfo)); err != nil {
 					p.logger.Error("AURP Peer: Couldn't send RI-Ack packet", "error", err)
-					return err
+					return
 				}
 				if pkt.Flags&aurp.RoutingFlagLast != 0 {
 					// No longer waiting for an RI-Rsp
@@ -652,7 +653,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 					p.bumpLastSend()
 					if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
 						p.logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
-						return err
+						return
 					}
 					p.setRState(ReceiverWaitForOpenRsp)
 				}
@@ -704,7 +705,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 
 				if _, err := p.send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, ackFlag)); err != nil {
 					p.logger.Error("AURP Peer: Couldn't send RI-Ack", "error", err)
-					return err
+					return
 				}
 
 			case *aurp.RDPacket:
@@ -718,7 +719,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				// Respond with RI-Ack
 				if _, err := p.send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, 0)); err != nil {
 					p.logger.Error("AURP Peer: Couldn't send RI-Ack", "error", err)
-					return err
+					return
 				}
 				// Connections closed
 				p.disconnect()
@@ -728,7 +729,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				zones := p.RouteTable.ZonesForNetworks(pkt.Networks)
 				if _, err := p.send(p.Transport.NewZIRspPacket(zones)); err != nil {
 					p.logger.Error("AURP Peer: Couldn't send ZI-Rsp packet", "error", err)
-					return err
+					return
 				}
 
 			case *aurp.ZIRspPacket:
@@ -740,7 +741,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 			case *aurp.GDZLReqPacket:
 				if _, err := p.send(p.Transport.NewGDZLRspPacket(-1, nil)); err != nil {
 					p.logger.Error("AURP Peer: Couldn't send GDZL-Rsp packet", "error", err)
-					return err
+					return
 				}
 
 			case *aurp.GDZLRspPacket:
@@ -749,7 +750,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 			case *aurp.GZNReqPacket:
 				if _, err := p.send(p.Transport.NewGZNRspPacket(pkt.ZoneName, false, nil)); err != nil {
 					p.logger.Error("AURP Peer: Couldn't send GZN-Rsp packet", "error", err)
-					return err
+					return
 				}
 
 			case *aurp.GZNRspPacket:
@@ -759,7 +760,7 @@ func (p *AURPPeer) Handle(ctx context.Context) error {
 				// Immediately respond with Tickle-Ack
 				if _, err := p.send(p.Transport.NewTickleAckPacket()); err != nil {
 					p.logger.Error("AURP Peer: Couldn't send Tickle-Ack", "error", err)
-					return err
+					return
 				}
 
 			case *aurp.TickleAckPacket:
