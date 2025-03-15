@@ -299,5 +299,8 @@ func main() {
 
 	// ----------------------------- AURP inbound -----------------------------
 	//
-	rooter.AURPInput(ctx, logger, wg, cfg, udpConn, localDI)
+	wg.Add(1)
+	go rooter.AURPInput(ctx, logger, wg, cfg, udpConn, localDI)
+
+	// Note: main now blocks on wg.Wait() deferred above.
 }
