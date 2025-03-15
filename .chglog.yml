@@ -1,0 +1,8 @@
+debug: true
+package-name: "jrouter"
+conventional-commits: false
+exclude-merge-commits: false
+deb:
+  distribution: []
+  urgency: ""
+owner: "Josh Deprez <josh.deprez@gmail.com>"
