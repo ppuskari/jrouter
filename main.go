@@ -137,6 +137,7 @@ func main() {
 	} else {
 		http.HandleFunc("/status", status.Handle)
 		http.Handle("/metrics", promhttp.Handler())
+		http.Handle("/", http.FileServerFS(status.StaticFiles))
 		go func() {
 			err := http.ListenAndServe(cfg.MonitoringAddr, nil)
 			logger.Error("http.ListenAndServe", "error", err)

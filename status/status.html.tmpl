@@ -12,22 +12,33 @@
 <head>
     <title>Status for {{.ExeName}}</title>
     <style>
+    :root {
+        color-scheme: light dark;
+    }
     body {
         font-family: sans-serif;
-        background: #fff;
+        background: light-dark(#fff, #111);
     }
     h1 {
         clear: both;
         width: 100%;
         text-align: center;
         font-size: 120%;
-        background: #eef;
+        background: {{if .March}}linear-gradient(
+                to bottom,
+                /* #5EBD3E */ light-dark(#bee5b1,#264c19) 16%,
+                /* #FFB900 */ light-dark(#ffe399,#664a00) 16% 33%,
+                /* #F78200 */ light-dark(#ffcd96,#633400) 33% 50%,
+                /* #E23838 */ light-dark(#f3afaf,#620e0e) 50% 67%,
+                /* #973999 */ light-dark(#dda8de,#3c173d) 67% 83%,
+                /* #009CDF */ light-dark(#8cddff,#003e59) 83%
+            );{{else}}light-dark(#eef, #334);{{end}}
         padding: 4px 0;
     }
     summary {
         width: 100%;
         font-size: 120%;
-        background: #eef;
+        background: light-dark(#eef, #334);
         padding: 0.2em 0;
         border: 1px #eef solid;
     }
@@ -36,17 +47,30 @@
         padding: 1em 0;
     }
     details[open] > summary {
-        background: #fff;
+        background: light-dark(#fff, #111);
         border: 1px #000 solid;
     }
     .error {
-        background: #fee;
+        background: light-dark(#fee, #311);
     }
     div {
         padding: 0.2em;
     }
+    div.summary {
+        display: flex;
+    }
+    div.summary div.grow {
+        flex-grow: 1;
+    }
+    div.summary div.shrink {
+        flex-shrink: 1;
+    }
+    div.summary div.shrink img {
+        max-width: 200px;
+        max-height: 128px;
+    }
     div.warning {
-        background: #ffd;
+        background: light-dark(#ffd, #331);
     }
     table {
         border-collapse: collapse;
@@ -60,7 +84,7 @@
         border-bottom: 1px solid;
     }
     tr:nth-child(even) {
-        background-color: #eee;
+        background-color: light-dark(#eee, #333);
     }
     td,
     th {
@@ -69,29 +93,40 @@
     .itemdata {
         margin: 0 0 0.5em 0.86em;
         padding: 0.5em 0em 0.5em 1.5em;
-        border-left: 0.1em #ccc dotted;
+        border-left: 0.1em light-dark(#ccc, #333) dotted;
     }
     .subitems {
         margin: 0 0 0.5em 0.86em;
         padding: 0.5em 0em 0.5em 1.5em;
-        border-left: 0.1em #ccc dotted;
-        border-bottom: 0.1em #ccc dotted;
+        border-left: 0.1em light-dark(#ccc, #333) dotted;
+        border-bottom: 0.1em light-dark(#ccc, #333) dotted;
     }
     ul {
         margin: 0;
+    }
+    .green {
+        color: light-dark(#070, #1f1);
+    }
+    .red {
+        color: light-dark(#811, #f11);
     }
     </style>
 </head>
 <body>
     <h1>Status for {{.ExeName}}</h1>
     <div class="summary">
-        {{.ExePath}}<br>
-        Started at {{.StartTime}} ({{.StartTimeAgo}} ago)<br>
-        Current time {{.CurrentTime}}<br>
-        Version {{.Version}}, build {{.Build}}<br>
-        Running in PID {{.PID}} as {{.Username}} on {{.Hostname}}<br>
-        {{.RuntimeVer}} on {{.GOOS}}/{{.GOARCH}} compiled by {{.Compiler}}<br>
-        {{.NumGoroutine}} goroutines running/{{.NumCPU}} logical CPUs usable<br>
+        <div class="grow">
+            {{.ExePath}}<br>
+            Started at {{.StartTime}} ({{.StartTimeAgo}} ago)<br>
+            Current time {{.CurrentTime}}<br>
+            Version {{.Version}}, build {{.Build}}<br>
+            Running in PID {{.PID}} as {{.Username}} on {{.Hostname}}<br>
+            {{.RuntimeVer}} on {{.GOOS}}/{{.GOARCH}} compiled by {{.Compiler}}<br>
+            {{.NumGoroutine}} goroutines running/{{.NumCPU}} logical CPUs usable<br>
+        </div>
+        <div class="shrink">
+            {{if .March}}<img src="/MARCHintoshLogo.svg">{{end}}
+        </div>
     </div>
     {{template "render_items" .Items}}
 </body>

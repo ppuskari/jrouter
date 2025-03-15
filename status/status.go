@@ -8,7 +8,7 @@ package status
 import (
 	"cmp"
 	"context"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -33,6 +33,9 @@ Raw item data:<br>
 var (
 	//go:embed status.html.tmpl
 	statusTmplSrc string
+
+	//go:embed favicon.ico MARCHintoshLogo.svg
+	StaticFiles embed.FS
 
 	// Errors ignored below, as the status page is "best effort".
 	hostname, _ = os.Hostname()
@@ -87,6 +90,7 @@ type statusData struct {
 	StartTime    string
 	StartTimeAgo time.Duration
 	CurrentTime  string
+	March        bool
 	Ctx          context.Context // request context for Eval calls inside the template execution only
 }
 
@@ -222,6 +226,7 @@ func Handle(w http.ResponseWriter, r *http.Request) {
 		StartTime:    startTime.Format(time.RFC1123),
 		StartTimeAgo: time.Since(startTime),
 		CurrentTime:  time.Now().Format(time.RFC1123),
+		March:        time.Now().Month() == time.March,
 		Ctx:          r.Context(),
 	}
 
