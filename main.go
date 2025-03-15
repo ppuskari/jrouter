@@ -20,7 +20,6 @@ import (
 	"bufio"
 	"cmp"
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -28,7 +27,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -42,9 +40,7 @@ import (
 
 	"github.com/google/gopacket/pcap"
 	"github.com/lmittmann/tint"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/sfiera/multitalk/pkg/ddp"
 	"github.com/sfiera/multitalk/pkg/ethernet"
 )
 
@@ -120,13 +116,13 @@ func main() {
 
 	// ----------------------------- UDP listener -----------------------------
 	//
-	ln, err := net.ListenUDP("udp4", &net.UDPAddr{Port: int(cfg.ListenPort)})
+	udpConn, err := net.ListenUDP("udp4", &net.UDPAddr{Port: int(cfg.ListenPort)})
 	if err != nil {
 		logger.Error("AURP: Couldn't listen on udp4", "port", cfg.ListenPort, "error", err)
 		os.Exit(1)
 	}
-	defer ln.Close()
-	logger.Info("AURP: listening", "localaddr", ln.LocalAddr())
+	defer udpConn.Close()
+	logger.Info("AURP: listening", "localaddr", udpConn.LocalAddr())
 
 	cctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -219,15 +215,6 @@ func main() {
 	aurpPeers := router.NewAURPPeerTable(ctx)
 
 	var wg sync.WaitGroup
-	goPeerHandler := func(p *router.AURPPeer) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := p.Handle(ctx); err != nil {
-				logger.Error("AURP: running peer handler", "error", err)
-			}
-		}()
-	}
 
 	// ------------------------- Configured peer setup ------------------------
 	//
@@ -279,12 +266,18 @@ func main() {
 			continue
 		}
 
-		peer, _, err := aurpPeers.LookupOrCreate(logger, routes, ln, peerStr, raddr4, localDI, nil)
+		peer, _, err := aurpPeers.LookupOrCreate(logger, routes, udpConn, peerStr, raddr4, localDI, nil)
 		if err != nil {
 			logger.Warn("AURP: peer create", "error", err)
 			continue
 		}
-		goPeerHandler(peer)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := peer.Handle(ctx); err != nil {
+				logger.Error("AURP: running peer handler", "error", err)
+			}
+		}()
 	}
 
 	// -------------------------------- Router --------------------------------
@@ -337,134 +330,7 @@ func main() {
 	go func() {
 		defer wg.Done()
 
-		ctx, setStatus, done := status.AddSimpleItem(ctx, "AURP inbound")
-		defer done()
-		setStatus(fmt.Sprintf("Listening on UDP port %d", cfg.ListenPort))
-
-		for {
-			if ctx.Err() != nil {
-				return
-			}
-			ln.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-			pktbuf := make([]byte, 4096)
-			pktlen, raddr, readErr := ln.ReadFromUDP(pktbuf)
-
-			var operr *net.OpError
-			if errors.As(readErr, &operr) && operr.Timeout() {
-				continue
-			}
-
-			promLabels := prometheus.Labels{"peer": raddr.IP.String()}
-			aurpPacketsInCounter.With(promLabels).Inc()
-			aurpBytesInCounter.With(promLabels).Add(float64(pktlen))
-
-			// logger.Debug("AURP: Received packet", "pktlen", pktlen, "raddr", raddr)
-
-			dh, pkt, parseErr := aurp.ParsePacket(pktbuf[:pktlen])
-			if parseErr != nil {
-				logger.Warn("AURP: Failed to parse packet", "error", parseErr, "pktlen", pktlen, "raddr", raddr)
-				aurpInvalidPacketsInCounter.With(promLabels).Inc()
-				continue
-			}
-			if readErr != nil {
-				logger.Warn("AURP: Failed to read packet", "error", readErr, "pktlen", pktlen, "raddr", raddr)
-				return
-			}
-
-			logger.Debug("AURP: Read packet from peer", "pkt-type", reflect.TypeOf(pkt), "raddr", raddr, "sourceDI", dh.SourceDI)
-
-			var peer *router.AURPPeer
-
-			if cfg.OpenPeering {
-				p, existing, err := aurpPeers.LookupOrCreate(logger, routes, ln, "", raddr.IP, localDI, dh.SourceDI)
-				if err != nil {
-					logger.Warn("AURP: peer LookupOrCreate", "error", err)
-					continue
-				}
-				if !existing {
-					goPeerHandler(p)
-				}
-				peer = p
-			} else {
-				p, err := aurpPeers.Lookup(raddr.IP)
-				if err != nil {
-					logger.Error("AURP: peer Lookup", "error", err)
-					continue
-				}
-				if p == nil {
-					logger.Warn("AURP: Got packet from peer not in config and open peering is disabled; dropping the packet", "raddr", raddr)
-					continue
-				}
-				peer = p
-			}
-
-			switch dh.PacketType {
-			case aurp.PacketTypeRouting:
-				// It's AURP routing data.
-				// Pass the packet to the goroutine in charge of this peer.
-				select {
-				case peer.ReceiveCh <- pkt:
-					// That's it for us.
-
-				case <-ctx.Done():
-					return
-				}
-				continue
-
-			case aurp.PacketTypeAppleTalk:
-				apkt, ok := pkt.(*aurp.AppleTalkPacket)
-				if !ok {
-					logger.Error("AURP: Packet and domain header type conflict", "pkt-type", reflect.TypeOf(pkt), "dh-packettype", dh.PacketType)
-					continue
-				}
-
-				// Route or otherwise handle the encapsulated AppleTalk traffic
-				ddpkt := new(ddp.ExtPacket)
-				if err := ddp.ExtUnmarshal(apkt.Data, ddpkt); err != nil {
-					logger.Error("AURP: Couldn't unmarshal encapsulated DDP packet", "error", err)
-					continue
-				}
-				// logger.Debug(fmt.Sprintf("DDP/AURP: Got %d.%d.%d -> %d.%d.%d proto %d data len %d",
-				// 	ddpkt.SrcNet, ddpkt.SrcNode, ddpkt.SrcSocket,
-				// 	ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket,
-				// 	ddpkt.Proto, len(ddpkt.Data)))
-
-				// Is it addressed to me?
-				var localPort *router.EtherTalkPort
-				for _, port := range rooter.Ports {
-					if ddpkt.DstNet >= port.NetStart && ddpkt.DstNet <= port.NetEnd {
-						localPort = port
-						break
-					}
-				}
-				if ddpkt.DstNode == 0 && localPort != nil { // Node 0 = any router for the network = me
-					// Is it NBP? FwdReq needs translating.
-					if ddpkt.DstSocket != 2 {
-						// Something else?? TODO
-						logger.Debug("DDP/AURP: I don't have anything 'listening' on that socket", "dst-socket", ddpkt.DstSocket)
-						continue
-					}
-					// It's NBP, specifically it should be a FwdReq
-					if err := rooter.HandleNBPFromAURP(ctx, ddpkt); err != nil {
-						logger.Error("NBP/DDP/AURP handling", "error", err)
-					}
-					continue
-				}
-
-				// Output the packet!
-				// Note that AIR does not increment the hop count for packets
-				// flowing from AURP->local, probably because the hop count was
-				// incremented when it was sent by the remote peer. (To put it
-				// another way, the whole network of AURP nodes acts as one huge
-				// "router".) Hence rooter.Output and not rooter.Forward.
-				if err := rooter.Output(ctx, ddpkt); err != nil {
-					logger.Error("DDP/AURP: Couldn't route packet", "error", err)
-				}
-
-			default:
-				logger.Error("AURP: Unknown packet type", "dh-packettype", dh.PacketType)
-			}
-		}
+		rooter.AURPInput(ctx, logger, cfg, udpConn, localDI)
 	}()
 
 	// -------------------------------- Close ---------------------------------
