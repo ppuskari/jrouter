@@ -223,8 +223,6 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 
 	var lastRISent aurp.Packet
 
-	p.disconnect()
-
 	// Write an Open-Req packet
 	if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
 		p.logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
