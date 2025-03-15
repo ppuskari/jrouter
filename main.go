@@ -18,7 +18,6 @@ package main
 
 import (
 	"bufio"
-	"cmp"
 	"context"
 	"flag"
 	"fmt"
@@ -27,7 +26,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -201,14 +199,7 @@ func main() {
 
 	// -------------------------------- Tables --------------------------------
 	//
-	routes := router.NewRouteTable()
-	status.AddItem(ctx, "Routing table", routingTableTemplate, func(context.Context) (any, error) {
-		rs := routes.Dump()
-		slices.SortFunc(rs, func(ra, rb router.Route) int {
-			return cmp.Compare(ra.NetStart, rb.NetStart)
-		})
-		return rs, nil
-	})
+	routes := router.NewRouteTable(ctx)
 
 	// -------------------------------- Peers ---------------------------------
 	//

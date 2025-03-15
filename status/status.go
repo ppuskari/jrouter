@@ -60,6 +60,7 @@ var (
 
 	funcMap = template.FuncMap{
 		"printJSON": printJSON,
+		"ago":       ago,
 	}
 
 	// The inbuilt templates should always parse. Rather than use template.Must,
@@ -319,4 +320,12 @@ func wrapInItemError(op string, err error, cb ItemCallback) ItemCallback {
 func printJSON(v any) (string, error) {
 	b, err := json.MarshalIndent(v, "", "  ")
 	return string(b), err
+}
+
+// ago is a helper for formatting times in the past.
+func ago(t time.Time) string {
+	if t.IsZero() {
+		return "never"
+	}
+	return fmt.Sprintf("%v ago", time.Since(t).Truncate(time.Millisecond))
 }

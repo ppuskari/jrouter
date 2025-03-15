@@ -57,7 +57,7 @@ Status: {{.Status}}<br/>
 			<td>{{$key.Network}}.{{$key.Node}}</td>
 			<td>{{$entry.HWAddr}}</td>
 			<td>{{if $entry.Valid}}✅{{else}}❌{{end}}</td>
-			<td>{{$entry.LastUpdatedAgo}}</td>
+			<td>{{$entry.LastUpdated | ago}}</td>
 			<td>{{if $entry.Resolving}}⌚️{{else}}💤{{end}}</td>
 		</tr>
 {{end}}
@@ -391,12 +391,6 @@ type AMTEntry struct {
 // Valid reports if the entry is valid.
 func (e AMTEntry) Valid() bool {
 	return time.Since(e.LastUpdated) < maxAMTEntryAge
-}
-
-// LastUpdatedAgo is a friendly string reporting how long ago the entry was
-// updated/resolved.
-func (e AMTEntry) LastUpdatedAgo() string {
-	return ago(e.LastUpdated)
 }
 
 // addressMappingTable implements a concurrent-safe Address Mapping Table for

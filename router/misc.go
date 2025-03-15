@@ -17,10 +17,8 @@
 package router
 
 import (
-	"fmt"
 	"maps"
 	"slices"
-	"time"
 )
 
 // StringSet is a set of strings.
@@ -50,12 +48,4 @@ func SetFromSlice(ss []string) StringSet {
 	set := make(StringSet, len(ss))
 	set.Insert(ss...)
 	return set
-}
-
-// ago is a helper for formatting times.
-func ago(t time.Time) string {
-	if t.IsZero() {
-		return "never"
-	}
-	return fmt.Sprintf("%v ago", time.Since(t).Truncate(time.Millisecond))
 }

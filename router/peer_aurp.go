@@ -72,16 +72,15 @@ type AURPPeer struct {
 	logger *slog.Logger
 
 	// The internal states below are only set within the Handle loop, but can
-	// be read concurrently from outside.
+	// be read concurrently from outside (e.g. status, metrics).
 	running       atomic.Bool
-	mu            sync.RWMutex // hat for the below
-	rstate        ReceiverState
-	sstate        SenderState
-	lastReconnect time.Time
-	lastHeardFrom time.Time
-	lastSend      time.Time // TODO: clarify use of lastSend / sendRetries
-	lastUpdate    time.Time
-	sendRetries   int
+	rstate        atomic.Int32 // ReceiverState
+	sstate        atomic.Int32 // SenderState
+	lastReconnect atomic.Value // time.Time
+	lastHeardFrom atomic.Value // time.Time
+	lastSend      atomic.Value // time.Time // TODO: clarify use of lastSend / sendRetries
+	lastUpdate    atomic.Value // time.Time
+	sendRetries   atomic.Int32
 }
 
 func (p *AURPPeer) addPendingEvent(ec aurp.EventCode, route *Route) {
@@ -161,52 +160,39 @@ func (p *AURPPeer) Running() bool { return p.running.Load() }
 
 // ReceiverState returns the current route-data receiver state.
 func (p *AURPPeer) ReceiverState() ReceiverState {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return p.rstate
+	return ReceiverState(p.rstate.Load())
 }
 
 // SenderState returns the current route-data sender state.
 func (p *AURPPeer) SenderState() SenderState {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return p.sstate
+	return SenderState(p.sstate.Load())
 }
 
-// LastReconnectAgo returns a description of how long ago the last reconnect
-// was.
-func (p *AURPPeer) LastReconnectAgo() string {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return ago(p.lastReconnect)
+// LastReconnect returns the time of the last reconnect to this peer.
+func (p *AURPPeer) LastReconnect() time.Time {
+	return p.lastReconnect.Load().(time.Time)
 }
 
-// LastReconnectAgo returns a description of how long ago the last packet
-// was received from this peer.
-func (p *AURPPeer) LastHeardFromAgo() string {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return ago(p.lastHeardFrom)
+// LastHeardFromAgo returns the time of the last packet received from this peer.
+func (p *AURPPeer) LastHeardFrom() time.Time {
+	return p.lastHeardFrom.Load().(time.Time)
 }
 
-// LastSendAgo returns a description of how long ago the last packet
-// was sent to this peer.
-func (p *AURPPeer) LastSendAgo() string {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return ago(p.lastSend)
+// LastSendAgo returns the time of the last packet sent to this peer.
+func (p *AURPPeer) LastSend() time.Time {
+	return p.lastSend.Load().(time.Time)
 }
 
-func (p *AURPPeer) LastUpdateAgo() string {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return ago(p.lastUpdate)
+// LastUpdateAgo returns the time of the last (route) update received from the
+// peer.
+func (p *AURPPeer) LastUpdate() time.Time {
+	return p.lastUpdate.Load().(time.Time)
 }
 
+// SendRetries returns the number of send-retries for the last route update
+// send to this peer.
 func (p *AURPPeer) SendRetries() int {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return p.sendRetries
+	return int(p.sendRetries.Load())
 }
 
 // Handle handles incoming packets for this peer. It is safe to call multiple
@@ -222,16 +208,13 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 	// Stop listening to events if the goroutine exits
 	defer p.RouteTable.RemoveObserver(p)
 
-	func() {
-		p.mu.Lock()
-		defer p.mu.Unlock()
-
-		p.lastReconnect = time.Now()
-		p.lastHeardFrom = time.Now()
-		p.lastSend = time.Now() // TODO: clarify use of lastSend / sendRetries
-		p.lastUpdate = time.Now()
-		p.sendRetries = 0
-	}()
+	p.disconnect()
+	now := time.Now()
+	p.lastReconnect.Store(now)
+	p.lastHeardFrom.Store(now)
+	p.lastSend.Store(now) // TODO: clarify use of lastSend / sendRetries
+	p.lastUpdate.Store(now)
+	p.sendRetries.Store(0)
 
 	rticker := time.NewTicker(1 * time.Second)
 	defer rticker.Stop()
@@ -253,7 +236,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 	for {
 		select {
 		case <-ctx.Done():
-			if p.sstate == SenderUnconnected {
+			if p.SenderState() == SenderUnconnected {
 				// Return immediately
 				return
 			}
@@ -265,20 +248,20 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 			return
 
 		case <-rticker.C:
-			switch p.rstate {
+			switch p.ReceiverState() {
 			case ReceiverWaitForOpenRsp:
-				if time.Since(p.lastSend) <= sendRetryTimer {
+				if time.Since(p.LastSend()) <= sendRetryTimer {
 					break
 				}
-				if p.sendRetries >= sendRetryLimit {
+				if p.SendRetries() >= sendRetryLimit {
 					p.logger.Warn("AURP Peer: Send retry limit reached while waiting for Open-Rsp, closing connection")
 					p.setRState(ReceiverUnconnected)
 					break
 				}
 
 				// Send another Open-Req
-				p.incSendRetries()
-				p.bumpLastSend()
+				p.sendRetries.Add(1)
+				p.lastSend.Store(time.Now())
 				if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
 					p.logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
 					return
@@ -286,7 +269,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 
 			case ReceiverConnected:
 				// Check LHFT, send tickle?
-				if time.Since(p.lastHeardFrom) <= lastHeardFromTimer {
+				if time.Since(p.LastHeardFrom()) <= lastHeardFromTimer {
 					break
 				}
 				if _, err := p.send(p.Transport.NewTicklePacket()); err != nil {
@@ -294,22 +277,22 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 					return
 				}
 				p.setRState(ReceiverWaitForTickleAck)
-				p.resetSendRetries()
-				p.bumpLastSend()
+				p.sendRetries.Store(0)
+				p.lastSend.Store(time.Now())
 
 			case ReceiverWaitForTickleAck:
-				if time.Since(p.lastSend) <= sendRetryTimer {
+				if time.Since(p.LastSend()) <= sendRetryTimer {
 					break
 				}
-				if p.sendRetries >= tickleRetryLimit {
+				if p.SendRetries() >= tickleRetryLimit {
 					p.logger.Warn("AURP Peer: Send retry limit reached while waiting for Tickle-Ack, closing connection")
 					p.setRState(ReceiverUnconnected)
 					p.RouteTable.DeleteTarget(p)
 					break
 				}
 
-				p.incSendRetries()
-				p.bumpLastSend()
+				p.sendRetries.Add(1)
+				p.lastSend.Store(time.Now())
 				if _, err := p.send(p.Transport.NewTicklePacket()); err != nil {
 					p.logger.Error("AURP Peer: Couldn't send Tickle", "error", err)
 					return
@@ -317,10 +300,10 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 				// still in Wait For Tickle-Ack
 
 			case ReceiverWaitForRIRsp:
-				if time.Since(p.lastSend) <= sendRetryTimer {
+				if time.Since(p.LastSend()) <= sendRetryTimer {
 					break
 				}
-				if p.sendRetries >= sendRetryLimit {
+				if p.SendRetries() >= sendRetryLimit {
 					p.logger.Warn("AURP Peer: Send retry limit reached while waiting for RI-Rsp, closing connection")
 					p.setRState(ReceiverUnconnected)
 					p.RouteTable.DeleteTarget(p)
@@ -329,8 +312,8 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 
 				// RI-Req is stateless, so we don't need to cache the one we
 				// sent earlier just to send it again
-				p.incSendRetries()
-				p.bumpLastSend()
+				p.sendRetries.Add(1)
+				p.lastSend.Store(time.Now())
 				if _, err := p.send(p.Transport.NewRIReqPacket()); err != nil {
 					p.logger.Error("AURP Peer: Couldn't send RI-Req packet", "error", err)
 					return
@@ -340,12 +323,12 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 			case ReceiverUnconnected:
 				// Data receiver is unconnected. If data sender is connected,
 				// send a null RI-Upd to check if the sender is also unconnected
-				if p.sstate == SenderConnected && time.Since(p.lastSend) > sendRetryTimer {
-					if p.sendRetries >= sendRetryLimit {
+				if p.SenderState() == SenderConnected && time.Since(p.LastSend()) > sendRetryTimer {
+					if p.SendRetries() >= sendRetryLimit {
 						p.logger.Warn("AURP Peer: Send retry limit reached while probing sender connect, closing connection")
 					}
-					p.incSendRetries()
-					p.bumpLastSend()
+					p.sendRetries.Add(1)
+					p.lastSend.Store(time.Now())
 					aurp.Inc(&p.Transport.LocalSeq)
 					events := aurp.EventTuples{{
 						EventCode: aurp.EventCodeNull,
@@ -362,7 +345,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 				// the peersByIP map can be updated easily
 				if p.ConfiguredAddr != "" {
 					// Periodically try to reconnect, if this peer is in the config file
-					if time.Since(p.lastReconnect) <= reconnectTimer {
+					if time.Since(p.LastReconnect()) <= reconnectTimer {
 						break
 					}
 
@@ -378,9 +361,10 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 					}
 					p.RemoteAddr = raddr.IP
 
-					p.bumpLastReconnect()
-					p.resetSendRetries()
-					p.bumpLastSend()
+					now := time.Now()
+					p.lastReconnect.Store(now)
+					p.lastSend.Store(now)
+					p.sendRetries.Store(0)
 					if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
 						p.logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
 						return
@@ -390,12 +374,12 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 			}
 
 		case <-sticker.C:
-			switch p.sstate {
+			switch p.SenderState() {
 			case SenderUnconnected:
 				// Do nothing
 
 			case SenderConnected:
-				if time.Since(p.lastUpdate) <= updateTimer {
+				if time.Since(p.LastUpdate()) <= updateTimer {
 					break
 				}
 
@@ -413,7 +397,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 				// TODO: eliminate events that cancel out (e.g. NA then ND)
 				// TODO: split pending events to fit within a packet
 
-				p.bumpLastUpdate()
+				p.lastUpdate.Store(time.Now())
 				aurp.Inc(&p.Transport.LocalSeq)
 				lastRISent = p.Transport.NewRIUpdPacket(pending)
 				if _, err := p.send(lastRISent); err != nil {
@@ -423,28 +407,28 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 				p.setSState(SenderWaitForRIUpdAck)
 
 			case SenderWaitForRIRspAck, SenderWaitForRIUpdAck:
-				if time.Since(p.lastSend) <= sendRetryTimer {
+				if time.Since(p.LastSend()) <= sendRetryTimer {
 					break
 				}
 				if lastRISent == nil {
 					p.logger.Error("AURP Peer: sender retry: lastRISent = nil?")
 					continue
 				}
-				if p.sendRetries >= sendRetryLimit {
+				if p.SendRetries() >= sendRetryLimit {
 					p.logger.Warn("AURP Peer: Send retry limit reached, closing connection")
 					p.setSState(SenderUnconnected)
 					p.RouteTable.RemoveObserver(p)
 					continue
 				}
-				p.incSendRetries()
-				p.bumpLastSend()
+				p.sendRetries.Add(1)
+				p.lastSend.Store(time.Now())
 				if _, err := p.send(lastRISent); err != nil {
 					p.logger.Error("AURP Peer: Couldn't re-send", "last-RI-sent-type", reflect.TypeOf(lastRISent), "error", err)
 					return
 				}
 
 			case SenderWaitForRDAck:
-				if time.Since(p.lastSend) <= sendRetryTimer {
+				if time.Since(p.LastSend()) <= sendRetryTimer {
 					break
 				}
 				p.setSState(SenderUnconnected)
@@ -452,12 +436,12 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 			}
 
 		case pkt := <-p.ReceiveCh:
-			p.bumpLastHeardFrom()
+			p.lastHeardFrom.Store(time.Now())
 
 			switch pkt := pkt.(type) {
 			case *aurp.OpenReqPacket:
-				if p.sstate != SenderUnconnected {
-					p.logger.Warn("AURP Peer: Open-Req received but sender state is not unconnected", "sender-state", p.sstate)
+				if sstate := p.SenderState(); sstate != SenderUnconnected {
+					p.logger.Warn("AURP Peer: Open-Req received but sender state is not unconnected", "sender-state", sstate)
 				}
 
 				// The peer tells us their connection ID in Open-Req.
@@ -490,9 +474,9 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 				}
 
 				// If receiver is unconnected, commence connecting
-				if p.rstate == ReceiverUnconnected {
-					p.resetSendRetries()
-					p.bumpLastSend()
+				if p.ReceiverState() == ReceiverUnconnected {
+					p.sendRetries.Store(0)
+					p.lastSend.Store(time.Now())
 					if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
 						p.logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
 						return
@@ -501,8 +485,8 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 				}
 
 			case *aurp.OpenRspPacket:
-				if p.rstate != ReceiverWaitForOpenRsp {
-					p.logger.Warn("AURP Peer: Received Open-Rsp but was not waiting for one", "receiver-state", p.rstate)
+				if rstate := p.ReceiverState(); rstate != ReceiverWaitForOpenRsp {
+					p.logger.Warn("AURP Peer: Received Open-Rsp but was not waiting for one", "receiver-state", rstate)
 				}
 				if pkt.RateOrErrCode < 0 {
 					// It's an error code.
@@ -514,7 +498,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 				p.setRState(ReceiverConnected)
 
 				// Send an RI-Req
-				p.resetSendRetries()
+				p.sendRetries.Store(0)
 				if _, err := p.send(p.Transport.NewRIReqPacket()); err != nil {
 					p.logger.Error("AURP Peer: Couldn't send RI-Req packet", "error", err)
 					return
@@ -522,8 +506,8 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 				p.setRState(ReceiverWaitForRIRsp)
 
 			case *aurp.RIReqPacket:
-				if p.sstate != SenderConnected {
-					p.logger.Warn("AURP Peer: Received RI-Req but was not expecting one", "sender-state", p.sstate)
+				if sstate := p.SenderState(); sstate != SenderConnected {
+					p.logger.Warn("AURP Peer: Received RI-Req but was not expecting one", "sender-state", sstate)
 				}
 
 				// TODO: Load ExtraAdvertisedZones and HiddenZones
@@ -568,8 +552,8 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 				p.setSState(SenderWaitForRIRspAck)
 
 			case *aurp.RIRspPacket:
-				if p.rstate != ReceiverWaitForRIRsp {
-					p.logger.Warn("Received RI-Rsp but was not waiting for one", "receiver-state", p.rstate)
+				if p.ReceiverState() != ReceiverWaitForRIRsp {
+					p.logger.Warn("Received RI-Rsp but was not waiting for one", "receiver-state", p.ReceiverState())
 				}
 
 				p.logger.Debug("AURP Peer: Learned about these networks", "networks", pkt.Networks)
@@ -596,7 +580,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 				}
 
 			case *aurp.RIAckPacket:
-				switch p.sstate {
+				switch sstate := p.SenderState(); sstate {
 				case SenderWaitForRIRspAck:
 					// We sent an RI-Rsp, this is the RI-Ack we expected.
 
@@ -608,11 +592,11 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 					continue
 
 				default:
-					p.logger.Warn("AURP Peer: Received RI-Ack but was not waiting for one", "sender-state", p.sstate)
+					p.logger.Warn("AURP Peer: Received RI-Ack but was not waiting for one", "sender-state", sstate)
 				}
 
 				p.setSState(SenderConnected)
-				p.resetSendRetries()
+				p.sendRetries.Store(0)
 				p.RouteTable.AddObserver(p)
 
 				// If SZI flag is set, send ZI-Rsp (transaction)
@@ -645,12 +629,12 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 
 				// TODO: Continue sending next RI-Rsp (streamed)?
 
-				if p.rstate == ReceiverUnconnected {
+				if p.ReceiverState() == ReceiverUnconnected {
 					// Receiver is unconnected, but their receiver sent us an
 					// RI-Ack for something
 					// Try to reconnect?
-					p.resetSendRetries()
-					p.bumpLastSend()
+					p.sendRetries.Store(0)
+					p.lastSend.Store(time.Now())
 					if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
 						p.logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
 						return
@@ -709,8 +693,8 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 				}
 
 			case *aurp.RDPacket:
-				if p.rstate == ReceiverUnconnected || p.rstate == ReceiverWaitForOpenRsp {
-					p.logger.Error("AURP Peer: Received RD but was not expecting one", "receiver-state", p.rstate)
+				if rstate := p.ReceiverState(); rstate == ReceiverUnconnected || rstate == ReceiverWaitForOpenRsp {
+					p.logger.Error("AURP Peer: Received RD but was not expecting one", "receiver-state", rstate)
 				}
 
 				p.logger.Info("AURP Peer: Router Down", "code", int(pkt.ErrorCode), "code-str", pkt.ErrorCode)
@@ -764,8 +748,8 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 				}
 
 			case *aurp.TickleAckPacket:
-				if p.rstate != ReceiverWaitForTickleAck {
-					p.logger.Warn("AURP Peer: Received Tickle-Ack but was not waiting for one", "receiver-state", p.rstate)
+				if rstate := p.ReceiverState(); rstate != ReceiverWaitForTickleAck {
+					p.logger.Warn("AURP Peer: Received Tickle-Ack but was not waiting for one", "receiver-state", rstate)
 				}
 				p.setRState(ReceiverConnected)
 			}
@@ -773,73 +757,12 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 	}
 }
 
-func (p *AURPPeer) setRState(rstate ReceiverState) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.rstate = rstate
-
-	connected := 1.0
-	if p.rstate == ReceiverUnconnected {
-		connected = 0
-	}
-	aurpPeerReceiverConnectedGauge.WithLabelValues(p.RemoteAddr.String()).Set(connected)
-}
-
-func (p *AURPPeer) setSState(sstate SenderState) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.sstate = sstate
-
-	connected := 1.0
-	if p.sstate == SenderUnconnected {
-		connected = 0
-	}
-	aurpPeerSenderConnectedGauge.WithLabelValues(p.RemoteAddr.String()).Set(connected)
-}
-
-func (p *AURPPeer) incSendRetries() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.sendRetries++
-}
-
-func (p *AURPPeer) resetSendRetries() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.sendRetries = 0
-}
-
-func (p *AURPPeer) bumpLastHeardFrom() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.lastHeardFrom = time.Now()
-
-	aurpPeerLastHeardFromGauge.WithLabelValues(p.RemoteAddr.String()).Set(float64(p.lastHeardFrom.Unix()))
-}
-
-func (p *AURPPeer) bumpLastReconnect() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.lastReconnect = time.Now()
-}
-
-func (p *AURPPeer) bumpLastSend() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.lastSend = time.Now()
-}
-
-func (p *AURPPeer) bumpLastUpdate() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.lastUpdate = time.Now()
-}
+func (p *AURPPeer) setRState(rstate ReceiverState) { p.rstate.Store(int32(rstate)) }
+func (p *AURPPeer) setSState(sstate SenderState)   { p.sstate.Store(int32(sstate)) }
 
 func (p *AURPPeer) disconnect() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.rstate = ReceiverUnconnected
-	p.sstate = SenderUnconnected
+	p.setRState(ReceiverUnconnected)
+	p.setSState(SenderUnconnected)
 }
 
 // send encodes and sends pkt to the remote host.
@@ -857,7 +780,7 @@ func (p *AURPPeer) send(pkt aurp.Packet) (int, error) {
 	return p.UDPConn.WriteToUDP(b.Bytes(), &net.UDPAddr{IP: p.RemoteAddr, Port: 387})
 }
 
-type ReceiverState int
+type ReceiverState int32
 
 const (
 	ReceiverUnconnected ReceiverState = iota
@@ -884,7 +807,7 @@ func (rs ReceiverState) String() string {
 	}
 }
 
-type SenderState int
+type SenderState int32
 
 const (
 	SenderUnconnected SenderState = iota

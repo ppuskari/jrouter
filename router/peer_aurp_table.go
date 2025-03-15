@@ -13,6 +13,7 @@ import (
 
 	"drjosh.dev/jrouter/aurp"
 	"drjosh.dev/jrouter/status"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // AURPPeerTable tracks connections to AURP peers.
@@ -31,6 +32,7 @@ func NewAURPPeerTable(ctx context.Context) *AURPPeerTable {
 		t.nextConnID = uint16(rand.UintN(0x10000))
 	}
 	status.AddItem(ctx, "AURP Peers", peerTableTemplate, t.status)
+	prometheus.MustRegister(t)
 	return t
 }
 
@@ -127,6 +129,118 @@ func (t *AURPPeerTable) status(ctx context.Context) (any, error) {
 	return peerInfo, nil
 }
 
+var (
+	aurpPeerReceiverConnectedDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_receiver_connected",
+		"0 if the receiver state for this peer is unconnected, 1 otherwise",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerSenderConnectedDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_sender_connected",
+		"0 if the sender state for this peer is unconnected, 1 otherwise",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerSendRetriesDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_send_retries",
+		"current send retries for each peer",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerLastHeardFromDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_last_heard_from_timestamp_seconds",
+		"timestamp of lastHeardFrom",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerLastReconnectDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_last_reconnect_timestamp_seconds",
+		"timestamp of lastReconnect",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerLastSendDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_last_send_timestamp_seconds",
+		"timestamp of lastSend",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerLastUpdateDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_last_update_timestamp_seconds",
+		"timestamp of lastUpdate",
+		[]string{"peer"},
+		nil,
+	)
+)
+
+func (t *AURPPeerTable) Describe(ch chan<- *prometheus.Desc) {
+	ch <- aurpPeerReceiverConnectedDesc
+	ch <- aurpPeerSenderConnectedDesc
+	ch <- aurpPeerSendRetriesDesc
+	ch <- aurpPeerLastHeardFromDesc
+	ch <- aurpPeerLastReconnectDesc
+	ch <- aurpPeerLastSendDesc
+	ch <- aurpPeerLastUpdateDesc
+}
+
+func (t *AURPPeerTable) Collect(ch chan<- prometheus.Metric) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	for _, p := range t.peersByIP {
+		rconn, sconn := 1, 1
+		if p.ReceiverState() == ReceiverUnconnected {
+			rconn = 0
+		}
+		if p.SenderState() == SenderUnconnected {
+			sconn = 0
+		}
+		raddr := p.RemoteAddr.String()
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerReceiverConnectedDesc,
+			prometheus.GaugeValue,
+			float64(rconn),
+			raddr,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerSenderConnectedDesc,
+			prometheus.GaugeValue,
+			float64(sconn),
+			raddr,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerSendRetriesDesc,
+			prometheus.GaugeValue,
+			float64(p.SendRetries()),
+			raddr,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerLastHeardFromDesc,
+			prometheus.GaugeValue,
+			float64(p.LastHeardFrom().Unix()),
+			raddr,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerLastReconnectDesc,
+			prometheus.GaugeValue,
+			float64(p.LastReconnect().Unix()),
+			raddr,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerLastSendDesc,
+			prometheus.GaugeValue,
+			float64(p.LastSend().Unix()),
+			raddr,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerLastUpdateDesc,
+			prometheus.GaugeValue,
+			float64(p.LastUpdate().Unix()),
+			raddr,
+		)
+	}
+}
+
 func bool2Int(b bool) int {
 	if b {
 		return 1
@@ -156,10 +270,10 @@ const peerTableTemplate = `
 		<td>{{if $peer.Running}}✅{{else}}🛑{{end}}</td>
 		<td>{{$peer.ReceiverState}}</td>
 		<td>{{$peer.SenderState}}</td>
-		<td>{{$peer.LastHeardFromAgo}}</td>
-		<td>{{$peer.LastReconnectAgo}}</td>
-		<td>{{$peer.LastUpdateAgo}}</td>
-		<td>{{$peer.LastSendAgo}}</td>
+		<td>{{$peer.LastHeardFrom | ago}}</td>
+		<td>{{$peer.LastReconnect | ago}}</td>
+		<td>{{$peer.LastUpdate | ago}}</td>
+		<td>{{$peer.LastSend | ago}}</td>
 		<td>{{$peer.SendRetries}}</td>
 	</tr>
 {{end}}

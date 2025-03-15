@@ -73,7 +73,7 @@ func (t fakeTarget) RouteTargetKey() string                        { return t.ke
 func (t fakeTarget) Class() TargetClass                            { return t.class }
 
 func TestRouteTable_AddObserver_RemoveObserver(t *testing.T) {
-	rt := NewRouteTable()
+	rt := NewRouteTable(t.Context())
 	obs := &fakeObserver{}
 	rt.AddObserver(obs)
 
@@ -92,7 +92,7 @@ func TestRouteTable_AddObserver_RemoveObserver(t *testing.T) {
 }
 
 func TestRouteTable_Upsert_Insertion(t *testing.T) {
-	rt := NewRouteTable()
+	rt := NewRouteTable(t.Context())
 	obs := &fakeObserver{}
 	rt.AddObserver(obs)
 
@@ -159,7 +159,7 @@ func TestRouteTable_Upsert_Insertion(t *testing.T) {
 }
 
 func TestRouteTable_Upsert_Updating(t *testing.T) {
-	rt := NewRouteTable()
+	rt := NewRouteTable(t.Context())
 	obs := &fakeObserver{}
 	rt.AddObserver(obs)
 
@@ -205,7 +205,7 @@ func TestRouteTable_Upsert_Updating(t *testing.T) {
 }
 
 func TestRouteTable_DeleteRoute(t *testing.T) {
-	rt := NewRouteTable()
+	rt := NewRouteTable(t.Context())
 	obs := &fakeObserver{}
 	rt.AddObserver(obs)
 
@@ -248,7 +248,7 @@ func TestRouteTable_DeleteRoute(t *testing.T) {
 }
 
 func TestRouteTable_DeleteTarget(t *testing.T) {
-	rt := NewRouteTable()
+	rt := NewRouteTable(t.Context())
 	obs := &fakeObserver{}
 	rt.AddObserver(obs)
 
