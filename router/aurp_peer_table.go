@@ -156,12 +156,12 @@ const peerTableTemplate = `
 		<td>{{$peer.ConfiguredAddr}}</td>
 		<td>{{$peer.RemoteAddr}}</td>
 		<td>{{if $peer.Running}}✅{{else}}🛑{{end}}</td>
-		<td>{{$peer.ReceiverState}}</td>
-		<td>{{$peer.SenderState}}</td>
-		<td>{{$peer.LastHeardFrom | ago}}</td>
-		<td>{{$peer.LastReconnect | ago}}</td>
-		<td>{{$peer.LastUpdate | ago}}</td>
-		<td>{{$peer.LastSend | ago}}</td>
+		<td style="color:{{if eq $peer.ReceiverState 0}}#700{{else}}#070{{end}}">{{$peer.ReceiverState}}</td>
+		<td style="color:{{if eq $peer.SenderState 0}}#700{{else}}#070{{end}}">{{$peer.SenderState}}</td>
+		<td {{if $peer.LastHeardFrom.IsZero}}style="color:#700"{{end}}>{{$peer.LastHeardFrom | ago}}</td>
+		<td {{if $peer.LastReconnect.IsZero}}style="color:#700"{{end}}>{{$peer.LastReconnect | ago}}</td>
+		<td {{if $peer.LastUpdate.IsZero}}style="color:#700"{{end}}>{{$peer.LastUpdate | ago}}</td>
+		<td {{if $peer.LastSend.IsZero}}style="color:#700"{{end}}>{{$peer.LastSend | ago}}</td>
 		<td>{{$peer.SendRetries}}</td>
 	</tr>
 {{end}}
