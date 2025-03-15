@@ -308,7 +308,5 @@ func main() {
 
 	// ----------------------------- AURP inbound -----------------------------
 	//
-	wg.Add(1)
-	go rooter.AURPInput(ctx, logger, wg, cfg, udpConn, localDI)
-
+	rooter.AURPInput(ctx, logger, wg, cfg, udpConn, localDI)
 }

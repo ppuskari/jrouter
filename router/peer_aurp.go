@@ -777,12 +777,24 @@ func (p *AURPPeer) setRState(rstate ReceiverState) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.rstate = rstate
+
+	connected := 1.0
+	if p.rstate == ReceiverUnconnected {
+		connected = 0
+	}
+	aurpPeerReceiverConnectedGauge.WithLabelValues(p.RemoteAddr.String()).Set(connected)
 }
 
 func (p *AURPPeer) setSState(sstate SenderState) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.sstate = sstate
+
+	connected := 1.0
+	if p.sstate == SenderUnconnected {
+		connected = 0
+	}
+	aurpPeerSenderConnectedGauge.WithLabelValues(p.RemoteAddr.String()).Set(connected)
 }
 
 func (p *AURPPeer) incSendRetries() {
@@ -801,6 +813,8 @@ func (p *AURPPeer) bumpLastHeardFrom() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.lastHeardFrom = time.Now()
+
+	aurpPeerLastHeardFromGauge.WithLabelValues(p.RemoteAddr.String()).Set(float64(p.lastHeardFrom.Unix()))
 }
 
 func (p *AURPPeer) bumpLastReconnect() {
