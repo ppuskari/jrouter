@@ -113,7 +113,10 @@ services:
       - NET_RAW
 ```
 
-### Building and running directly
+### Building and running manually
+
+These instructions ignore `mage` or containerised builds, and build the binary
+directly.
 
 1. Install [Go](https://go.dev/dl).
 2. Run these commands (for Debian-variety Linuxen, e.g. Ubuntu, Raspbian, Mint...):
@@ -131,7 +134,7 @@ services:
 Notes:
 
 * `git` is needed for `go install` to fetch the module
-* `build-essential` and`libpcap-dev` are needed for [gopacket](https://github.com/google/gopacket), which uses [CGo](https://pkg.go.dev/cmd/cgo)
+* `build-essential` and `libpcap-dev` are needed for [gopacket](https://github.com/google/gopacket), which uses [CGo](https://pkg.go.dev/cmd/cgo)
 * `NET_BIND_SERVICE` is needed for `jrouter` to bind UDP port 387 (for talking between AIRs)
 * `NET_RAW` is needed for `jrouter` to listen for and send EtherTalk packets
 * By default `jrouter` looks for `jrouter` in the current directory. It can be
@@ -144,9 +147,14 @@ TODO: instructions for non-Linux / non-Debian-like machines
 
 ### Building and running with Docker manually
 
-1.  Clone the repo and `cd` into it.
-2.  `docker build -t jrouter .`
-3.  Example `docker run` command:
+These instructions ignore `mage`, and use `Dockerfile` which builds the binary
+specifically for the container.
+
+1.  Install Docker.
+2.  Clone the repo and `cd` into it.
+3.  `docker build -t jrouter .`
+
+Example `docker run` command:
     ```shell
     docker run \
       -v ./cfg:/etc/jrouter \
@@ -159,8 +167,18 @@ TODO: instructions for non-Linux / non-Debian-like machines
 Notes:
 
 * Put `jrouter.yaml` inside a `cfg` directory (or some path of your choice and bind-mount it at `/etc/jrouter`) for it to find the config file.
-* `--cap-add NET_RAW` and `--net host` is needed for EtherTalk access to the network interface.
+* Both `--cap-add NET_RAW` and `--net host` is needed for EtherTalk access to the network interface.
 * By using `--net host`, the default AURP port (387) will be bound without `-p`.
+
+### Building with Mage
+
+For managing building everything at once, I use [mage](https://magefile.org/).
+You are welcome to do likewise. Depending on what you want to build, you will
+need Go and/or Docker installed. Output files are stored in `./dist` and
+container image builds then assume they can use pre-built binaries from there.
+
+`mage binary` runs locally and needs the build-time dependencies like
+libpcap-dev. Most other mage targets run commands within containers.
 
 ## Bibliography / Acknowledgements
 

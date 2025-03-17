@@ -11,14 +11,11 @@ x-builder: &builder
     - "~/Library/Caches/go-build:/root/.cache/go-build"
     # GOMODCACHE:
     - "~/go/pkg/mod:/go/pkg/mod"
-  environment:
-    - VERSION
   working_dir: /go/src/jrouter
-  command: |
-    /bin/sh -c 'CGO_ENABLED=1 go build -v \
-        -buildmode pie \
-        -ldflags "-s -w -extldflags=-static" \
-        -o "dist/jrouter_${VERSION}_$(go env GOOS)_$(go env GOARCH)" .'
+  # mage -keep needed since multiple concurrent instances of mage has racy
+  # access to the same mage_output_file.go.
+  # the outer call to mage usually cleans it up
+  command: "go tool mage -keep binary"
 
 services:
   build-arm64:

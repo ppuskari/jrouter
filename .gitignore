@@ -26,3 +26,4 @@ go.work
 
 dist/
 tmp/
+mage_output_file.go
