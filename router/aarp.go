@@ -138,7 +138,7 @@ func (a *AARPMachine) status(ctx context.Context) (any, error) {
 
 // Run executes the machine.
 func (a *AARPMachine) Run(ctx context.Context) error {
-	ctx, done := status.AddItem(ctx, fmt.Sprintf("AARP on %s", a.port.Device), aarpStatusTemplate, a.status)
+	ctx, done := status.AddItem(ctx, fmt.Sprintf("AARP on %s", a.port.device), aarpStatusTemplate, a.status)
 	defer done()
 
 	// Initialise our DDP address with a preferred address (first network.1)
@@ -365,12 +365,12 @@ func (a *AARPMachine) send(pkt *ethertalk.Packet) error {
 	}
 
 	promLabels := prometheus.Labels{
-		"port": a.port.Device,
+		"port": a.port.device,
 	}
 	aarpPacketsOutCounter.With(promLabels).Inc()
 	aarpBytesOutCounter.With(promLabels).Add(float64(len(frameRaw)))
 
-	return a.port.PcapHandle.WritePacketData(frameRaw)
+	return a.port.pcapHandle.WritePacketData(frameRaw)
 }
 
 // AMTEntry is an entry in an address mapping table.

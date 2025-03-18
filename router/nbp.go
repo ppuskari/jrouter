@@ -36,7 +36,7 @@ func (port *EtherTalkPort) HandleNBP(ctx context.Context, ddpkt *ddp.ExtPacket) 
 		return fmt.Errorf("invalid packet: %w", err)
 	}
 
-	port.Logger.Debug(fmt.Sprintf("NBP: Got %v id %d with tuples %v", nbpkt.Function, nbpkt.NBPID, nbpkt.Tuples))
+	port.logger.Debug(fmt.Sprintf("NBP: Got %v id %d with tuples %v", nbpkt.Function, nbpkt.NBPID, nbpkt.Tuples))
 
 	switch nbpkt.Function {
 	case nbp.FunctionLkUp:
@@ -45,7 +45,7 @@ func (port *EtherTalkPort) HandleNBP(ctx context.Context, ddpkt *ddp.ExtPacket) 
 		if err != nil || outDDP == nil {
 			return err
 		}
-		port.Logger.Debug("NBP: Replying to LkUp with LkUp-Reply for myself")
+		port.logger.Debug("NBP: Replying to LkUp with LkUp-Reply for myself")
 		// Note: AARP can block
 		return port.Send(ctx, outDDP)
 
@@ -107,7 +107,7 @@ func (port *EtherTalkPort) handleNBPBrRq(ctx context.Context, ddpkt *ddp.ExtPack
 				Data: nbpRaw,
 			}
 
-			port.Logger.Debug("NBP: zone multicasting LkUp", "tuple", tuple)
+			port.logger.Debug("NBP: zone multicasting LkUp", "tuple", tuple)
 			if err := etPort.ZoneMulticast(tuple.Zone, &outDDP); err != nil {
 				return err
 			}
@@ -121,7 +121,7 @@ func (port *EtherTalkPort) handleNBPBrRq(ctx context.Context, ddpkt *ddp.ExtPack
 			if outDDP2 == nil {
 				continue
 			}
-			port.Logger.Debug("NBP: Replying to BrRq directly with LkUp-Reply for myself")
+			port.logger.Debug("NBP: Replying to BrRq directly with LkUp-Reply for myself")
 			// Can reply to this BrRq on the same port we got it, because it
 			// wasn't routed
 			if err := port.Send(ctx, outDDP2); err != nil {
@@ -215,7 +215,7 @@ func (port *EtherTalkPort) helloWorldThisIsMe(nbpID uint8, tuple *nbp.Tuple) (*d
 	if tuple.Type != "AppleRouter" && tuple.Type != "=" {
 		return nil, nil
 	}
-	if tuple.Zone != port.DefaultZoneName && tuple.Zone != "*" && tuple.Zone != "" {
+	if tuple.Zone != port.defaultZoneName && tuple.Zone != "*" && tuple.Zone != "" {
 		return nil, nil
 	}
 	respPkt := &nbp.Packet{
@@ -229,7 +229,7 @@ func (port *EtherTalkPort) helloWorldThisIsMe(nbpID uint8, tuple *nbp.Tuple) (*d
 				Enumerator: 0,
 				Object:     meta.NameVersion,
 				Type:       "AppleRouter",
-				Zone:       port.DefaultZoneName,
+				Zone:       port.defaultZoneName,
 			},
 		},
 	}

@@ -106,7 +106,7 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 
 	case ddp.ProtoRTMPResp:
 		// It's a peer router on the AppleTalk network!
-		port.Logger.Debug("RTMP: Got Response or Data")
+		port.logger.Debug("RTMP: Got Response or Data")
 		dataPkt, err := rtmp.UnmarshalDataPacket(pkt.Data)
 		if err != nil {
 			return fmt.Errorf("unmarshal RTMP Data packet: %w", err)
@@ -167,7 +167,7 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 
 // RunRTMP makes periodic RTMP Data broadcasts on this port.
 func (port *EtherTalkPort) RunRTMP(ctx context.Context) (err error) {
-	ctx, setStatus, _ := status.AddSimpleItem(ctx, fmt.Sprintf("RTMP on %s", port.Device))
+	ctx, setStatus, _ := status.AddSimpleItem(ctx, fmt.Sprintf("RTMP on %s", port.device))
 	defer func() {
 		setStatus(fmt.Sprintf("Run loop stopped! Return: %v", err))
 	}()
@@ -198,7 +198,7 @@ func (port *EtherTalkPort) RunRTMP(ctx context.Context) (err error) {
 		setStatus("Broadcasting RTMP Data")
 		if err := port.broadcastRTMPData(); err != nil {
 			setStatus(fmt.Sprintf("Couldn't broadcast Data: %v", err))
-			port.Logger.Error("RTMP: Couldn't broadcast Data", "error", err)
+			port.logger.Error("RTMP: Couldn't broadcast Data", "error", err)
 		}
 	}
 }

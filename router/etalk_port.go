@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"strconv"
 	"sync"
 
@@ -37,17 +38,67 @@ import (
 
 // EtherTalkPort is all the data and helpers needed for EtherTalk on one port.
 type EtherTalkPort struct {
-	Logger          *slog.Logger
-	Device          string
-	EthernetAddr    ethernet.Addr
-	NetStart        ddp.Network
-	NetEnd          ddp.Network
-	MyAddr          ddp.Addr
-	DefaultZoneName string
-	AvailableZones  StringSet
-	PcapHandle      *pcap.Handle
-	AARPMachine     *AARPMachine
-	Router          *Router
+	MyAddr      ddp.Addr
+	AARPMachine *AARPMachine
+	Router      *Router
+
+	logger *slog.Logger
+	device string
+
+	EthernetAddr   ethernet.Addr
+	NetStart       ddp.Network
+	NetEnd         ddp.Network
+	AvailableZones StringSet
+
+	defaultZoneName string
+	pcapHandle      *pcap.Handle
+
+	outboxMu     sync.Mutex
+	pendingAddrs map[ddp.Addr]struct{}
+	outbox       []*ddp.ExtPacket
+}
+
+// NewEtherTalkPort defines a new EtherTalk port for the router.
+func (router *Router) NewEtherTalkPort(
+	device string,
+	ethernetAddr ethernet.Addr,
+	netStart ddp.Network,
+	netEnd ddp.Network,
+	defaultZoneName string,
+	availableZones StringSet,
+	pcapHandle *pcap.Handle) *EtherTalkPort {
+
+	port := &EtherTalkPort{
+		// Add router to port
+		Router: router,
+
+		logger:          router.Logger.With("device", device),
+		device:          device,
+		EthernetAddr:    ethernetAddr,
+		NetStart:        netStart,
+		NetEnd:          netEnd,
+		defaultZoneName: defaultZoneName,
+		AvailableZones:  availableZones,
+		pcapHandle:      pcapHandle,
+
+		pendingAddrs: make(map[ddp.Addr]struct{}),
+	}
+	// Add port to router
+	router.Ports = append(router.Ports, port)
+
+	// Add AARP to port
+	port.AARPMachine = NewAARPMachine(port.logger, port, ethernetAddr)
+
+	// Add port to routing table
+	if _, err := router.RouteTable.UpsertRoute(port, true /* extended */, netStart, netEnd, 0); err != nil {
+		port.logger.Error("Couldn't create route for EtherTalk port", "error", err)
+		os.Exit(1)
+	}
+	if err := router.RouteTable.AddZonesToNetwork(netStart, availableZones.ToSlice()...); err != nil {
+		port.logger.Error("Couldn't add zones to route that was just created", "error", err)
+		os.Exit(1)
+	}
+	return port
 }
 
 // Serve runs a loop that reads AARP or AppleTalk packets from the network
@@ -55,17 +106,17 @@ type EtherTalkPort struct {
 func (port *EtherTalkPort) Serve(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	ctx, setStatus, _ := status.AddSimpleItem(ctx, fmt.Sprintf("EtherTalk inbound on %s", port.Device))
+	ctx, setStatus, _ := status.AddSimpleItem(ctx, fmt.Sprintf("EtherTalk inbound on %s", port.device))
 	defer setStatus("EtherTalk Serve goroutine exited!")
 
-	setStatus(fmt.Sprintf("Listening on %s", port.Device))
+	setStatus(fmt.Sprintf("Listening on %s", port.device))
 
 	for {
 		if ctx.Err() != nil {
 			return
 		}
 
-		rawPkt, _, err := port.PcapHandle.ReadPacketData()
+		rawPkt, _, err := port.pcapHandle.ReadPacketData()
 		if errors.Is(err, pcap.NextErrorTimeoutExpired) {
 			continue
 		}
@@ -73,14 +124,14 @@ func (port *EtherTalkPort) Serve(ctx context.Context, wg *sync.WaitGroup) {
 			return
 		}
 		if err != nil {
-			port.Logger.Error("Couldn't read AppleTalk / AARP packet data", "error", err)
+			port.logger.Error("Couldn't read AppleTalk / AARP packet data", "error", err)
 			return
 		}
 
 		ethFrame := new(ethertalk.Packet)
 		if err := ethertalk.Unmarshal(rawPkt, ethFrame); err != nil {
-			atalkInvalidPacketsInCounter.With(prometheus.Labels{"port": port.Device}).Inc()
-			port.Logger.Error("Couldn't unmarshal EtherTalk frame", "error", err)
+			atalkInvalidPacketsInCounter.With(prometheus.Labels{"port": port.device}).Inc()
+			port.logger.Error("Couldn't unmarshal EtherTalk frame", "error", err)
 			continue
 		}
 
@@ -92,7 +143,7 @@ func (port *EtherTalkPort) Serve(ctx context.Context, wg *sync.WaitGroup) {
 		switch ethFrame.SNAPProto {
 		case ethertalk.AARPProto:
 			// port.Logger.Debug("Got an AARP frame")
-			promLabels := prometheus.Labels{"port": port.Device}
+			promLabels := prometheus.Labels{"port": port.device}
 			aarpPacketsInCounter.With(promLabels).Inc()
 			aarpBytesInCounter.With(promLabels).Add(float64(len(rawPkt)))
 
@@ -104,7 +155,7 @@ func (port *EtherTalkPort) Serve(ctx context.Context, wg *sync.WaitGroup) {
 			// Workaround for strict length checking in sfiera/multitalk
 			payload := ethFrame.Payload
 			if len(payload) < 2 {
-				port.Logger.Error("Couldn't unmarshal DDP packet: too small", "payload-length", len(payload))
+				port.logger.Error("Couldn't unmarshal DDP packet: too small", "payload-length", len(payload))
 			}
 			if size := binary.BigEndian.Uint16(payload[:2]) & 0x3ff; len(payload) > int(size) {
 				payload = payload[:size]
@@ -112,12 +163,12 @@ func (port *EtherTalkPort) Serve(ctx context.Context, wg *sync.WaitGroup) {
 
 			ddpkt := new(ddp.ExtPacket)
 			if err := ddp.ExtUnmarshal(payload, ddpkt); err != nil {
-				port.Logger.Error("Couldn't unmarshal DDP packet", "error", err)
+				port.logger.Error("Couldn't unmarshal DDP packet", "error", err)
 				continue
 			}
 
 			promLabels := prometheus.Labels{
-				"port":       port.Device,
+				"port":       port.device,
 				"src_net":    strconv.Itoa(int(ddpkt.SrcNet)),
 				"src_node":   strconv.Itoa(int(ddpkt.SrcNode)),
 				"src_socket": strconv.Itoa(int(ddpkt.SrcSocket)),
@@ -159,7 +210,7 @@ func (port *EtherTalkPort) Serve(ctx context.Context, wg *sync.WaitGroup) {
 			if ddpkt.DstNet != 0 && !(ddpkt.DstNet >= port.NetStart && ddpkt.DstNet <= port.NetEnd) {
 				// Is it for a network in the routing table?
 				if err := port.Router.Forward(ctx, ddpkt); err != nil {
-					port.Logger.Error("DDP: Couldn't forward packet", "error", err)
+					port.logger.Error("DDP: Couldn't forward packet", "error", err)
 				}
 				continue
 			}
@@ -175,30 +226,30 @@ func (port *EtherTalkPort) Serve(ctx context.Context, wg *sync.WaitGroup) {
 			switch ddpkt.DstSocket {
 			case 1: // The RTMP socket
 				if err := port.HandleRTMP(ctx, ddpkt); err != nil {
-					port.Logger.Error("RTMP: Couldn't handle packet", "error", err)
+					port.logger.Error("RTMP: Couldn't handle packet", "error", err)
 				}
 
 			case 2: // The NIS (name information socket / NBP socket)
 				if err := port.HandleNBP(ctx, ddpkt); err != nil {
-					port.Logger.Error("NBP: Couldn't handle packet", "error", err)
+					port.logger.Error("NBP: Couldn't handle packet", "error", err)
 				}
 
 			case 4: // The AEP socket
 				if err := port.Router.HandleAEP(ctx, ddpkt); err != nil {
-					port.Logger.Error("AEP: Couldn't handle packet", "error", err)
+					port.logger.Error("AEP: Couldn't handle packet", "error", err)
 				}
 
 			case 6: // The ZIS (zone information socket / ZIP socket)
 				if err := port.HandleZIP(ctx, ddpkt); err != nil {
-					port.Logger.Error("ZIP: Couldn't handle packet", "error", err)
+					port.logger.Error("ZIP: Couldn't handle packet", "error", err)
 				}
 
 			default:
-				port.Logger.Error("DDP: No handler for socket", "dst-socket", ddpkt.DstSocket)
+				port.logger.Error("DDP: No handler for socket", "dst-socket", ddpkt.DstSocket)
 			}
 
 		default:
-			port.Logger.Error("Read unknown packet",
+			port.logger.Error("Read unknown packet",
 				"ethernet-src", ethFrame.Src,
 				"ethernet-dst", ethFrame.Dst,
 				"payload", ethFrame.Payload,
@@ -213,6 +264,7 @@ func (port *EtherTalkPort) Serve(ctx context.Context, wg *sync.WaitGroup) {
 func (port *EtherTalkPort) Send(ctx context.Context, pkt *ddp.ExtPacket) error {
 	dstEth := ethertalk.AppleTalkBroadcast
 	if pkt.DstNode != 0xFF {
+		// TODO: AARP resolution blocks until resolved
 		de, err := port.AARPMachine.Resolve(ctx, ddp.Addr{Network: pkt.DstNet, Node: pkt.DstNode})
 		if err != nil {
 			return err
@@ -241,14 +293,14 @@ func (port *EtherTalkPort) Forward(ctx context.Context, pkt *ddp.ExtPacket) erro
 
 // RouteTargetKey returns "EtherTalkPort|device name".
 func (port *EtherTalkPort) RouteTargetKey() string {
-	return "EtherTalkPort|" + port.Device
+	return "EtherTalkPort|" + port.device
 }
 
 // Class returns TargetClassDirect.
 func (port *EtherTalkPort) Class() TargetClass { return TargetClassDirect }
 
 func (port *EtherTalkPort) String() string {
-	return port.Device
+	return port.device
 }
 
 // send is used to send EtherTalk packets. dstEth is either the destination node
@@ -269,7 +321,7 @@ func (port *EtherTalkPort) send(dstEth ethernet.Addr, pkt *ddp.ExtPacket) error 
 	}
 
 	promLabels := prometheus.Labels{
-		"port":       port.Device,
+		"port":       port.device,
 		"src_net":    strconv.Itoa(int(pkt.SrcNet)),
 		"src_node":   strconv.Itoa(int(pkt.SrcNode)),
 		"src_socket": strconv.Itoa(int(pkt.SrcSocket)),
@@ -281,5 +333,5 @@ func (port *EtherTalkPort) send(dstEth ethernet.Addr, pkt *ddp.ExtPacket) error 
 	atalkPacketsOutCounter.With(promLabels).Inc()
 	atalkBytesOutCounter.With(promLabels).Add(float64(len(outFrameRaw)))
 
-	return port.PcapHandle.WritePacketData(outFrameRaw)
+	return port.pcapHandle.WritePacketData(outFrameRaw)
 }

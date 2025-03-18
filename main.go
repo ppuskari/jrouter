@@ -144,14 +144,21 @@ func main() {
 		}()
 	}
 
+	// -------------------------------- Router --------------------------------
+	//
+	rooter := &router.Router{
+		Logger:     logger,
+		Config:     cfg,
+		RouteTable: router.NewRouteTable(ctx),
+		AURPPeers:  router.NewAURPPeerTable(ctx),
+	}
+
 	// --------------------------------- Pcap ---------------------------------
 	//
 	if len(cfg.EtherTalk) == 0 {
 		logger.Error("The ethertalk config in jrouter.yaml was empty; at least one entry is required")
 		os.Exit(1)
 	}
-
-	var ethertalkPorts []*router.EtherTalkPort
 
 	for _, etcfg := range cfg.EtherTalk {
 		// First check the interface
@@ -185,27 +192,19 @@ func main() {
 		}
 		defer handle.Close()
 
-		ethertalkPorts = append(ethertalkPorts, &router.EtherTalkPort{
-			Logger:          logger,
-			Device:          etcfg.Device,
-			EthernetAddr:    myHWAddr,
-			NetStart:        etcfg.NetStart,
-			NetEnd:          etcfg.NetEnd,
-			DefaultZoneName: etcfg.ZoneName,
-			AvailableZones:  router.SetFromSlice([]string{etcfg.ZoneName}),
-			PcapHandle:      handle,
-			// Router: set below
-		})
+		rooter.NewEtherTalkPort(
+			etcfg.Device,
+			myHWAddr,
+			etcfg.NetStart,
+			etcfg.NetEnd,
+			etcfg.ZoneName,
+			router.SetFromSlice([]string{etcfg.ZoneName}),
+			handle,
+		)
 	}
-
-	// -------------------------------- Tables --------------------------------
-	//
-	routes := router.NewRouteTable(ctx)
 
 	// -------------------------------- Peers ---------------------------------
 	//
-	aurpPeers := router.NewAURPPeerTable(ctx)
-
 	if cfg.PeerListURL != "" {
 		logger.Info("Fetching peer list", "peerlist-url", cfg.PeerListURL)
 		existing := len(cfg.Peers)
@@ -233,6 +232,7 @@ func main() {
 		logger.Info("Fetched list", "length", len(cfg.Peers)-existing)
 	}
 
+	// main blocks on this waitgroup before exiting the program
 	wg := new(sync.WaitGroup)
 	defer wg.Wait()
 
@@ -257,43 +257,20 @@ func main() {
 			continue
 		}
 
-		if _, err := aurpPeers.LookupOrCreate(ctx, logger, wg, routes, udpConn, peerStr, raddr4, localDI, nil); err != nil {
+		if _, err := rooter.AURPPeers.LookupOrCreate(ctx, logger, wg, rooter.RouteTable, udpConn, peerStr, raddr4, localDI, nil); err != nil {
 			logger.Warn("AURP: peer create", "error", err)
 			continue
 		}
 	}
 
-	// -------------------------------- Router --------------------------------
+	// -------------------------- Run EtherTalk ports -------------------------
 	//
-	rooter := &router.Router{
-		Logger:     logger,
-		Config:     cfg,
-		RouteTable: routes,
-		AURPPeers:  aurpPeers,
-	}
-
-	// Attach ports to router
-	rooter.Ports = append(rooter.Ports, ethertalkPorts...)
-	for _, etPort := range ethertalkPorts {
-		// Attach router to port
-		etPort.Router = rooter
-
-		// Add port to routing table
-		if _, err := routes.UpsertRoute(etPort, true /* extended */, etPort.NetStart, etPort.NetEnd, 0); err != nil {
-			logger.Error("Couldn't create route for EtherTalk port", "error", err)
-			os.Exit(1)
-		}
-		if err := routes.AddZonesToNetwork(etPort.NetStart, etPort.AvailableZones.ToSlice()...); err != nil {
-			logger.Error("Couldn't add zones to route that was just created", "error", err)
-			os.Exit(1)
-		}
-
+	for _, etPort := range rooter.Ports {
 		// Run AARP and RTMP on each port.
-		etPort.AARPMachine = router.NewAARPMachine(logger, etPort, etPort.EthernetAddr)
 		go etPort.AARPMachine.Run(ctx)
 		go etPort.RunRTMP(ctx)
 
-		// Finally, start handling packets.
+		// Start handling packets.
 		wg.Add(1)
 		go etPort.Serve(ctx, wg)
 	}
