@@ -146,7 +146,7 @@ func (a *AARPMachine) Run(ctx context.Context) error {
 	a.statusMsg = "Initialising"
 	a.probes = 0
 	a.myAddr.Proto = ddp.Addr{
-		Network: ddp.Network(a.port.NetStart),
+		Network: ddp.Network(a.port.netStart),
 		Node:    1,
 	}
 	a.mu.Unlock()
@@ -309,11 +309,11 @@ func (a *AARPMachine) Resolve(ctx context.Context, ddpAddr ddp.Addr) (ethernet.A
 func (a *AARPMachine) reroll() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.port.NetStart != a.port.NetEnd {
+	if a.port.netStart != a.port.netEnd {
 		// Pick a new network number at random
 		a.myAddr.Proto.Network = rand.N(
-			a.port.NetEnd-a.port.NetStart+1,
-		) + a.port.NetStart
+			a.port.netEnd-a.port.netStart+1,
+		) + a.port.netStart
 	}
 
 	// Can't use: 0x00, 0xff, 0xfe, and should avoid the existing node number

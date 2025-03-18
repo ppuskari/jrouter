@@ -38,21 +38,22 @@ import (
 
 // EtherTalkPort is all the data and helpers needed for EtherTalk on one port.
 type EtherTalkPort struct {
-	MyAddr      ddp.Addr
-	AARPMachine *AARPMachine
-	Router      *Router
+	// General references to broader things
+	router *Router
 
-	logger *slog.Logger
-	device string
-
-	EthernetAddr   ethernet.Addr
-	NetStart       ddp.Network
-	NetEnd         ddp.Network
-	AvailableZones StringSet
-
-	defaultZoneName string
+	// Port-specific things
+	logger          *slog.Logger
 	pcapHandle      *pcap.Handle
+	aarpMachine     *AARPMachine
+	myAddr          ddp.Addr
+	device          string
+	ethernetAddr    ethernet.Addr
+	netStart        ddp.Network
+	netEnd          ddp.Network
+	defaultZoneName string
+	availableZones  StringSet
 
+	// Outbound packet queueing
 	outboxMu     sync.Mutex
 	pendingAddrs map[ddp.Addr]struct{}
 	outbox       []*ddp.ExtPacket
@@ -70,15 +71,15 @@ func (router *Router) NewEtherTalkPort(
 
 	port := &EtherTalkPort{
 		// Add router to port
-		Router: router,
+		router: router,
 
 		logger:          router.Logger.With("device", device),
 		device:          device,
-		EthernetAddr:    ethernetAddr,
-		NetStart:        netStart,
-		NetEnd:          netEnd,
+		ethernetAddr:    ethernetAddr,
+		netStart:        netStart,
+		netEnd:          netEnd,
 		defaultZoneName: defaultZoneName,
-		AvailableZones:  availableZones,
+		availableZones:  availableZones,
 		pcapHandle:      pcapHandle,
 
 		pendingAddrs: make(map[ddp.Addr]struct{}),
@@ -87,7 +88,7 @@ func (router *Router) NewEtherTalkPort(
 	router.Ports = append(router.Ports, port)
 
 	// Add AARP to port
-	port.AARPMachine = NewAARPMachine(port.logger, port, ethernetAddr)
+	port.aarpMachine = NewAARPMachine(port.logger, port, ethernetAddr)
 
 	// Add port to routing table
 	if _, err := router.RouteTable.UpsertRoute(port, true /* extended */, netStart, netEnd, 0); err != nil {
@@ -136,7 +137,7 @@ func (port *EtherTalkPort) Serve(ctx context.Context, wg *sync.WaitGroup) {
 		}
 
 		// Ignore if sent by me
-		if ethFrame.Src == port.EthernetAddr {
+		if ethFrame.Src == port.ethernetAddr {
 			continue
 		}
 
@@ -147,7 +148,7 @@ func (port *EtherTalkPort) Serve(ctx context.Context, wg *sync.WaitGroup) {
 			aarpPacketsInCounter.With(promLabels).Inc()
 			aarpBytesInCounter.With(promLabels).Add(float64(len(rawPkt)))
 
-			port.AARPMachine.Handle(ctx, ethFrame)
+			port.aarpMachine.Handle(ctx, ethFrame)
 
 		case ethertalk.AppleTalkProto:
 			// port.Logger.Debug("Got an AppleTalk frame")
@@ -188,18 +189,18 @@ func (port *EtherTalkPort) Serve(ctx context.Context, wg *sync.WaitGroup) {
 			// Glean address info for AMT, but only if SrcNet is our net
 			// (If it's not our net, then it was routed from elsewhere, and
 			// we'd be filling the AMT with entries for a router.)
-			if ddpkt.SrcNet >= port.NetStart && ddpkt.SrcNet <= port.NetEnd {
+			if ddpkt.SrcNet >= port.netStart && ddpkt.SrcNet <= port.netEnd {
 				srcAddr := ddp.Addr{Network: ddpkt.SrcNet, Node: ddpkt.SrcNode}
-				port.AARPMachine.Learn(srcAddr, ethFrame.Src)
+				port.aarpMachine.Learn(srcAddr, ethFrame.Src)
 				// port.Logger.Debug(fmt.Sprintf("DDP: Gleaned that %d.%d -> %v", srcAddr.Network, srcAddr.Node, ethFrame.Src))
 			}
 
 			// Packet for us? First, who am I?
-			myAddr, ok := port.AARPMachine.Address()
+			myAddr, ok := port.aarpMachine.Address()
 			if !ok {
 				continue
 			}
-			port.MyAddr = myAddr.Proto
+			port.myAddr = myAddr.Proto
 
 			// Our network?
 			// "The network number 0 is reserved to mean unknown; by default
@@ -207,9 +208,9 @@ func (port *EtherTalkPort) Serve(ctx context.Context, wg *sync.WaitGroup) {
 			// connected. Packets whose destination network number is 0 are
 			// addressed to a node on the local network."
 			// TODO: more generic routing
-			if ddpkt.DstNet != 0 && !(ddpkt.DstNet >= port.NetStart && ddpkt.DstNet <= port.NetEnd) {
+			if ddpkt.DstNet != 0 && !(ddpkt.DstNet >= port.netStart && ddpkt.DstNet <= port.netEnd) {
 				// Is it for a network in the routing table?
-				if err := port.Router.Forward(ctx, ddpkt); err != nil {
+				if err := port.router.Forward(ctx, ddpkt); err != nil {
 					port.logger.Error("DDP: Couldn't forward packet", "error", err)
 				}
 				continue
@@ -235,7 +236,7 @@ func (port *EtherTalkPort) Serve(ctx context.Context, wg *sync.WaitGroup) {
 				}
 
 			case 4: // The AEP socket
-				if err := port.Router.HandleAEP(ctx, ddpkt); err != nil {
+				if err := port.router.HandleAEP(ctx, ddpkt); err != nil {
 					port.logger.Error("AEP: Couldn't handle packet", "error", err)
 				}
 
@@ -265,13 +266,18 @@ func (port *EtherTalkPort) Send(ctx context.Context, pkt *ddp.ExtPacket) error {
 	dstEth := ethertalk.AppleTalkBroadcast
 	if pkt.DstNode != 0xFF {
 		// TODO: AARP resolution blocks until resolved
-		de, err := port.AARPMachine.Resolve(ctx, ddp.Addr{Network: pkt.DstNet, Node: pkt.DstNode})
+		de, err := port.aarpMachine.Resolve(ctx, ddp.Addr{Network: pkt.DstNet, Node: pkt.DstNode})
 		if err != nil {
 			return err
 		}
 		dstEth = de
 	}
 	return port.send(dstEth, pkt)
+}
+
+// RunAARP runs the AARP state machine.
+func (port *EtherTalkPort) RunAARP(ctx context.Context) (err error) {
+	return port.aarpMachine.Run(ctx)
 }
 
 // Broadcast broadcasts the DDP packet on this port.
@@ -307,7 +313,7 @@ func (port *EtherTalkPort) String() string {
 // or another AppleTalk router that will forward the packet. Or it's a broadcast
 // packet and dstEth should be a broadcast hwaddr.
 func (port *EtherTalkPort) send(dstEth ethernet.Addr, pkt *ddp.ExtPacket) error {
-	outFrame, err := ethertalk.AppleTalk(port.EthernetAddr, *pkt)
+	outFrame, err := ethertalk.AppleTalk(port.ethernetAddr, *pkt)
 	if err != nil {
 		return err
 	}

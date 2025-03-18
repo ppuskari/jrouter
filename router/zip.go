@@ -63,7 +63,7 @@ func (port *EtherTalkPort) handleZIPZIP(ctx context.Context, ddpkt *ddp.ExtPacke
 
 func (port *EtherTalkPort) handleZIPQuery(ctx context.Context, ddpkt *ddp.ExtPacket, zipkt *zip.QueryPacket) error {
 	port.logger.Debug("ZIP: Got Query for networks", "networks", zipkt.Networks)
-	networks := port.Router.RouteTable.ZonesForNetworks(zipkt.Networks)
+	networks := port.router.RouteTable.ZonesForNetworks(zipkt.Networks)
 
 	sendReply := func(resp *zip.ReplyPacket) error {
 		respRaw, err := resp.Marshal()
@@ -77,8 +77,8 @@ func (port *EtherTalkPort) handleZIPQuery(ctx context.Context, ddpkt *ddp.ExtPac
 				DstNet:    ddpkt.SrcNet,
 				DstNode:   ddpkt.SrcNode,
 				DstSocket: ddpkt.SrcSocket,
-				SrcNet:    port.MyAddr.Network,
-				SrcNode:   port.MyAddr.Node,
+				SrcNet:    port.myAddr.Network,
+				SrcNode:   port.myAddr.Node,
 				SrcSocket: 6,
 				Proto:     ddp.ProtoZIP,
 			},
@@ -162,7 +162,7 @@ func (port *EtherTalkPort) handleZIPReply(zipkt *zip.ReplyPacket) error {
 
 	// Integrate new zone information into route table.
 	for n, zs := range zipkt.Networks {
-		if err := port.Router.RouteTable.AddZonesToNetwork(n, zs...); err != nil {
+		if err := port.router.RouteTable.AddZonesToNetwork(n, zs...); err != nil {
 			return err
 		}
 	}
@@ -173,7 +173,7 @@ func (port *EtherTalkPort) handleZIPGetNetInfo(ctx context.Context, ddpkt *ddp.E
 	port.logger.Debug("ZIP: Got GetNetInfo", "zone", zipkt.ZoneName)
 
 	// The request is zoneValid if the zone name is available on this network.
-	zoneValid := port.AvailableZones.Contains(zipkt.ZoneName)
+	zoneValid := port.availableZones.Contains(zipkt.ZoneName)
 
 	// The multicast address we return depends on the validity of the zone
 	// name.
@@ -187,9 +187,9 @@ func (port *EtherTalkPort) handleZIPGetNetInfo(ctx context.Context, ddpkt *ddp.E
 	resp := &zip.GetNetInfoReplyPacket{
 		ZoneInvalid:   !zoneValid,
 		UseBroadcast:  false,
-		OnlyOneZone:   len(port.AvailableZones) == 1,
-		NetStart:      port.NetStart,
-		NetEnd:        port.NetEnd,
+		OnlyOneZone:   len(port.availableZones) == 1,
+		NetStart:      port.netStart,
+		NetEnd:        port.netEnd,
 		ZoneName:      zipkt.ZoneName, // has to match request
 		MulticastAddr: mcastAddr,
 	}
@@ -220,8 +220,8 @@ func (port *EtherTalkPort) handleZIPGetNetInfo(ctx context.Context, ddpkt *ddp.E
 			DstNet:    ddpkt.SrcNet,
 			DstNode:   ddpkt.SrcNode,
 			DstSocket: ddpkt.SrcSocket,
-			SrcNet:    port.MyAddr.Network,
-			SrcNode:   port.MyAddr.Node,
+			SrcNet:    port.myAddr.Network,
+			SrcNode:   port.myAddr.Node,
 			SrcSocket: 6,
 			Proto:     ddp.ProtoZIP,
 		},
@@ -271,10 +271,10 @@ func (port *EtherTalkPort) handleZIPTReq(ctx context.Context, ddpkt *ddp.ExtPack
 
 	switch gzl.Function {
 	case zip.FunctionGetZoneList:
-		resp.Zones = port.Router.RouteTable.AllZoneNames()
+		resp.Zones = port.router.RouteTable.AllZoneNames()
 
 	case zip.FunctionGetLocalZones:
-		resp.Zones = port.AvailableZones.ToSlice()
+		resp.Zones = port.availableZones.ToSlice()
 
 	case zip.FunctionGetMyZone:
 		// Note: This shouldn't happen on extended networks (e.g. EtherTalk)
@@ -320,8 +320,8 @@ func (port *EtherTalkPort) handleZIPTReq(ctx context.Context, ddpkt *ddp.ExtPack
 			DstNet:    ddpkt.SrcNet,
 			DstNode:   ddpkt.SrcNode,
 			DstSocket: ddpkt.SrcSocket,
-			SrcNet:    port.MyAddr.Network,
-			SrcNode:   port.MyAddr.Node,
+			SrcNet:    port.myAddr.Network,
+			SrcNode:   port.myAddr.Node,
 			SrcSocket: 6,
 			Proto:     ddp.ProtoATP,
 		},

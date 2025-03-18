@@ -43,10 +43,10 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 		case rtmp.FunctionRequest:
 			// Respond with RTMP Response
 			respPkt := &rtmp.ResponsePacket{
-				SenderAddr: port.MyAddr,
+				SenderAddr: port.myAddr,
 				Extended:   true,
-				RangeStart: port.NetStart,
-				RangeEnd:   port.NetEnd,
+				RangeStart: port.netStart,
+				RangeEnd:   port.netEnd,
 			}
 			respPktRaw, err := respPkt.Marshal()
 			if err != nil {
@@ -59,15 +59,15 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 					DstNet:    pkt.SrcNet,
 					DstNode:   pkt.SrcNode,
 					DstSocket: 1, // the RTMP socket
-					SrcNet:    port.MyAddr.Network,
-					SrcNode:   port.MyAddr.Node,
+					SrcNet:    port.myAddr.Network,
+					SrcNode:   port.myAddr.Node,
 					SrcSocket: 1, // the RTMP socket
 					Proto:     ddp.ProtoRTMPResp,
 				},
 				Data: respPktRaw,
 			}
 
-			if err := port.Router.Output(ctx, ddpPkt); err != nil {
+			if err := port.router.Output(ctx, ddpPkt); err != nil {
 				return fmt.Errorf("send Response: %w", err)
 			}
 
@@ -87,15 +87,15 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 						DstNet:    pkt.SrcNet,
 						DstNode:   pkt.SrcNode,
 						DstSocket: 1, // the RTMP socket
-						SrcNet:    port.MyAddr.Network,
-						SrcNode:   port.MyAddr.Node,
+						SrcNet:    port.myAddr.Network,
+						SrcNode:   port.myAddr.Node,
 						SrcSocket: 1, // the RTMP socket
 						Proto:     ddp.ProtoRTMPResp,
 					},
 					Data: dataPktRaw,
 				}
 
-				if err := port.Router.Output(ctx, ddpPkt); err != nil {
+				if err := port.router.Output(ctx, ddpPkt); err != nil {
 					return fmt.Errorf("send Data: %w", err)
 				}
 			}
@@ -118,7 +118,7 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 
 		var noZones []ddp.Network
 		for _, nt := range dataPkt.NetworkTuples {
-			route, err := port.Router.RouteTable.UpsertRoute(
+			route, err := port.router.RouteTable.UpsertRoute(
 				peer,
 				nt.Extended,
 				nt.RangeStart,
@@ -128,7 +128,7 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 			if err != nil {
 				return fmt.Errorf("upsert EtherTalk route: %v", err)
 			}
-			if len(port.Router.RouteTable.byNetwork[nt.RangeStart].ZoneNames) == 0 {
+			if len(port.router.RouteTable.byNetwork[nt.RangeStart].ZoneNames) == 0 {
 				noZones = append(noZones, route.NetStart)
 			}
 		}
@@ -143,8 +143,8 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 				ExtHeader: ddp.ExtHeader{
 					Size:      uint16(len(qryPkt)) + atalk.DDPExtHeaderSize,
 					Cksum:     0,
-					SrcNet:    port.MyAddr.Network,
-					SrcNode:   port.MyAddr.Node,
+					SrcNet:    port.myAddr.Network,
+					SrcNode:   port.myAddr.Node,
 					SrcSocket: 6,
 					DstNet:    pkt.SrcNet,
 					DstNode:   pkt.SrcNode,
@@ -175,7 +175,7 @@ func (port *EtherTalkPort) RunRTMP(ctx context.Context) (err error) {
 	setStatus("Awaiting DDP address assignment")
 
 	// Await local address assignment before doing anything
-	<-port.AARPMachine.Assigned()
+	<-port.aarpMachine.Assigned()
 
 	setStatus("Starting broadcast loop")
 
@@ -217,8 +217,8 @@ func (port *EtherTalkPort) broadcastRTMPData() error {
 				DstNet:    0x0000, // this network
 				DstNode:   0xff,   // broadcast packet
 				DstSocket: 1,      // the RTMP socket
-				SrcNet:    port.MyAddr.Network,
-				SrcNode:   port.MyAddr.Node,
+				SrcNet:    port.myAddr.Network,
+				SrcNode:   port.myAddr.Node,
 				SrcSocket: 1, // the RTMP socket
 				Proto:     ddp.ProtoRTMPResp,
 			},
@@ -235,7 +235,7 @@ func (port *EtherTalkPort) broadcastRTMPData() error {
 func (port *EtherTalkPort) rtmpDataPackets(splitHorizon bool) []*rtmp.DataPacket {
 	// Build up a slice of routing tuples.
 	var tuples []rtmp.NetworkTuple
-	for r := range port.Router.RouteTable.ValidRoutes {
+	for r := range port.router.RouteTable.ValidRoutes {
 		if r.Target.RouteTargetKey() == port.RouteTargetKey() {
 			// If the route is actually a direct connection to this port,
 			// don't include it.
@@ -261,8 +261,8 @@ func (port *EtherTalkPort) rtmpDataPackets(splitHorizon bool) []*rtmp.DataPacket
 	// TODO: support non-extended local networks (LocalTalk)
 	first := rtmp.NetworkTuple{
 		Extended:   true,
-		RangeStart: port.NetStart,
-		RangeEnd:   port.NetEnd,
+		RangeStart: port.netStart,
+		RangeEnd:   port.netEnd,
 		Distance:   0,
 	}
 
@@ -282,7 +282,7 @@ func (port *EtherTalkPort) rtmpDataPackets(splitHorizon bool) []*rtmp.DataPacket
 		rem = rem[len(chunk)-1:]
 
 		packets = append(packets, &rtmp.DataPacket{
-			RouterAddr:    port.MyAddr,
+			RouterAddr:    port.myAddr,
 			Extended:      true,
 			NetworkTuples: chunk,
 		})

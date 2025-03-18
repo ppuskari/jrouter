@@ -50,7 +50,7 @@ func (port *EtherTalkPort) HandleNBP(ctx context.Context, ddpkt *ddp.ExtPacket) 
 		return port.Send(ctx, outDDP)
 
 	case nbp.FunctionFwdReq:
-		return port.Router.handleNBPFwdReq(ctx, ddpkt, nbpkt)
+		return port.router.handleNBPFwdReq(ctx, ddpkt, nbpkt)
 
 	case nbp.FunctionBrRq:
 		return port.handleNBPBrRq(ctx, ddpkt, nbpkt)
@@ -73,7 +73,7 @@ func (port *EtherTalkPort) handleNBPBrRq(ctx context.Context, ddpkt *ddp.ExtPack
 	// 	tuple.Zone = port.DefaultZoneName
 	// }
 
-	routes := port.Router.RouteTable.RoutesForZone(tuple.Zone)
+	routes := port.router.RouteTable.RoutesForZone(tuple.Zone)
 
 	for _, route := range routes {
 
@@ -96,8 +96,8 @@ func (port *EtherTalkPort) handleNBPBrRq(ctx context.Context, ddpkt *ddp.ExtPack
 				ExtHeader: ddp.ExtHeader{
 					Size:      atalk.DDPExtHeaderSize + uint16(len(nbpRaw)),
 					Cksum:     0,
-					SrcNet:    port.MyAddr.Network,
-					SrcNode:   port.MyAddr.Node,
+					SrcNet:    port.myAddr.Network,
+					SrcNode:   port.myAddr.Node,
 					SrcSocket: 2,
 					DstNet:    0x0000, // Local network broadcast
 					DstNode:   0xFF,   // Broadcast node address within the dest network
@@ -155,7 +155,7 @@ func (port *EtherTalkPort) handleNBPBrRq(ctx context.Context, ddpkt *ddp.ExtPack
 			Data: nbpRaw,
 		}
 
-		if err := port.Router.Output(ctx, outDDP); err != nil {
+		if err := port.router.Output(ctx, outDDP); err != nil {
 			return err
 		}
 	}
@@ -170,7 +170,7 @@ func (rtr *Router) handleNBPFwdReq(ctx context.Context, ddpkt *ddp.ExtPacket, nb
 	tuple := &nbpkt.Tuples[0]
 
 	for _, outPort := range rtr.Ports {
-		if !outPort.AvailableZones.Contains(tuple.Zone) {
+		if !outPort.availableZones.Contains(tuple.Zone) {
 			continue
 		}
 		rtr.Logger.Debug("NBP: Converting FwdReq to LkUp", "tuple", tuple)
@@ -223,8 +223,8 @@ func (port *EtherTalkPort) helloWorldThisIsMe(nbpID uint8, tuple *nbp.Tuple) (*d
 		NBPID:    nbpID,
 		Tuples: []nbp.Tuple{
 			{
-				Network:    port.MyAddr.Network,
-				Node:       port.MyAddr.Node,
+				Network:    port.myAddr.Network,
+				Node:       port.myAddr.Node,
 				Socket:     253,
 				Enumerator: 0,
 				Object:     meta.NameVersion,
@@ -254,8 +254,8 @@ func (port *EtherTalkPort) helloWorldThisIsMe(nbpID uint8, tuple *nbp.Tuple) (*d
 			DstNet:    tuple.Network,
 			DstNode:   tuple.Node,
 			DstSocket: tuple.Socket,
-			SrcNet:    port.MyAddr.Network,
-			SrcNode:   port.MyAddr.Node,
+			SrcNet:    port.myAddr.Network,
+			SrcNode:   port.myAddr.Node,
 			SrcSocket: 2,
 			Proto:     ddp.ProtoNBP,
 		},

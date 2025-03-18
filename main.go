@@ -267,7 +267,7 @@ func main() {
 	//
 	for _, etPort := range rooter.Ports {
 		// Run AARP and RTMP on each port.
-		go etPort.AARPMachine.Run(ctx)
+		go etPort.RunAARP(ctx)
 		go etPort.RunRTMP(ctx)
 
 		// Start handling packets.

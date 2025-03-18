@@ -127,7 +127,7 @@ func (r *Router) AURPInput(ctx context.Context, logger *slog.Logger, wg *sync.Wa
 			// Is it addressed to me?
 			var localPort *EtherTalkPort
 			for _, port := range r.Ports {
-				if ddpkt.DstNet >= port.NetStart && ddpkt.DstNet <= port.NetEnd {
+				if ddpkt.DstNet >= port.netStart && ddpkt.DstNet <= port.netEnd {
 					localPort = port
 					break
 				}
