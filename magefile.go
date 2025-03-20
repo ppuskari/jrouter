@@ -44,7 +44,7 @@ func All() {
 
 // AllWithPush is like All, but pushes container images to the registry.
 // It does not (yet) push binaries, .debs, or checksums.txt to a release.
-func All() {
+func AllWithPush() {
 	mg.Deps(ContainersWithPush, Debs)
 	mg.Deps(Checksums)
 }
