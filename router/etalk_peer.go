@@ -32,13 +32,14 @@ type EtherTalkPeer struct {
 
 // Forward forwards a DDP packet to the next router.
 func (p *EtherTalkPeer) Forward(ctx context.Context, pkt *ddp.ExtPacket) error {
-	// TODO: AARP resolution can block
-	de, err := p.Port.aarpMachine.Resolve(ctx, p.PeerAddr)
-	if err != nil {
-		return err
+	destEth, waitCh, _ := p.Port.aarpMachine.lookupOrWait(p.PeerAddr)
+	if waitCh == nil {
+		// Cached address still valid
+		return p.Port.send(destEth, pkt)
 	}
-
-	return p.Port.send(de, pkt)
+	// Add to outbox for the router's address
+	p.Port.outboxPush(waitCh, p.PeerAddr, pkt)
+	return nil
 }
 
 // RouteTargetKey returns "EtherTalkPeer|device name|peer address".

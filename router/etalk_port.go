@@ -24,8 +24,10 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"reflect"
 	"strconv"
 	"sync"
+	"time"
 
 	"drjosh.dev/jrouter/atalk"
 	"drjosh.dev/jrouter/status"
@@ -35,6 +37,9 @@ import (
 	"github.com/sfiera/multitalk/pkg/ethernet"
 	"github.com/sfiera/multitalk/pkg/ethertalk"
 )
+
+// Limit on number of packets buffered while AARP resolves an address
+const maxOutboxSize = 1000
 
 // EtherTalkPort is all the data and helpers needed for EtherTalk on one port.
 type EtherTalkPort struct {
@@ -54,9 +59,8 @@ type EtherTalkPort struct {
 	availableZones  StringSet
 
 	// Outbound packet queueing
-	outboxMu     sync.Mutex
-	pendingAddrs map[ddp.Addr]struct{}
-	outbox       []*ddp.ExtPacket
+	outboxesMu sync.Mutex
+	outboxes   map[<-chan struct{}]*outbox
 }
 
 // NewEtherTalkPort defines a new EtherTalk port for the router.
@@ -82,7 +86,7 @@ func (router *Router) NewEtherTalkPort(
 		availableZones:  availableZones,
 		pcapHandle:      pcapHandle,
 
-		pendingAddrs: make(map[ddp.Addr]struct{}),
+		outboxes: make(map[<-chan struct{}]*outbox),
 	}
 	// Add port to router
 	router.Ports = append(router.Ports, port)
@@ -102,6 +106,85 @@ func (router *Router) NewEtherTalkPort(
 	return port
 }
 
+// Outbox runs a loop that checks for pending AARP resolutions and tries to
+// empty the packet outbox.
+func (port *EtherTalkPort) Outbox(ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	ctx, setStatus, _ := status.AddSimpleItem(ctx, fmt.Sprintf("EtherTalk outbound on %s", port.device))
+	defer setStatus("EtherTalk Outbox goroutine exited!")
+	setStatus("Initialising")
+
+	resolveTicker := time.NewTicker(aarpRequestRetransmit)
+	defer resolveTicker.Stop()
+
+	for {
+		// First time I'm using [reflect.Select]
+		cases := []reflect.SelectCase{
+			{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ctx.Done())},
+			{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(resolveTicker.C)},
+		}
+		func() {
+			port.outboxesMu.Lock()
+			defer port.outboxesMu.Unlock()
+
+			for waitCh := range port.outboxes {
+				cases = append(cases, reflect.SelectCase{
+					Dir: reflect.SelectRecv, Chan: reflect.ValueOf(waitCh),
+				})
+			}
+		}()
+
+		setStatus(fmt.Sprintf("Waiting on %d address resolutions", len(cases)-2))
+		chosen, _, _ := reflect.Select(cases)
+		switch chosen {
+		case 0: // <-ctx.Done()
+			return
+		case 1: // <-resolveTicker.C
+			// Re-send pending resolutions.
+			err := func() error {
+				port.outboxesMu.Lock()
+				defer port.outboxesMu.Unlock()
+				for _, ob := range port.outboxes {
+					if err := port.aarpMachine.request(ob.addr); err != nil {
+						return err
+					}
+				}
+				return nil
+			}()
+			if err != nil {
+				port.logger.Error("EtherTalk/AARP: broadcasting request", "error", err)
+				return
+			}
+			continue
+		default:
+			// continue below
+		}
+
+		ob := port.outboxPop(cases[chosen].Chan.Interface().(<-chan struct{}))
+		if len(ob.packets) == 0 {
+			continue
+		}
+
+		// it was resolved!
+		destEth, waitCh, _ := port.aarpMachine.lookupOrWait(ob.addr)
+		if waitCh != nil {
+			// oh no actually it wasn't resolved...
+			// this should pretty much never happen because the AARP
+			// timeout is way larger than the outbox ticker
+			port.outboxPush(waitCh, ob.addr, ob.packets...)
+			continue
+		}
+
+		for _, pkt := range ob.packets {
+			if err := port.send(destEth, pkt); err != nil {
+				port.logger.Error("EtherTalk: couldn't send packet", "error", err)
+				return
+			}
+		}
+	}
+}
+
 // Serve runs a loop that reads AARP or AppleTalk packets from the network
 // device, and handles them.
 func (port *EtherTalkPort) Serve(ctx context.Context, wg *sync.WaitGroup) {
@@ -109,7 +192,6 @@ func (port *EtherTalkPort) Serve(ctx context.Context, wg *sync.WaitGroup) {
 
 	ctx, setStatus, _ := status.AddSimpleItem(ctx, fmt.Sprintf("EtherTalk inbound on %s", port.device))
 	defer setStatus("EtherTalk Serve goroutine exited!")
-
 	setStatus(fmt.Sprintf("Listening on %s", port.device))
 
 	for {
@@ -263,16 +345,19 @@ func (port *EtherTalkPort) Serve(ctx context.Context, wg *sync.WaitGroup) {
 // Send sends a DDP packet out this port to the destination node.
 // If pkt.DstNode = 0xFF, then the packet is broadcast.
 func (port *EtherTalkPort) Send(ctx context.Context, pkt *ddp.ExtPacket) error {
-	dstEth := ethertalk.AppleTalkBroadcast
-	if pkt.DstNode != 0xFF {
-		// TODO: AARP resolution blocks until resolved
-		de, err := port.aarpMachine.Resolve(ctx, ddp.Addr{Network: pkt.DstNet, Node: pkt.DstNode})
-		if err != nil {
-			return err
-		}
-		dstEth = de
+	if pkt.DstNode == 0xFF {
+		return port.send(ethertalk.AppleTalkBroadcast, pkt)
 	}
-	return port.send(dstEth, pkt)
+
+	addr := ddp.Addr{Network: pkt.DstNet, Node: pkt.DstNode}
+	destEth, waitCh, _ := port.aarpMachine.lookupOrWait(addr)
+	if waitCh == nil {
+		// Cached address still valid
+		return port.send(destEth, pkt)
+	}
+
+	port.outboxPush(waitCh, addr, pkt)
+	return nil
 }
 
 // RunAARP runs the AARP state machine.
@@ -340,4 +425,40 @@ func (port *EtherTalkPort) send(dstEth ethernet.Addr, pkt *ddp.ExtPacket) error 
 	atalkBytesOutCounter.With(promLabels).Add(float64(len(outFrameRaw)))
 
 	return port.pcapHandle.WritePacketData(outFrameRaw)
+}
+
+type outbox struct {
+	packets []*ddp.ExtPacket
+	addr    ddp.Addr // may the packet address or next-hop router address
+}
+
+func (port *EtherTalkPort) outboxPush(waitCh <-chan struct{}, addr ddp.Addr, pkts ...*ddp.ExtPacket) {
+	port.outboxesMu.Lock()
+	defer port.outboxesMu.Unlock()
+	ob := port.outboxes[waitCh]
+	if ob == nil {
+		ob = &outbox{
+			packets: pkts,
+			addr:    addr,
+		}
+		port.outboxes[waitCh] = ob
+
+		// New outbox pending AARP resolution, so get the ball rolling.
+		if err := port.aarpMachine.request(addr); err != nil {
+			port.logger.Error("EtherTalk/AARP: broadcasting request", "error", err)
+		}
+		return
+	}
+
+	ob.packets = append(ob.packets, pkts...)
+	if obLen := len(ob.packets); obLen > maxOutboxSize {
+		ob.packets = ob.packets[obLen-maxOutboxSize:]
+	}
+}
+
+func (port *EtherTalkPort) outboxPop(waitCh <-chan struct{}) *outbox {
+	port.outboxesMu.Lock()
+	defer port.outboxesMu.Unlock()
+	defer delete(port.outboxes, waitCh)
+	return port.outboxes[waitCh]
 }

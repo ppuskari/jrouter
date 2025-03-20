@@ -261,6 +261,7 @@ func (a *AARPMachine) Run(ctx context.Context) error {
 	}
 }
 
+/*
 // Resolve resolves an AppleTalk node address to an Ethernet address.
 // If the address is in the cache (AMT) and is still valid, that is used.
 // Otherwise, the address is resolved using AARP.
@@ -304,6 +305,7 @@ func (a *AARPMachine) Resolve(ctx context.Context, ddpAddr ddp.Addr) (ethernet.A
 		}
 	}
 }
+*/
 
 // Re-roll a local address
 func (a *AARPMachine) reroll() {
