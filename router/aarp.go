@@ -261,52 +261,6 @@ func (a *AARPMachine) Run(ctx context.Context) error {
 	}
 }
 
-/*
-// Resolve resolves an AppleTalk node address to an Ethernet address.
-// If the address is in the cache (AMT) and is still valid, that is used.
-// Otherwise, the address is resolved using AARP.
-func (a *AARPMachine) Resolve(ctx context.Context, ddpAddr ddp.Addr) (ethernet.Addr, error) {
-	result, waitCh, winner := a.lookupOrWait(ddpAddr)
-	if waitCh == nil {
-		return result, nil
-	}
-
-	if winner {
-		if err := a.request(ddpAddr); err != nil {
-			return ethernet.Addr{}, err
-		}
-	}
-
-	ticker := time.NewTicker(aarpRequestRetransmit)
-	defer ticker.Stop()
-
-	ctx, cancel := context.WithTimeout(ctx, aarpRequestTimeout)
-	defer cancel()
-
-	for {
-		select {
-		case <-ctx.Done():
-			a.requestingStopped(ddpAddr)
-			return ethernet.Addr{}, ctx.Err()
-
-		case <-waitCh:
-			result, waitCh, winner = a.lookupOrWait(ddpAddr)
-			if waitCh == nil {
-				return result, nil
-			}
-
-		case <-ticker.C:
-			if !winner {
-				continue
-			}
-			if err := a.request(ddpAddr); err != nil {
-				return ethernet.Addr{}, err
-			}
-		}
-	}
-}
-*/
-
 // Re-roll a local address
 func (a *AARPMachine) reroll() {
 	a.mu.Lock()
@@ -465,17 +419,4 @@ func (t *addressMappingTable) lookupOrWait(ddpAddr ddp.Addr) (ethernet.Addr, <-c
 		return ent.HWAddr, ent.updated, true
 	}
 	return ent.HWAddr, nil, false
-}
-
-func (t *addressMappingTable) requestingStopped(ddpAddr ddp.Addr) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.table == nil {
-		return
-	}
-	ent := t.table[ddpAddr]
-	if ent == nil {
-		return
-	}
-	ent.Resolving = false
 }

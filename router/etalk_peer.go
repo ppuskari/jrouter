@@ -19,6 +19,7 @@ package router
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
@@ -38,7 +39,10 @@ func (p *EtherTalkPeer) Forward(ctx context.Context, pkt *ddp.ExtPacket) error {
 		return p.Port.send(destEth, pkt)
 	}
 	// Add to outbox for the router's address
-	p.Port.outboxPush(waitCh, p.PeerAddr, pkt)
+	p.Port.outboxPush(waitCh, p.PeerAddr, timestampedPacket{
+		ts:  time.Now(),
+		pkt: pkt,
+	})
 	return nil
 }
 

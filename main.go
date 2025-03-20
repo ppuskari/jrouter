@@ -271,8 +271,9 @@ func main() {
 		go etPort.RunRTMP(ctx)
 
 		// Start handling packets.
-		wg.Add(1)
+		wg.Add(2)
 		go etPort.Serve(ctx, wg)
+		go etPort.Outbox(ctx, wg)
 	}
 
 	// ----------------------------- AURP inbound -----------------------------
