@@ -45,11 +45,11 @@ const routingTableTemplate = `
 {{range $route := . }}
 	<tr>
 		<td>{{$route.NetStart}}{{if not (eq $route.NetStart $route.NetEnd)}} - {{$route.NetEnd}}{{end}}</td>
-		<td>{{if $route.Extended}}✅{{else}}-{{end}}</td>
+		<td>{{if $route.Extended}}extended{{else}}non-extended{{end}}</td>
 		<td><ul>{{range $route.ZoneNames}}<li>{{.}}</li>{{end}}</ul></td>
 		<td>{{$route.Distance}}</td>
 		<td>{{$route.LastSeen | ago}}</td>
-		<td>{{if $route.Valid}}✅{{else}}❌{{end}}</td>
+		<td class="{{if $route.Valid}}green{{else}}red{{end}}">{{if $route.Valid}}valid{{else}}stale{{end}}</td>
 		<td>{{$route.Target}}</td>
 	</tr>
 {{end}}

@@ -171,7 +171,7 @@ const peerTableTemplate = `
 	<tr>
 		<td>{{$peer.ConfiguredAddr}}</td>
 		<td>{{$peer.RemoteAddr}}</td>
-		<td>{{if $peer.Running}}✅{{else}}🛑{{end}}</td>
+		<td class="{{if $peer.Running}}green{{else}}red{{end}}">{{if $peer.Running}}running{{else}}stopped{{end}}</td>
 		<td class="{{if eq $peer.ReceiverState 0}}red{{else}}green{{end}}">{{$peer.ReceiverState}}</td>
 		<td class="{{if eq $peer.SenderState 0}}red{{else}}green{{end}}">{{$peer.SenderState}}</td>
 		<td {{if $peer.LastHeardFrom.IsZero}}class="red"{{end}}>{{$peer.LastHeardFrom | ago}}</td>

@@ -81,12 +81,14 @@ func Binary() error {
 	return cmd.Run()
 }
 
-// LinuxBinary builds a Linux binary for the current arch using a Docker
-// container.
-func LinuxBinary() error {
+// LinuxBinary builds a Linux binary for the given arch using a Docker container.
+func LinuxBinary(arch string) error {
+	if arch == "" {
+		arch = runtime.GOARCH
+	}
 	mg.Deps(MkdirDist)
 
-	cmd := exec.Command("docker", "compose", "-f", "docker-compose-build.yml", "up", "build-"+runtime.GOARCH)
+	cmd := exec.Command("docker", "compose", "-f", "docker-compose-build.yml", "up", "build-"+arch)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
@@ -212,7 +214,7 @@ func Deb(arch string) error {
 		return err
 	}
 
-	mg.Deps(MkdirDist, Binaries)
+	mg.Deps(MkdirDist, func() error { return LinuxBinary(arch) })
 
 	cmd := exec.Command("go", "tool", "nfpm", "package",
 		"--config", "packaging/nfpm.yaml",

@@ -49,16 +49,14 @@ Status: {{.Status}}<br/>
 		<th>Ethernet addr</th>
 		<th>Valid?
 		<th>Last updated</th>
-		<th>Being resolved?</th>
 	</tr></thead>
 	<tbody>
 {{range $key, $entry := .AMT}}
 		<tr>
 			<td>{{$key.Network}}.{{$key.Node}}</td>
 			<td>{{$entry.HWAddr}}</td>
-			<td>{{if $entry.Valid}}✅{{else}}❌{{end}}</td>
+			<td class="{{if $entry.Valid}}green{{else}}red{{end}}">{{if $entry.Valid}}valid{{else}}stale{{end}}</td>
 			<td>{{$entry.LastUpdated | ago}}</td>
-			<td>{{if $entry.Resolving}}⌚️{{else}}💤{{end}}</td>
 		</tr>
 {{end}}
 	</tbody>
@@ -206,7 +204,7 @@ func (a *AARPMachine) Run(ctx context.Context) error {
 					aapkt.Src.Proto.Network, aapkt.Src.Proto.Node,
 				))
 				// Glean that aapkt.Src.Proto -> aapkt.Src.Hardware
-				a.addressMappingTable.Learn(aapkt.Src.Proto, aapkt.Src.Hardware)
+				a.addressMappingTable.learn(aapkt.Src.Proto, aapkt.Src.Hardware)
 				// a.logger.Debug(fmt.Sprintf("AARP: Gleaned that %d.%d -> %v", aapkt.Src.Proto.Network, aapkt.Src.Proto.Node, aapkt.Src.Hardware))
 
 				if aapkt.Dst.Proto != a.myAddr.Proto {
@@ -228,7 +226,7 @@ func (a *AARPMachine) Run(ctx context.Context) error {
 				a.logger.Debug(fmt.Sprintf("AARP: %d.%d is at %v",
 					aapkt.Dst.Proto.Network, aapkt.Dst.Proto.Node, aapkt.Dst.Hardware,
 				))
-				a.addressMappingTable.Learn(aapkt.Dst.Proto, aapkt.Dst.Hardware)
+				a.addressMappingTable.learn(aapkt.Dst.Proto, aapkt.Dst.Hardware)
 
 				if aapkt.Dst.Proto != a.myAddr.Proto {
 					continue
@@ -337,9 +335,6 @@ type AMTEntry struct {
 	// The last time this entry was updated.
 	LastUpdated time.Time
 
-	// Whether the address is being resolved.
-	Resolving bool
-
 	// Closed when this entry is updated.
 	updated chan struct{}
 }
@@ -368,8 +363,8 @@ func (t *addressMappingTable) Dump() map[ddp.Addr]AMTEntry {
 	return table
 }
 
-// Learn adds or updates an AMT entry.
-func (t *addressMappingTable) Learn(ddpAddr ddp.Addr, hwAddr ethernet.Addr) {
+// learn adds or updates an AMT entry.
+func (t *addressMappingTable) learn(ddpAddr ddp.Addr, hwAddr ethernet.Addr) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.table == nil {
@@ -377,26 +372,24 @@ func (t *addressMappingTable) Learn(ddpAddr ddp.Addr, hwAddr ethernet.Addr) {
 	}
 	oldEnt := t.table[ddpAddr]
 	if oldEnt == nil {
+		// Create new entry
 		t.table[ddpAddr] = &AMTEntry{
 			HWAddr:      hwAddr,
 			LastUpdated: time.Now(),
 			updated:     make(chan struct{}),
-			Resolving:   false,
 		}
 		return
 	}
-
+	// Update existing entry
 	oldEnt.HWAddr = hwAddr
 	oldEnt.LastUpdated = time.Now()
-	oldEnt.Resolving = false
 	close(oldEnt.updated)
 	oldEnt.updated = make(chan struct{})
 }
 
 // lookupOrWait returns either the valid cached Ethernet address for the given
 // DDP address, or a non-nil channel that is closed when the entry is updated.
-// It also reports if this is the first call since the entry became invalid.
-func (t *addressMappingTable) lookupOrWait(ddpAddr ddp.Addr) (ethernet.Addr, <-chan struct{}, bool) {
+func (t *addressMappingTable) lookupOrWait(ddpAddr ddp.Addr) (ethernet.Addr, <-chan struct{}) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.table == nil {
@@ -404,19 +397,15 @@ func (t *addressMappingTable) lookupOrWait(ddpAddr ddp.Addr) (ethernet.Addr, <-c
 	}
 	ent := t.table[ddpAddr]
 	if ent == nil {
+		// Create new entry and channel.
 		ch := make(chan struct{})
-		t.table[ddpAddr] = &AMTEntry{
-			updated:   ch,
-			Resolving: true,
-		}
-		return ethernet.Addr{}, ch, true
+		t.table[ddpAddr] = &AMTEntry{updated: ch}
+		return ethernet.Addr{}, ch
 	}
 	if !ent.Valid() {
-		if ent.Resolving {
-			return ent.HWAddr, ent.updated, false
-		}
-		ent.Resolving = true
-		return ent.HWAddr, ent.updated, true
+		// Return existing channel.
+		return ent.HWAddr, ent.updated
 	}
-	return ent.HWAddr, nil, false
+	// Entry exists and is valid
+	return ent.HWAddr, nil
 }

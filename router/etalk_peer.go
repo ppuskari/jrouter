@@ -32,7 +32,7 @@ type EtherTalkPeer struct {
 
 // Forward forwards a DDP packet to the next router.
 func (p *EtherTalkPeer) Forward(ctx context.Context, pkt *ddp.ExtPacket) error {
-	destEth, waitCh, _ := p.Port.aarpMachine.lookupOrWait(p.PeerAddr)
+	destEth, waitCh := p.Port.aarpMachine.lookupOrWait(p.PeerAddr)
 	if waitCh == nil {
 		// Cached address still valid
 		return p.Port.send(destEth, pkt)

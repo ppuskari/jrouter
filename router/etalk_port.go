@@ -27,6 +27,7 @@ import (
 	"reflect"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"drjosh.dev/jrouter/atalk"
@@ -42,7 +43,29 @@ import (
 const maxOutboxSize = 1000
 
 // Buffered packets that are too old are dropped.
-const packetSendTimeout = 10 * time.Second
+const outboxTimeout = 10 * time.Second
+
+const outboxStatusTemplate = `
+Status: {{.Status}}<br/>
+{{with .Outboxes}}
+<table>
+	<thead><tr>
+		<th>DDP addr</th>
+		<th>Last packet</th>
+		<th>Outbox size</th>
+	</tr></thead>
+	<tbody>
+{{range .}}
+		<tr>
+			<td>{{.Addr.Network}}.{{.Addr.Node}}</td>
+			<td>{{.LastTS | ago}}</td>
+			<td>{{.Len}}</td>
+		</tr>
+{{end}}
+	</tbody>
+</table>
+{{end}}
+`
 
 // EtherTalkPort is all the data and helpers needed for EtherTalk on one port.
 type EtherTalkPort struct {
@@ -111,14 +134,24 @@ func (router *Router) NewEtherTalkPort(
 	return port
 }
 
-// Outbox runs a loop that checks for pending AARP resolutions and if they are
-// complete,
+// Outbox runs a loop that waits for AARP resolutions to complete, and once they
+// are, transmit packets that were buffered.
 func (port *EtherTalkPort) Outbox(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	ctx, setStatus, _ := status.AddSimpleItem(ctx, fmt.Sprintf("EtherTalk outbound on %s", port.device))
-	defer setStatus("EtherTalk Outbox goroutine exited!")
-	setStatus("Initialising")
+	var statusStr atomic.Value
+	statusStr.Store("Initialising")
+	ctx, _ = status.AddItem(ctx,
+		fmt.Sprintf("EtherTalk outbound on %s", port.device),
+		outboxStatusTemplate,
+		func(ctx context.Context) (any, error) {
+			return map[string]any{
+				"Status":   statusStr.Load(),
+				"Outboxes": port.dumpOutboxes(),
+			}, nil
+		},
+	)
+	defer statusStr.Store("EtherTalk Outbox goroutine exited!")
 
 	resolveTicker := time.NewTicker(aarpRequestRetransmit)
 	defer resolveTicker.Stop()
@@ -126,14 +159,22 @@ func (port *EtherTalkPort) Outbox(ctx context.Context, wg *sync.WaitGroup) {
 	for {
 		// First time I'm using [reflect.Select]!
 		cases := []reflect.SelectCase{
-			{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ctx.Done())},
-			{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(port.outboxesChangedCh)},
-			{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(resolveTicker.C)},
+			0: {Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ctx.Done())},
+			1: {Dir: reflect.SelectRecv, Chan: reflect.ValueOf(port.outboxesChangedCh)},
 		}
 		func() {
 			port.outboxesMu.Lock()
 			defer port.outboxesMu.Unlock()
 
+			if len(port.outboxes) == 0 {
+				statusStr.Store("No outboxes pending")
+				return
+			}
+
+			statusStr.Store(fmt.Sprintf("Waiting on %d address resolutions", len(port.outboxes)))
+			// 2: case <-resolveTicker.C
+			cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(resolveTicker.C)})
+			// 3 to N: case <-waitCh
 			for waitCh := range port.outboxes {
 				cases = append(cases, reflect.SelectCase{
 					Dir: reflect.SelectRecv, Chan: reflect.ValueOf(waitCh),
@@ -141,44 +182,20 @@ func (port *EtherTalkPort) Outbox(ctx context.Context, wg *sync.WaitGroup) {
 			}
 		}()
 
-		setStatus(fmt.Sprintf("Waiting on %d address resolutions", len(cases)-3))
 		chosen, _, _ := reflect.Select(cases)
 		switch chosen {
 		case 0: // <-ctx.Done()
-			setStatus("Context cancelled!")
+			statusStr.Store("Context cancelled!")
 			return
 
 		case 1: // <-port.outboxesChangedCh:
 			// Rebuild the list of channels to wait on.
-			setStatus("Refreshing pending outboxes...")
+			statusStr.Store("Refreshing pending outboxes...")
 			continue
 
 		case 2: // <-resolveTicker.C
-			setStatus("Resending AARP requests...")
-			// Outbox maintenance: Delete empty and stale outboxes, re-send
-			// pending AARP resolutions.
-			err := func() error {
-				port.outboxesMu.Lock()
-				defer port.outboxesMu.Unlock()
-				for waitCh, ob := range port.outboxes {
-					// Drop stale outboxes.
-					if time.Since(ob.lastTS) > packetSendTimeout {
-						delete(port.outboxes, waitCh)
-						port.logger.Warn("EtherTalk: dropping stale buffered packets",
-							"dst-net", ob.addr.Network,
-							"dst-node", ob.addr.Node,
-							"drop", len(ob.packets),
-						)
-						continue
-					}
-					// Outbox still current, so re-send AARP request.
-					if err := port.aarpMachine.request(ob.addr); err != nil {
-						return err
-					}
-				}
-				return nil
-			}()
-			if err != nil {
+			statusStr.Store("Resending AARP requests...")
+			if err := port.resendAARPRequests(); err != nil {
 				port.logger.Error("EtherTalk/AARP: broadcasting request", "error", err)
 				return
 			}
@@ -188,23 +205,12 @@ func (port *EtherTalkPort) Outbox(ctx context.Context, wg *sync.WaitGroup) {
 			// continue below
 		}
 
-		ob := port.outboxPop(cases[chosen].Chan.Interface().(<-chan struct{}))
-		if len(ob.packets) == 0 {
+		ob, destEth := port.outboxPop(cases[chosen].Chan.Interface().(<-chan struct{}))
+		if ob == nil || len(ob.packets) == 0 {
 			continue
 		}
 
-		setStatus(fmt.Sprintf("Sending buffered packets to %d.%d...", ob.addr.Network, ob.addr.Node))
-
-		// it was resolved!
-		destEth, waitCh, _ := port.aarpMachine.lookupOrWait(ob.addr)
-		if waitCh != nil {
-			// oh no actually it wasn't resolved...
-			// this should pretty much never happen because the AARP
-			// timeout is 10x longer than the outbox ticker
-			port.outboxPush(waitCh, ob.addr, ob.packets...)
-			continue
-		}
-
+		statusStr.Store(fmt.Sprintf("Sending buffered packets to %d.%d at %v...", ob.addr.Network, ob.addr.Node, destEth))
 		for _, pkt := range ob.packets {
 			if err := port.send(destEth, pkt); err != nil {
 				port.logger.Error("EtherTalk: couldn't send packet", "error", err)
@@ -302,7 +308,7 @@ func (port *EtherTalkPort) Serve(ctx context.Context, wg *sync.WaitGroup) {
 			// we'd be filling the AMT with entries for a router.)
 			if ddpkt.SrcNet >= port.netStart && ddpkt.SrcNet <= port.netEnd {
 				srcAddr := ddp.Addr{Network: ddpkt.SrcNet, Node: ddpkt.SrcNode}
-				port.aarpMachine.Learn(srcAddr, ethFrame.Src)
+				port.aarpMachine.learn(srcAddr, ethFrame.Src)
 				// port.Logger.Debug(fmt.Sprintf("DDP: Gleaned that %d.%d -> %v", srcAddr.Network, srcAddr.Node, ethFrame.Src))
 			}
 
@@ -379,7 +385,7 @@ func (port *EtherTalkPort) Send(ctx context.Context, pkt *ddp.ExtPacket) error {
 	}
 
 	addr := ddp.Addr{Network: pkt.DstNet, Node: pkt.DstNode}
-	destEth, waitCh, _ := port.aarpMachine.lookupOrWait(addr)
+	destEth, waitCh := port.aarpMachine.lookupOrWait(addr)
 	if waitCh == nil {
 		// Cached address still valid
 		return port.send(destEth, pkt)
@@ -463,7 +469,7 @@ type outbox struct {
 }
 
 // outboxPush adds packets to the outbox.
-func (port *EtherTalkPort) outboxPush(waitCh <-chan struct{}, addr ddp.Addr, pkts ...*ddp.ExtPacket) {
+func (port *EtherTalkPort) outboxPush(waitCh <-chan struct{}, addr ddp.Addr, pkt *ddp.ExtPacket) {
 	now := time.Now()
 
 	port.outboxesMu.Lock()
@@ -471,7 +477,7 @@ func (port *EtherTalkPort) outboxPush(waitCh <-chan struct{}, addr ddp.Addr, pkt
 	ob := port.outboxes[waitCh]
 	if ob != nil {
 		// Add more packets to the existing outbox.
-		ob.packets = append(ob.packets, pkts...)
+		ob.packets = append(ob.packets, pkt)
 		ob.lastTS = now
 
 		// Drop packets to remain within max size.
@@ -489,7 +495,7 @@ func (port *EtherTalkPort) outboxPush(waitCh <-chan struct{}, addr ddp.Addr, pkt
 
 	// Create a new outbox
 	ob = &outbox{
-		packets: pkts,
+		packets: []*ddp.ExtPacket{pkt},
 		addr:    addr,
 		lastTS:  now,
 	}
@@ -509,10 +515,78 @@ func (port *EtherTalkPort) outboxPush(waitCh <-chan struct{}, addr ddp.Addr, pkt
 	}
 }
 
-// outboxPop removes an outbox.
-func (port *EtherTalkPort) outboxPop(waitCh <-chan struct{}) *outbox {
+// outboxPop retrieves an outbox that can be processed.
+func (port *EtherTalkPort) outboxPop(waitCh <-chan struct{}) (*outbox, ethernet.Addr) {
 	port.outboxesMu.Lock()
 	defer port.outboxesMu.Unlock()
-	defer delete(port.outboxes, waitCh)
-	return port.outboxes[waitCh]
+
+	ob := port.outboxes[waitCh]
+	delete(port.outboxes, waitCh)
+
+	// it was resolved!
+	destEth, newWaitCh := port.aarpMachine.lookupOrWait(ob.addr)
+	if newWaitCh == nil {
+		return ob, destEth
+	}
+
+	// oh no! actually it wasn't resolved...
+	// this should pretty much never happen because the AARP
+	// timeout is 10x longer than the outbox ticker
+	// But drop the outbox if it is stale.
+	if time.Since(ob.lastTS) > outboxTimeout {
+		port.logger.Warn("EtherTalk: dropping stale buffered packets",
+			"dst-net", ob.addr.Network,
+			"dst-node", ob.addr.Node,
+			"drop", len(ob.packets),
+		)
+		return nil, destEth
+	}
+	// Put the outbox back, under the new wait channel.
+	port.outboxes[newWaitCh] = ob
+	return nil, destEth
+}
+
+// resendAARPRequests removes stale outboxes, and retransmits AARP requests for
+// every remaining pending outbox.
+func (port *EtherTalkPort) resendAARPRequests() error {
+	port.outboxesMu.Lock()
+	defer port.outboxesMu.Unlock()
+	for waitCh, ob := range port.outboxes {
+		// Drop stale outboxes.
+		if time.Since(ob.lastTS) > outboxTimeout {
+			delete(port.outboxes, waitCh)
+			port.logger.Warn("EtherTalk: dropping stale buffered packets",
+				"dst-net", ob.addr.Network,
+				"dst-node", ob.addr.Node,
+				"drop", len(ob.packets),
+			)
+			return nil
+		}
+		// Outbox not stale, so re-send AARP request.
+		if err := port.aarpMachine.request(ob.addr); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type outboxSummary struct {
+	Addr   ddp.Addr
+	LastTS time.Time
+	Len    int
+}
+
+// dumpOutboxes creates a slice of outbox summaries.
+func (port *EtherTalkPort) dumpOutboxes() []outboxSummary {
+	port.outboxesMu.Lock()
+	defer port.outboxesMu.Unlock()
+	obs := make([]outboxSummary, 0, len(port.outboxes))
+	for _, ob := range port.outboxes {
+		obs = append(obs, outboxSummary{
+			Addr:   ob.addr,
+			LastTS: ob.lastTS,
+			Len:    len(ob.packets),
+		})
+	}
+	return obs
 }
