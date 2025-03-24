@@ -433,5 +433,5 @@ type RouteTableObserver interface {
 type network struct {
 	sync.RWMutex
 	Routes    []Route
-	ZoneNames StringSet
+	ZoneNames Set[string]
 }

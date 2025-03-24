@@ -82,7 +82,7 @@ type EtherTalkPort struct {
 	netStart        ddp.Network
 	netEnd          ddp.Network
 	defaultZoneName string
-	availableZones  StringSet
+	availableZones  Set[string]
 
 	// Outbound packet queueing
 	outboxesMu        sync.Mutex
@@ -97,7 +97,7 @@ func (router *Router) NewEtherTalkPort(
 	netStart ddp.Network,
 	netEnd ddp.Network,
 	defaultZoneName string,
-	availableZones StringSet,
+	availableZones Set[string],
 	pcapHandle *pcap.Handle) *EtherTalkPort {
 
 	port := &EtherTalkPort{

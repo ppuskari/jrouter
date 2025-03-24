@@ -21,31 +21,31 @@ import (
 	"slices"
 )
 
-// StringSet is a set of strings.
-// Yep, yet another string set implementation. Took me 2 minutes to write *shrug*
-type StringSet map[string]struct{}
+// Set is a generic set.
+// Yep, yet another set implementation. Took me 2 minutes to write *shrug*
+type Set[K comparable] map[K]struct{}
 
-func (set StringSet) ToSlice() []string {
+func MakeSet[K comparable](ss ...K) Set[K] {
+	set := make(Set[K], len(ss))
+	set.Insert(ss...)
+	return set
+}
+
+func (set Set[K]) ToSlice() []K {
 	return slices.Collect(maps.Keys(set))
 }
 
-func (set StringSet) Contains(s string) bool {
+func (set Set[K]) Contains(s K) bool {
 	_, c := set[s]
 	return c
 }
 
-func (set StringSet) Insert(ss ...string) {
+func (set Set[K]) Insert(ss ...K) {
 	for _, s := range ss {
 		set[s] = struct{}{}
 	}
 }
 
-func (set StringSet) Add(t StringSet) {
+func (set Set[K]) Add(t Set[K]) {
 	maps.Copy(set, t)
-}
-
-func SetFromSlice(ss []string) StringSet {
-	set := make(StringSet, len(ss))
-	set.Insert(ss...)
-	return set
 }

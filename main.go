@@ -192,13 +192,16 @@ func main() {
 		}
 		defer handle.Close()
 
+		zones := router.MakeSet(etcfg.ZoneName)
+		zones.Insert(etcfg.AdditionalZones...)
+
 		rooter.NewEtherTalkPort(
 			etcfg.Device,
 			myHWAddr,
 			etcfg.NetStart,
 			etcfg.NetEnd,
 			etcfg.ZoneName,
-			router.SetFromSlice([]string{etcfg.ZoneName}),
+			zones,
 			handle,
 		)
 	}

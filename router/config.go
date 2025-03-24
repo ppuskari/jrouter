@@ -102,7 +102,10 @@ type EtherTalkConfig struct {
 	// Required.
 	ZoneName string `yaml:"zone_name"`
 
-	// TODO: AdditionalZones []string `yaml:"additional_zones"`
+	// AdditionalZones is a list of any additional zone names that are available
+	// within this local network. Nodes can choose from the default zone name
+	// or any of these additional names.
+	AdditionalZones []string `yaml:"additional_zones"`
 
 	// NetStart and NetEnd control the network number range for the AppleTalk
 	// network on this interface (inclusive). Required.
@@ -110,6 +113,7 @@ type EtherTalkConfig struct {
 	NetEnd   ddp.Network `yaml:"net_end"`
 }
 
+// LoadConfig readand parses a configuration file, and sets some defaults.
 func LoadConfig(cfgPath string) (*Config, error) {
 	f, err := os.Open(cfgPath)
 	if err != nil {

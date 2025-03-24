@@ -32,7 +32,7 @@ func (rt *RouteTable) AddZonesToNetwork(n ddp.Network, zs ...string) error {
 		defer rt.byNetwork[n].Unlock()
 
 		if rt.byNetwork[n].ZoneNames == nil {
-			rt.byNetwork[n].ZoneNames = make(StringSet)
+			rt.byNetwork[n].ZoneNames = make(Set[string])
 		}
 		rt.byNetwork[n].ZoneNames.Insert(zs...)
 	}()

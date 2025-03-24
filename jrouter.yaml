@@ -25,14 +25,27 @@ monitoring_addr: ":9459"
 # AppleTalk zone information.
 # This can contain either a single ethertalk config, or a list of such configs.
 ethertalk:
-  - device: en0 # Name of the device - required.
+  # Name of the device - required.
+  - device: en0
+
     # ethernet_addr overrides the "hardware" address used by jrouter.
     # This may be useful if you have another AppleTalk software running on the
     # same machine, e.g. netatalk, and you do not want jrouter to steal its
     # packets.
     #ethernet_addr: '08:00:07:fe:dc:ba'
-    # Name of the AppleTalk zone - required.
+
+    # Name of the default AppleTalk zone - required.
     zone_name: The Twilight Zone
+
+    # Additional zones available in this network - optional.
+    # Each node in the local network can be individually configured with either
+    # the default above, or one of these. This can also be used to opt into
+    # "widely distributed" zones while also having a small default local zone.
+    additional_zones:
+      - The Fright Zone
+      - TimeZone
+      - GlobalGaming
+
     # Network number range for this network (inclusive) - required.
     net_start: 100
     net_end: 100
