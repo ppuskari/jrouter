@@ -17,6 +17,7 @@
 package router
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -102,10 +103,10 @@ type EtherTalkConfig struct {
 	// Required.
 	ZoneName string `yaml:"zone_name"`
 
-	// AdditionalZones is a list of any additional zone names that are available
+	// ExtraZones is a list of any additional zone names that are available
 	// within this local network. Nodes can choose from the default zone name
 	// or any of these additional names.
-	AdditionalZones []string `yaml:"additional_zones"`
+	ExtraZones []string `yaml:"extra_zones"`
 
 	// NetStart and NetEnd control the network number range for the AppleTalk
 	// network on this interface (inclusive). Required.
@@ -126,9 +127,25 @@ func LoadConfig(cfgPath string) (*Config, error) {
 		return nil, err
 	}
 
+	// Default to AURP listening port 387
 	if c.ListenPort == 0 {
 		c.ListenPort = 387
 	}
 
-	return c, nil
+	var validationErrs []error
+
+	// Check zone names aren't too long
+	for _, port := range c.EtherTalk {
+		if len(port.ZoneName) > 32 {
+			validationErrs = append(validationErrs, fmt.Errorf("zone name %q (length %d) is too long; must be no more than 32 characters", port.ZoneName, len(port.ZoneName)))
+		}
+		for _, zn := range port.ExtraZones {
+			if len(zn) > 32 {
+				validationErrs = append(validationErrs, fmt.Errorf("extra zone name %q (length %d) is too long; must be no more than 32 characters", zn, len(zn)))
+			}
+		}
+	}
+
+	// Note [errors.Join] here does the right thing if validationErrs is empty
+	return c, errors.Join(validationErrs...)
 }

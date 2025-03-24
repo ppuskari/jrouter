@@ -37,11 +37,12 @@ ethertalk:
     # Name of the default AppleTalk zone - required.
     zone_name: The Twilight Zone
 
-    # Additional zones available in this network - optional.
+    # Extra zone names available in this network - optional.
     # Each node in the local network can be individually configured with either
-    # the default above, or one of these. This can also be used to opt into
-    # "widely distributed" zones while also having a small default local zone.
-    additional_zones:
+    # the default above, or one of these. This can be used to make "widely
+    # distributed" shared zones available without having to switch the whole
+    # network over to it.
+    extra_zones:
       - The Fright Zone
       - TimeZone
       - GlobalGaming
