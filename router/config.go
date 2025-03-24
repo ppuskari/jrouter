@@ -99,9 +99,9 @@ type EtherTalkConfig struct {
 	// Device is the Ethernet device name (e.g. eth0, enp2s0, en3). Required.
 	Device string `yaml:"device"`
 
-	// ZoneName is the AppleTalk zone name for the network on this interface.
-	// Required.
-	ZoneName string `yaml:"zone_name"`
+	// DefaultZoneName is the AppleTalk zone name for the network on this
+	// interface. Required.
+	DefaultZoneName string `yaml:"zone_name"`
 
 	// ExtraZones is a list of any additional zone names that are available
 	// within this local network. Nodes can choose from the default zone name
@@ -134,14 +134,27 @@ func LoadConfig(cfgPath string) (*Config, error) {
 
 	var validationErrs []error
 
-	// Check zone names aren't too long
+	// Check zone names
 	for _, port := range c.EtherTalk {
-		if len(port.ZoneName) > 32 {
-			validationErrs = append(validationErrs, fmt.Errorf("zone name %q (length %d) is too long; must be no more than 32 characters", port.ZoneName, len(port.ZoneName)))
+		// 255 is the limit on available zones for a network.
+		if zoneCount := len(port.ExtraZones) + 1; zoneCount > 255 {
+			validationErrs = append(validationErrs, fmt.Errorf("too many zones (%d > 255) for port %q", zoneCount, port.Device))
 		}
+		// Must be 32 characters or fewer.
+		if len(port.DefaultZoneName) > 32 {
+			validationErrs = append(validationErrs, fmt.Errorf("port %q zone name %q (length %d) is too long; cannot be more than 32 characters", port.Device, port.DefaultZoneName, len(port.DefaultZoneName)))
+		}
+		// Must not be empty or '*'
+		if port.DefaultZoneName == "" || port.DefaultZoneName == "*" {
+			validationErrs = append(validationErrs, fmt.Errorf("port %q zone name %q is invalid; cannot be empty or *", port.Device, port.DefaultZoneName))
+		}
+		// The above, but for all extra zones
 		for _, zn := range port.ExtraZones {
 			if len(zn) > 32 {
-				validationErrs = append(validationErrs, fmt.Errorf("extra zone name %q (length %d) is too long; must be no more than 32 characters", zn, len(zn)))
+				validationErrs = append(validationErrs, fmt.Errorf("port %q extra zone name %q (length %d) is too long; cannot be more than 32 characters", port.Device, zn, len(zn)))
+			}
+			if zn == "" || zn == "*" {
+				validationErrs = append(validationErrs, fmt.Errorf("port %q zone name %q is invalid; cannot be empty or *", port.Device, port.DefaultZoneName))
 			}
 		}
 	}
