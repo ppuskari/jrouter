@@ -269,6 +269,8 @@ func main() {
 	// -------------------------- Run EtherTalk ports -------------------------
 	//
 	for _, etPort := range rooter.Ports {
+		ctx := etPort.StatusCtx(ctx)
+
 		// Run AARP and RTMP on each port.
 		go etPort.RunAARP(ctx)
 		go etPort.RunRTMP(ctx)

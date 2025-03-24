@@ -142,7 +142,7 @@ func (port *EtherTalkPort) Outbox(ctx context.Context, wg *sync.WaitGroup) {
 	var statusStr atomic.Value
 	statusStr.Store("Initialising")
 	ctx, _ = status.AddItem(ctx,
-		fmt.Sprintf("EtherTalk outbound on %s", port.device),
+		"Outbound",
 		outboxStatusTemplate,
 		func(ctx context.Context) (any, error) {
 			return map[string]any{
@@ -225,7 +225,7 @@ func (port *EtherTalkPort) Outbox(ctx context.Context, wg *sync.WaitGroup) {
 func (port *EtherTalkPort) Serve(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	ctx, setStatus, _ := status.AddSimpleItem(ctx, fmt.Sprintf("EtherTalk inbound on %s", port.device))
+	ctx, setStatus, _ := status.AddSimpleItem(ctx, "Inbound")
 	defer setStatus("EtherTalk Serve goroutine exited!")
 	setStatus(fmt.Sprintf("Listening on %s", port.device))
 
@@ -427,6 +427,28 @@ func (port *EtherTalkPort) Class() TargetClass { return TargetClassDirect }
 
 func (port *EtherTalkPort) String() string {
 	return port.device
+}
+
+const portStatusTmpl = `Device: {{.Device}}<br/>
+Ethernet address: {{.EthernetAddr}}<br/>
+AppleTalk network: {{.NetStart}}{{if ne .NetStart .NetEnd}}-{{.NetEnd}}{{end}} (extended)<br/>
+Available zones (default zone in bold): <ul>{{range .AvailZones}}<li{{if eq . $.DefaultZone}} style="font-weight:bold"{{end}}>{{.}}</li>{{end}}</ul><br/>`
+
+// StatusCtx returns a context with a new status grouping specifically for this
+// port.
+func (port *EtherTalkPort) StatusCtx(ctx context.Context) context.Context {
+	ctx, _ = status.AddItem(ctx, "EtherTalk on "+port.device, portStatusTmpl, func(context.Context) (any, error) {
+		return map[string]any{
+			"Device":       port.device,
+			"EthernetAddr": port.ethernetAddr,
+			"NetStart":     port.netStart,
+			"NetEnd":       port.netEnd,
+			"DefaultZone":  port.defaultZoneName,
+			"AvailZones":   port.availableZones.ToSlice(),
+		}, nil
+	},
+	)
+	return ctx
 }
 
 // send is used to send EtherTalk packets. dstEth is either the destination node
