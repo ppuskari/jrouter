@@ -61,16 +61,18 @@ var (
 		},
 	}
 
-	funcMap = template.FuncMap{
+	// The inbuilt templates should always parse. Rather than use template.Must,
+	// successful parsing is enforced by the smoke tests.
+	statusTmpl, _ = template.New("status").Funcs(FuncMap()).Parse(statusTmplSrc)
+	errorTmpl, _  = template.New("item-error").Funcs(FuncMap()).Parse(errorTmplSrc)
+)
+
+func FuncMap() template.FuncMap {
+	return template.FuncMap{
 		"printJSON": printJSON,
 		"ago":       ago,
 	}
-
-	// The inbuilt templates should always parse. Rather than use template.Must,
-	// successful parsing is enforced by the smoke tests.
-	statusTmpl, _ = template.New("status").Funcs(funcMap).Parse(statusTmplSrc)
-	errorTmpl, _  = template.New("item-error").Funcs(funcMap).Parse(errorTmplSrc)
-)
+}
 
 type statusData struct {
 	Items        map[string]item
@@ -255,7 +257,7 @@ func AddItem(parent context.Context, title, tmpl string, cb func(context.Context
 		baseItem: baseItem{
 			items: make(map[string]item),
 		},
-		tmpl: template.New(title).Funcs(funcMap),
+		tmpl: template.New(title).Funcs(FuncMap()),
 		cb:   cb,
 	}
 

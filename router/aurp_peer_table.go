@@ -181,7 +181,7 @@ func bool2Int(b bool) int {
 //go:embed chatlog.html.tmpl
 var chatLogTmplSrc string
 
-var chatLogTmpl = template.Must(template.New("chatlog").Parse(chatLogTmplSrc))
+var chatLogTmpl = template.Must(template.New("chatlog").Funcs(status.FuncMap()).Parse(chatLogTmplSrc))
 
 const peerTableTemplate = `
 <table>
