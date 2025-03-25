@@ -37,14 +37,17 @@ import (
 
 // AURPPeerTable tracks connections to AURP peers.
 type AURPPeerTable struct {
+	logger *slog.Logger
+
 	mu         sync.RWMutex
 	peersByIP  map[[4]byte]*AURPPeer
 	nextConnID uint16
 }
 
 // NewAURPPeerTable creates a new AURP peer table.
-func NewAURPPeerTable(ctx context.Context) *AURPPeerTable {
+func NewAURPPeerTable(ctx context.Context, logger *slog.Logger) *AURPPeerTable {
 	t := &AURPPeerTable{
+		logger:    logger,
 		peersByIP: make(map[[4]byte]*AURPPeer),
 	}
 	for t.nextConnID == 0 {
@@ -138,7 +141,9 @@ func (t *AURPPeerTable) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	chatLogTmpl.Execute(w, peer)
+	if err := chatLogTmpl.Execute(w, peer); err != nil {
+		t.logger.Error("Executing chatlog template", "error", err)
+	}
 }
 
 func (t *AURPPeerTable) status(ctx context.Context) (any, error) {
@@ -202,7 +207,7 @@ const peerTableTemplate = `
 {{range $peer := . }}
 	<tr>
 		<td>{{$peer.ConfiguredAddr}}</td>
-		<td>{{$peer.RemoteAddr}}</td>
+		<td><a href="/chatlog/{{$peer.RemoteAddr}}">{{$peer.RemoteAddr}}</a></td>
 		<td class="{{if $peer.Running}}green{{else}}red{{end}}">{{if $peer.Running}}running{{else}}stopped{{end}}</td>
 		<td class="{{if eq $peer.ReceiverState 0}}red{{else}}green{{end}}">{{$peer.ReceiverState}}</td>
 		<td class="{{if eq $peer.SenderState 0}}red{{else}}green{{end}}">{{$peer.SenderState}}</td>

@@ -15,15 +15,7 @@
         width: 100%;
         text-align: center;
         font-size: 120%;
-        background: {{if .March}}linear-gradient(
-                to bottom,
-                /* #5EBD3E */ light-dark(#bee5b1,#264c19) 16%,
-                /* #FFB900 */ light-dark(#ffe399,#664a00) 16% 33%,
-                /* #F78200 */ light-dark(#ffcd96,#633400) 33% 50%,
-                /* #E23838 */ light-dark(#f3afaf,#620e0e) 50% 67%,
-                /* #973999 */ light-dark(#dda8de,#3c173d) 67% 83%,
-                /* #009CDF */ light-dark(#8cddff,#003e59) 83%
-            );{{else}}light-dark(#eef, #334);{{end}}
+        background: light-dark(#eef, #334);
         padding: 4px 0;
     }
     summary {

@@ -137,7 +137,7 @@ func main() {
 		Logger:     logger,
 		Config:     cfg,
 		RouteTable: router.NewRouteTable(ctx),
-		AURPPeers:  router.NewAURPPeerTable(ctx),
+		AURPPeers:  router.NewAURPPeerTable(ctx, logger),
 	}
 
 	// --------------------------------- HTTP ---------------------------------
