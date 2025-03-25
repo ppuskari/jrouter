@@ -209,6 +209,11 @@ func (p *AURPPeer) SendRetries() int {
 	return int(p.sendRetries.Load())
 }
 
+// ReceiveChLen returns len(p.ReceiveCh).
+func (p *AURPPeer) ReceiveChLen() int {
+	return len(p.ReceiveCh)
+}
+
 // DumpChatLog returns the "chat log" for this peer: the AURP conversation.
 // It only includes routing packets, and not encapsulated AppleTalk.
 func (p *AURPPeer) DumpChatLog() []ChatLogEntry {
