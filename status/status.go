@@ -328,7 +328,11 @@ func printJSON(v any) (string, error) {
 }
 
 // ago is a helper for formatting times in the past.
-func ago(t time.Time) string {
+func ago(v any) string {
+	t, ok := v.(time.Time)
+	if !ok {
+		return fmt.Sprint(v)
+	}
 	if t.IsZero() {
 		return "never"
 	}
