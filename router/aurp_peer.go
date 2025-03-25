@@ -170,29 +170,39 @@ func (p *AURPPeer) SenderState() SenderState {
 
 // LastReconnect returns the time of the last reconnect to this peer.
 func (p *AURPPeer) LastReconnect() time.Time {
-	return p.lastReconnect.Load().(time.Time)
+	return nilToZero[time.Time](p.lastReconnect.Load())
 }
 
 // LastHeardFromAgo returns the time of the last packet received from this peer.
 func (p *AURPPeer) LastHeardFrom() time.Time {
-	return p.lastHeardFrom.Load().(time.Time)
+	return nilToZero[time.Time](p.lastHeardFrom.Load())
 }
 
 // LastSendAgo returns the time of the last packet sent to this peer.
 func (p *AURPPeer) LastSend() time.Time {
-	return p.lastSend.Load().(time.Time)
+	return nilToZero[time.Time](p.lastSend.Load())
 }
 
 // LastUpdateAgo returns the time of the last (route) update received from the
 // peer.
 func (p *AURPPeer) LastUpdate() time.Time {
-	return p.lastUpdate.Load().(time.Time)
+	return nilToZero[time.Time](p.lastUpdate.Load())
 }
 
 // SendRetries returns the number of send-retries for the last route update
 // send to this peer.
 func (p *AURPPeer) SendRetries() int {
-	return int(p.sendRetries.Load())
+	return nilToZero[int](p.sendRetries.Load())
+}
+
+// nilToZero returns the zero value for T if a is nil, otherwise it type-asserts
+// a as T.
+func nilToZero[T any](a any) T {
+	if a == nil {
+		var zero T
+		return zero
+	}
+	return a.(T)
 }
 
 // Handle handles incoming packets for this peer. It is safe to call multiple
