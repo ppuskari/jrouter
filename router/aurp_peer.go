@@ -168,6 +168,11 @@ func (p *AURPPeer) SenderState() SenderState {
 	return SenderState(p.sstate.Load())
 }
 
+// ReceiveChLen returns len(p.ReceiveCh).
+func (p *AURPPeer) ReceiveChLen() int {
+	return len(p.ReceiveCh)
+}
+
 // LastReconnect returns the time of the last reconnect to this peer.
 func (p *AURPPeer) LastReconnect() time.Time {
 	return nilToZero[time.Time](p.lastReconnect.Load())

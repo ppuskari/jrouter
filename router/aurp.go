@@ -80,9 +80,6 @@ func (r *Router) AURPInput(ctx context.Context, logger *slog.Logger, wg *sync.Wa
 				continue
 			}
 			peer = p
-			// Run the peer handler.
-			wg.Add(1)
-			go p.Handle(ctx, wg)
 		} else {
 			p, err := r.AURPPeers.Lookup(raddr.IP)
 			if err != nil {
@@ -94,6 +91,13 @@ func (r *Router) AURPInput(ctx context.Context, logger *slog.Logger, wg *sync.Wa
 				continue
 			}
 			peer = p
+		}
+
+		if !peer.Running() {
+			// Run the peer handler. It doesn't matter if it starts running
+			// concurrently.
+			wg.Add(1)
+			go peer.Handle(ctx, wg)
 		}
 
 		switch dh.PacketType {

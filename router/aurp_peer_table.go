@@ -166,6 +166,7 @@ const peerTableTemplate = `
 		<th>Running?</th>
 		<th>Receiver state</th>
 		<th>Sender state</th>
+		<th>RecvCh len</th>
 		<th>Last heard from</th>
 		<th>Last reconnect</th>
 		<th>Last update</th>
@@ -180,6 +181,7 @@ const peerTableTemplate = `
 		<td class="{{if $peer.Running}}green{{else}}red{{end}}">{{if $peer.Running}}running{{else}}stopped{{end}}</td>
 		<td class="{{if eq $peer.ReceiverState 0}}red{{else}}green{{end}}">{{$peer.ReceiverState}}</td>
 		<td class="{{if eq $peer.SenderState 0}}red{{else}}green{{end}}">{{$peer.SenderState}}</td>
+		<td>{{$peer.ReceiveChLen}}</td>
 		<td>{{$peer.LastHeardFrom | ago}}</td>
 		<td>{{$peer.LastReconnect | ago}}</td>
 		<td>{{$peer.LastUpdate | ago}}</td>
