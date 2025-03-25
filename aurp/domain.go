@@ -53,6 +53,8 @@ func (dh *DomainHeader) WriteTo(w io.Writer) (int64, error) {
 	return a.ret()
 }
 
+func (dh *DomainHeader) GetDomainHeader() *DomainHeader { return dh }
+
 // ParseDomainHeader parses a domain header, returning the DH and the remainder
 // of the input slice. It does not validate the version or packet type fields.
 func ParseDomainHeader(b []byte) (DomainHeader, []byte, error) {

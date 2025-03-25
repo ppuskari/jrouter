@@ -32,6 +32,8 @@ type TrHeader struct {
 	Sequence     uint16
 }
 
+func (h *TrHeader) GetTrHeader() *TrHeader { return h }
+
 // WriteTo writes the encoded form of the header to w, including the domain
 // header.
 func (h *TrHeader) WriteTo(w io.Writer) (int64, error) {

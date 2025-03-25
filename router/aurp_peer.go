@@ -81,6 +81,15 @@ type AURPPeer struct {
 	lastSend      atomic.Value // time.Time // TODO: clarify use of lastSend / sendRetries
 	lastUpdate    atomic.Value // time.Time
 	sendRetries   atomic.Int32
+
+	// Used for debugging AURP conversations.
+	chatLogMu sync.RWMutex
+	chatLog   []chatLogEntry
+}
+
+type chatLogEntry struct {
+	packet aurp.Packet
+	sent   bool
 }
 
 func (p *AURPPeer) addPendingEvent(ec aurp.EventCode, route *Route) {
@@ -166,11 +175,6 @@ func (p *AURPPeer) ReceiverState() ReceiverState {
 // SenderState returns the current route-data sender state.
 func (p *AURPPeer) SenderState() SenderState {
 	return SenderState(p.sstate.Load())
-}
-
-// ReceiveChLen returns len(p.ReceiveCh).
-func (p *AURPPeer) ReceiveChLen() int {
-	return len(p.ReceiveCh)
 }
 
 // LastReconnect returns the time of the last reconnect to this peer.
@@ -503,7 +507,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 				}
 				if pkt.RateOrErrCode < 0 {
 					// It's an error code.
-					p.logger.Warn("AURP Peer: Open-Rsp error code from peer", "code", pkt.RateOrErrCode)
+					p.logger.Warn("AURP Peer: Open-Rsp error code from peer", "code", pkt.RateOrErrCode, "error", aurp.ErrorCode(pkt.RateOrErrCode))
 					p.setRState(ReceiverUnconnected)
 					break
 				}
@@ -780,6 +784,18 @@ func (p *AURPPeer) disconnect() {
 
 // send encodes and sends pkt to the remote host.
 func (p *AURPPeer) send(pkt aurp.Packet) (int, error) {
+	// Record routing-type packets into the chatlog
+	if pkt.GetDomainHeader().PacketType == aurp.PacketTypeRouting {
+		func() {
+			p.chatLogMu.Lock()
+			defer p.chatLogMu.Unlock()
+			p.chatLog = append(p.chatLog[max(0, len(p.chatLog)-1000):], chatLogEntry{
+				packet: pkt,
+				sent:   true,
+			})
+		}()
+	}
+
 	var b bytes.Buffer
 	if _, err := pkt.WriteTo(&b); err != nil {
 		return 0, err

@@ -42,6 +42,8 @@ func (h *Header) WriteTo(w io.Writer) (int64, error) {
 	return a.ret()
 }
 
+func (h *Header) AURPHeader() *Header { return h }
+
 func parseHeader(p []byte) (Header, []byte, error) {
 	if len(p) < 4 {
 		return Header{}, p, fmt.Errorf("insufficient input length %d for header", len(p))
@@ -99,6 +101,8 @@ const (
 // including the domain header and higher layers.
 type Packet interface {
 	io.WriterTo
+
+	GetDomainHeader() *DomainHeader
 }
 
 // Inc increments a uint16. It avoids 0 (65535 + 1 = 1).
