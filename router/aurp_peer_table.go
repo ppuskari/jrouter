@@ -180,10 +180,10 @@ const peerTableTemplate = `
 		<td class="{{if $peer.Running}}green{{else}}red{{end}}">{{if $peer.Running}}running{{else}}stopped{{end}}</td>
 		<td class="{{if eq $peer.ReceiverState 0}}red{{else}}green{{end}}">{{$peer.ReceiverState}}</td>
 		<td class="{{if eq $peer.SenderState 0}}red{{else}}green{{end}}">{{$peer.SenderState}}</td>
-		<td {{if $peer.LastHeardFrom.IsZero}}class="red"{{end}}>{{$peer.LastHeardFrom | ago}}</td>
-		<td {{if $peer.LastReconnect.IsZero}}class="red"{{end}}>{{$peer.LastReconnect | ago}}</td>
-		<td {{if $peer.LastUpdate.IsZero}}class="red"{{end}}>{{$peer.LastUpdate | ago}}</td>
-		<td {{if $peer.LastSend.IsZero}}class="red"{{end}}>{{$peer.LastSend | ago}}</td>
+		<td>{{$peer.LastHeardFrom | ago}}</td>
+		<td>{{$peer.LastReconnect | ago}}</td>
+		<td>{{$peer.LastUpdate | ago}}</td>
+		<td>{{$peer.LastSend | ago}}</td>
 		<td>{{$peer.SendRetries}}</td>
 	</tr>
 {{end}}

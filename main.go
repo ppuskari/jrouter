@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -207,7 +208,8 @@ func main() {
 	}
 
 	// -------------------------------- Peers ---------------------------------
-	//
+	// Fetch the peer list from the URL (if configured), then resolve them all
+	// to IPv4 addresses.
 	if cfg.PeerListURL != "" {
 		logger.Info("Fetching peer list", "peerlist-url", cfg.PeerListURL)
 		existing := len(cfg.Peers)
@@ -235,32 +237,65 @@ func main() {
 		logger.Info("Fetched list", "length", len(cfg.Peers)-existing)
 	}
 
+	// Resolve peers concurrently, to speed things up.
+	var resolverWG sync.WaitGroup
+	peerCh := make(chan string)
+	for range runtime.GOMAXPROCS(0) {
+		resolverWG.Add(1)
+		go func() {
+			defer resolverWG.Done()
+
+			for {
+				var peerStr string
+				select {
+				case <-ctx.Done():
+					return
+
+				case p, open := <-peerCh:
+					if !open {
+						return
+					}
+					peerStr = p
+					// continue below
+				}
+
+				raddr, err := net.ResolveIPAddr("ip4", peerStr)
+				if err != nil {
+					logger.Warn("Couldn't resolve address, skipping", "error", err)
+					continue
+				}
+				logger.Debug("Resolved address", "configured-addr", peerStr, "raddr", raddr)
+
+				// Conversion using To4 is necessary so that peers don't all collide in
+				// the peersByIP map.
+				raddr4 := raddr.IP.To4()
+				if raddr4 == nil {
+					logger.Warn("Resolved peer address is not an IPv4 address, skipping", "configured-addr", peerStr, "raddr", raddr)
+					continue
+				}
+
+				if raddr4.Equal(localIP) {
+					logger.Debug("Not adding self as peer", "configured-addr", peerStr, "raddr", raddr)
+					continue
+				}
+
+				if _, err := rooter.AURPPeers.LookupOrCreate(ctx, logger, rooter.RouteTable, udpConn, peerStr, raddr4, localDI, nil); err != nil {
+					logger.Warn("AURP: peer create", "error", err)
+					continue
+				}
+			}
+		}()
+	}
+
 	for _, peerStr := range cfg.Peers {
-		raddr, err := net.ResolveIPAddr("ip4", peerStr)
-		if err != nil {
-			logger.Warn("Couldn't resolve address, skipping", "error", err)
-			continue
-		}
-		logger.Debug("Resolved address", "configured-addr", peerStr, "raddr", raddr)
-
-		// Conversion using To4 is necessary so that peers don't all collide in
-		// the peersByIP map.
-		raddr4 := raddr.IP.To4()
-		if raddr4 == nil {
-			logger.Warn("Resolved peer address is not an IPv4 address, skipping", "configured-addr", peerStr, "raddr", raddr)
-			continue
-		}
-
-		if raddr4.Equal(localIP) {
-			logger.Debug("Not adding self as peer", "configured-addr", peerStr, "raddr", raddr)
-			continue
-		}
-
-		if _, err := rooter.AURPPeers.LookupOrCreate(ctx, logger, rooter.RouteTable, udpConn, peerStr, raddr4, localDI, nil); err != nil {
-			logger.Warn("AURP: peer create", "error", err)
-			continue
+		select {
+		case <-ctx.Done():
+			return
+		case peerCh <- peerStr:
 		}
 	}
+	close(peerCh)
+	resolverWG.Wait()
 
 	// -------------------------- Run all the things! -------------------------
 	// main blocks on this waitgroup before exiting the program
