@@ -84,7 +84,6 @@ func (port *EtherTalkPort) handleZIPQuery(ctx context.Context, ddpkt *ddp.ExtPac
 			},
 			Data: respRaw,
 		}
-		// Note: AARP can block
 		return port.Send(ctx, outDDP)
 	}
 
@@ -234,7 +233,6 @@ func (port *EtherTalkPort) handleZIPGetNetInfo(ctx context.Context, ddpkt *ddp.E
 	if ddpkt.DstNode == 0xFF {
 		outDDP.DstNode = 0xFF
 	}
-	// Note: AARP can block
 	return port.Send(ctx, outDDP)
 }
 
@@ -327,6 +325,5 @@ func (port *EtherTalkPort) handleZIPTReq(ctx context.Context, ddpkt *ddp.ExtPack
 		},
 		Data: ddpBody,
 	}
-	// Note: AARP can block
 	return port.Send(ctx, respDDP)
 }

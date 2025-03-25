@@ -52,13 +52,22 @@ func NewAURPPeerTable(ctx context.Context) *AURPPeerTable {
 	return t
 }
 
+// RunAll runs all peer handlers in goroutines.
+func (t *AURPPeerTable) RunAll(ctx context.Context, wg *sync.WaitGroup) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	wg.Add(len(t.peersByIP))
+	for _, peer := range t.peersByIP {
+		go peer.Handle(ctx, wg)
+	}
+}
+
 // LookupOrCreate looks up a peer by raddr, or creates a peer if it is not
-// found. It returns an error if raddr is not an IPv4 address. If it creates a
-// new peer, it runs its handler in a new goroutine and increments wg.
+// found. It returns an error if raddr is not an IPv4 address.
 func (t *AURPPeerTable) LookupOrCreate(
 	ctx context.Context,
 	logger *slog.Logger,
-	wg *sync.WaitGroup,
+	// wg *sync.WaitGroup,
 	routes *RouteTable,
 	udpConn *net.UDPConn,
 	peerAddr string,
@@ -98,8 +107,8 @@ func (t *AURPPeerTable) LookupOrCreate(
 	t.peersByIP[key] = peer
 	aurp.Inc(&t.nextConnID)
 
-	wg.Add(1)
-	go peer.Handle(ctx, wg)
+	// wg.Add(1)
+	// go peer.Handle(ctx, wg)
 	return peer, nil
 }
 

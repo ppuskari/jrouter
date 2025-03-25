@@ -46,7 +46,6 @@ func (port *EtherTalkPort) HandleNBP(ctx context.Context, ddpkt *ddp.ExtPacket) 
 			return err
 		}
 		port.logger.Debug("NBP: Replying to LkUp with LkUp-Reply for myself")
-		// Note: AARP can block
 		return port.Send(ctx, outDDP)
 
 	case nbp.FunctionFwdReq:

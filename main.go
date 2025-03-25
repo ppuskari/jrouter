@@ -235,10 +235,6 @@ func main() {
 		logger.Info("Fetched list", "length", len(cfg.Peers)-existing)
 	}
 
-	// main blocks on this waitgroup before exiting the program
-	wg := new(sync.WaitGroup)
-	defer wg.Wait()
-
 	for _, peerStr := range cfg.Peers {
 		raddr, err := net.ResolveIPAddr("ip4", peerStr)
 		if err != nil {
@@ -260,11 +256,17 @@ func main() {
 			continue
 		}
 
-		if _, err := rooter.AURPPeers.LookupOrCreate(ctx, logger, wg, rooter.RouteTable, udpConn, peerStr, raddr4, localDI, nil); err != nil {
+		if _, err := rooter.AURPPeers.LookupOrCreate(ctx, logger, rooter.RouteTable, udpConn, peerStr, raddr4, localDI, nil); err != nil {
 			logger.Warn("AURP: peer create", "error", err)
 			continue
 		}
 	}
+
+	// -------------------------- Run all the things! -------------------------
+	// main blocks on this waitgroup before exiting the program
+	//
+	wg := new(sync.WaitGroup)
+	defer wg.Wait()
 
 	// -------------------------- Run EtherTalk ports -------------------------
 	//
@@ -281,10 +283,15 @@ func main() {
 		go etPort.Outbox(ctx, wg)
 	}
 
-	// ----------------------------- AURP inbound -----------------------------
-	//
+	// ------------------------------- Run AURP -------------------------------
+	// This happens after adding local networks to the routing table, so that
+	// we have networks to advertise to peers before connecting to them.
 	wg.Add(1)
 	go rooter.AURPInput(ctx, logger, wg, cfg, udpConn, localDI)
+
+	// Peer handlers send outbound Open-Reqs, thus initiating outbound
+	//  connections.
+	rooter.AURPPeers.RunAll(ctx, wg)
 
 	// Note: main now blocks on wg.Wait() deferred above.
 }

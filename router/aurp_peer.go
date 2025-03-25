@@ -200,7 +200,7 @@ func (p *AURPPeer) SendRetries() int {
 func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 	if !p.running.CompareAndSwap(false, true) {
-		p.logger.Error("AURP: handle loop for peer already running", "raddr", p.RemoteAddr)
+		p.logger.Debug("AURP: handle loop for peer already running", "raddr", p.RemoteAddr)
 		return
 	}
 	defer p.running.Store(false)

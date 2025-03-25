@@ -74,12 +74,15 @@ func (r *Router) AURPInput(ctx context.Context, logger *slog.Logger, wg *sync.Wa
 
 		var peer *AURPPeer
 		if cfg.OpenPeering {
-			p, err := r.AURPPeers.LookupOrCreate(ctx, logger, wg, r.RouteTable, udpConn, "", raddr.IP, localDI, dh.SourceDI)
+			p, err := r.AURPPeers.LookupOrCreate(ctx, logger, r.RouteTable, udpConn, "", raddr.IP, localDI, dh.SourceDI)
 			if err != nil {
 				logger.Warn("AURP: peer LookupOrCreate", "error", err)
 				continue
 			}
 			peer = p
+			// Run the peer handler.
+			wg.Add(1)
+			go p.Handle(ctx, wg)
 		} else {
 			p, err := r.AURPPeers.Lookup(raddr.IP)
 			if err != nil {
