@@ -289,8 +289,8 @@ func main() {
 	wg.Add(1)
 	go rooter.AURPInput(ctx, logger, wg, cfg, udpConn, localDI)
 
-	// Peer handlers send outbound Open-Reqs, thus initiating outbound
-	//  connections.
+	// Among other things, peer handlers send outbound Open-Reqs, initiating
+	// outbound connections.
 	rooter.AURPPeers.RunAll(ctx, wg)
 
 	// Note: main now blocks on wg.Wait() deferred above.

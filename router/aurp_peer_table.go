@@ -67,7 +67,6 @@ func (t *AURPPeerTable) RunAll(ctx context.Context, wg *sync.WaitGroup) {
 func (t *AURPPeerTable) LookupOrCreate(
 	ctx context.Context,
 	logger *slog.Logger,
-	// wg *sync.WaitGroup,
 	routes *RouteTable,
 	udpConn *net.UDPConn,
 	peerAddr string,
@@ -107,8 +106,6 @@ func (t *AURPPeerTable) LookupOrCreate(
 	t.peersByIP[key] = peer
 	aurp.Inc(&t.nextConnID)
 
-	// wg.Add(1)
-	// go peer.Handle(ctx, wg)
 	return peer, nil
 }
 
