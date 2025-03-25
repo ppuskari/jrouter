@@ -131,20 +131,6 @@ func main() {
 	logger.Info("Press ^C or send SIGINT or SIGTERM to stop the router gracefully")
 	ctx, _ := signal.NotifyContext(cctx, os.Interrupt, syscall.SIGTERM)
 
-	// --------------------------------- HTTP ---------------------------------
-	//
-	if cfg.MonitoringAddr == "" {
-		logger.Warn("monitoring_addr is empty - disabling the monitoring HTTP server")
-	} else {
-		http.HandleFunc("/status", status.Handle)
-		http.Handle("/metrics", promhttp.Handler())
-		http.Handle("/", http.FileServerFS(status.StaticFiles))
-		go func() {
-			err := http.ListenAndServe(cfg.MonitoringAddr, nil)
-			logger.Error("http.ListenAndServe", "error", err)
-		}()
-	}
-
 	// -------------------------------- Router --------------------------------
 	//
 	rooter := &router.Router{
@@ -152,6 +138,21 @@ func main() {
 		Config:     cfg,
 		RouteTable: router.NewRouteTable(ctx),
 		AURPPeers:  router.NewAURPPeerTable(ctx),
+	}
+
+	// --------------------------------- HTTP ---------------------------------
+	//
+	if cfg.MonitoringAddr == "" {
+		logger.Warn("monitoring_addr is empty - disabling the monitoring HTTP server")
+	} else {
+		http.Handle("/chatlog/{ip}", rooter.AURPPeers)
+		http.HandleFunc("/status", status.Handle)
+		http.Handle("/metrics", promhttp.Handler())
+		http.Handle("/", http.FileServerFS(status.StaticFiles))
+		go func() {
+			err := http.ListenAndServe(cfg.MonitoringAddr, nil)
+			logger.Error("http.ListenAndServe", "error", err)
+		}()
 	}
 
 	// --------------------------------- Pcap ---------------------------------
@@ -251,12 +252,12 @@ func main() {
 				case <-ctx.Done():
 					return
 
-				case p, open := <-peerCh:
-					if !open {
-						return
-					}
-					peerStr = p
+				case peerStr = <-peerCh:
 					// continue below
+				}
+
+				if peerStr == "" {
+					return // channel is closed
 				}
 
 				raddr, err := net.ResolveIPAddr("ip4", peerStr)
@@ -288,6 +289,9 @@ func main() {
 	}
 
 	for _, peerStr := range cfg.Peers {
+		if peerStr == "" {
+			continue
+		}
 		select {
 		case <-ctx.Done():
 			return

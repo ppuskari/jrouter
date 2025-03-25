@@ -19,13 +19,16 @@ package router
 import (
 	"cmp"
 	"context"
+	_ "embed"
 	"encoding/binary"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
 	"net"
+	"net/http"
 	"slices"
 	"sync"
+	"text/template"
 
 	"drjosh.dev/jrouter/aurp"
 	"drjosh.dev/jrouter/status"
@@ -121,6 +124,23 @@ func (t *AURPPeerTable) Lookup(raddr net.IP) (*AURPPeer, error) {
 	return t.peersByIP[[4]byte(raddr4)], nil
 }
 
+// ServeHTTP serves diagnostic pages for AURP peers, such as the chatlog.
+func (t *AURPPeerTable) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Only the chat log so far
+	ipStr := r.PathValue("ip")
+	peer, err := t.Lookup(net.ParseIP(ipStr))
+	if err != nil {
+		http.Error(w, fmt.Sprintf("invalid address %q: %v", ipStr, err), http.StatusNotFound)
+		return
+	}
+	if peer == nil {
+		http.Error(w, fmt.Sprintf("peer %q not found", ipStr), http.StatusNotFound)
+		return
+	}
+
+	chatLogTmpl.Execute(w, peer)
+}
+
 func (t *AURPPeerTable) status(ctx context.Context) (any, error) {
 	var peerInfo []*AURPPeer
 	func() {
@@ -157,6 +177,11 @@ func bool2Int(b bool) int {
 	}
 	return 0
 }
+
+//go:embed chatlog.html.tmpl
+var chatLogTmplSrc string
+
+var chatLogTmpl = template.Must(template.New("chatlog").Parse(chatLogTmplSrc))
 
 const peerTableTemplate = `
 <table>

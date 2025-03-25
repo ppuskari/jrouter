@@ -39,6 +39,8 @@ const (
 	sendRetryLimit     = 5
 	reconnectTimer     = 10 * time.Minute
 	updateTimer        = 10 * time.Second
+
+	chatLogLimit = 1000
 )
 
 // AURPPeer handles the peering with a peer AURP router.
@@ -84,12 +86,15 @@ type AURPPeer struct {
 
 	// Used for debugging AURP conversations.
 	chatLogMu sync.RWMutex
-	chatLog   []chatLogEntry
+	chatLog   []ChatLogEntry
 }
 
-type chatLogEntry struct {
-	packet aurp.Packet
-	sent   bool
+// ChatLogEntry is a record of a packet either sent or received and a timestamp.
+// It's used for logging AURP conversations for diagnosis.
+type ChatLogEntry struct {
+	Packet    aurp.Packet
+	Sent      bool // as opposed to Received
+	Timestamp time.Time
 }
 
 func (p *AURPPeer) addPendingEvent(ec aurp.EventCode, route *Route) {
@@ -202,6 +207,14 @@ func (p *AURPPeer) LastUpdate() time.Time {
 // send to this peer.
 func (p *AURPPeer) SendRetries() int {
 	return int(p.sendRetries.Load())
+}
+
+// DumpChatLog returns the "chat log" for this peer: the AURP conversation.
+// It only includes routing packets, and not encapsulated AppleTalk.
+func (p *AURPPeer) DumpChatLog() []ChatLogEntry {
+	p.chatLogMu.RLock()
+	defer p.chatLogMu.RUnlock()
+	return p.chatLog
 }
 
 // nilToZero returns the zero value for T if a is nil, otherwise it type-asserts
@@ -453,7 +466,19 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 			}
 
 		case pkt := <-p.ReceiveCh:
-			p.lastHeardFrom.Store(time.Now())
+			now := time.Now()
+			p.lastHeardFrom.Store(now)
+
+			func() {
+				p.chatLogMu.Lock()
+				defer p.chatLogMu.Unlock()
+				p.chatLog = p.chatLog[max(0, len(p.chatLog)-chatLogLimit):]
+				p.chatLog = append(p.chatLog, ChatLogEntry{
+					Packet:    pkt,
+					Sent:      false,
+					Timestamp: now,
+				})
+			}()
 
 			switch pkt := pkt.(type) {
 			case *aurp.OpenReqPacket:
@@ -789,9 +814,11 @@ func (p *AURPPeer) send(pkt aurp.Packet) (int, error) {
 		func() {
 			p.chatLogMu.Lock()
 			defer p.chatLogMu.Unlock()
-			p.chatLog = append(p.chatLog[max(0, len(p.chatLog)-1000):], chatLogEntry{
-				packet: pkt,
-				sent:   true,
+			p.chatLog = p.chatLog[max(0, len(p.chatLog)-chatLogLimit):]
+			p.chatLog = append(p.chatLog, ChatLogEntry{
+				Packet:    pkt,
+				Sent:      true,
+				Timestamp: time.Now(),
 			})
 		}()
 	}

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chat log for {{.RemoteAddr}}</title>
+    <style>
+    :root {
+        color-scheme: light dark;
+    }
+    body {
+        font-family: sans-serif;
+        background: light-dark(#fff, #111);
+    }
+    h1 {
+        clear: both;
+        width: 100%;
+        text-align: center;
+        font-size: 120%;
+        background: {{if .March}}linear-gradient(
+                to bottom,
+                /* #5EBD3E */ light-dark(#bee5b1,#264c19) 16%,
+                /* #FFB900 */ light-dark(#ffe399,#664a00) 16% 33%,
+                /* #F78200 */ light-dark(#ffcd96,#633400) 33% 50%,
+                /* #E23838 */ light-dark(#f3afaf,#620e0e) 50% 67%,
+                /* #973999 */ light-dark(#dda8de,#3c173d) 67% 83%,
+                /* #009CDF */ light-dark(#8cddff,#003e59) 83%
+            );{{else}}light-dark(#eef, #334);{{end}}
+        padding: 4px 0;
+    }
+    summary {
+        width: 100%;
+        font-size: 120%;
+        background: light-dark(#eef, #334);
+        padding: 0.2em 0;
+        border: 1px #eef solid;
+    }
+    details {
+        display: block;
+        padding: 1em 0;
+    }
+    details[open] > summary {
+        background: light-dark(#fff, #111);
+        border: 1px #000 solid;
+    }
+    .error {
+        background: light-dark(#fee, #311);
+    }
+    div {
+        padding: 0.2em;
+    }
+    div.summary {
+        display: flex;
+    }
+    div.summary div.grow {
+        flex-grow: 1;
+    }
+    div.summary div.shrink {
+        flex-shrink: 1;
+    }
+    div.summary div.shrink img {
+        max-width: 200px;
+        max-height: 128px;
+    }
+    div.warning {
+        background: light-dark(#ffd, #331);
+    }
+    table {
+        border-collapse: collapse;
+        border-style: solid none;
+        border-width: 2px;
+    }
+    table thead {
+        text-align: left;
+    }
+    table thead tr th {
+        border-bottom: 1px solid;
+    }
+    tr:nth-child(even) {
+        background-color: light-dark(#eee, #333);
+    }
+    td,
+    th {
+        padding: 2px 8px;
+    }
+    .itemdata {
+        margin: 0 0 0.5em 0.86em;
+        padding: 0.5em 0em 0.5em 1.5em;
+        border-left: 0.1em light-dark(#ccc, #333) dotted;
+    }
+    .subitems {
+        margin: 0 0 0.5em 0.86em;
+        padding: 0.5em 0em 0.5em 1.5em;
+        border-left: 0.1em light-dark(#ccc, #333) dotted;
+        border-bottom: 0.1em light-dark(#ccc, #333) dotted;
+    }
+    ul {
+        margin: 0;
+    }
+    .green {
+        color: light-dark(#070, #1f1);
+    }
+    .red {
+        color: light-dark(#811, #f11);
+    }
+    </style>
+</head>
+<body>
+    <h1>Chat log for {{.RemoteAddr}}</h1>
+    <div class="summary">
+        <ul>
+            <li>Configured address: {{.ConfiguredAddr}}</li>
+   	        <li>Resolved address: {{.RemoteAddr}}</li>
+   	        <li>Goroutine <span class="{{if .Running}}green{{else}}red{{end}}">{{if .Running}}running{{else}}stopped{{end}}</li>
+   	        <li>Receiver state: <span class="{{if eq .ReceiverState 0}}red{{else}}green{{end}}">{{.ReceiverState}}</li>
+   	        <li>Sender state: <span class="{{if eq .SenderState 0}}red{{else}}green{{end}}">{{.SenderState}}</li>
+   	        <li>Receive channel length: {{.ReceiveChLen}}</li>
+   	        <li>Last heard from {{.LastHeardFrom | ago}}</li>
+   	        <li>Last reconnect {{.LastReconnect | ago}}</li>
+   	        <li>Last update {{.LastUpdate | ago}}</li>
+   	        <li>Last send {{.LastSend | ago}}</li>
+   	        <li>Send retry count: {{.SendRetries}}</li>
+		</ul>
+    </div>
+    <table>
+        <thead><tr>
+            <th>Timestamp</th>
+            <th>Received</th>
+            <th>Sent</th>
+        </tr></thead>
+        {{range .DumpChatLog}}<tr>
+            <td>{{.Timestamp}}</td>
+            <td>{{if not .Sent}}{{.Packet}}{{end}}</td>
+            <td>{{if .Sent}}{{.Packet}}{{end}}
+        </tr>{{end}}
+    </table>
+</body>
+</html>
