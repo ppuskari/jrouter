@@ -192,7 +192,7 @@ func (p *AURPPeer) LastUpdate() time.Time {
 // SendRetries returns the number of send-retries for the last route update
 // send to this peer.
 func (p *AURPPeer) SendRetries() int {
-	return nilToZero[int](p.sendRetries.Load())
+	return int(p.sendRetries.Load())
 }
 
 // nilToZero returns the zero value for T if a is nil, otherwise it type-asserts
