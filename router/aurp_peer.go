@@ -532,6 +532,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 					return
 				}
 				p.setRState(ReceiverWaitForRIRsp)
+				p.Transport.RemoteSeq = 0
 
 			case *aurp.RIReqPacket:
 				if sstate := p.SenderState(); sstate != SenderConnected {
@@ -671,6 +672,28 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 				}
 
 			case *aurp.RIUpdPacket:
+				switch rstate := p.ReceiverState(); rstate {
+				case ReceiverConnected:
+					// Business as usual.
+
+				case ReceiverUnconnected, ReceiverWaitForOpenRsp:
+					p.logger.Error("AURP Peer: Got an RI-Upd while not in Connected state", "rstate", rstate)
+					// Remote thinks we are connected, but we are not, or we
+					// are starting from the beginning.
+					// Try an RI-Req, jump to WaitForRIRsp state, and don't ack or use the RI-Upd.
+					if _, err := p.send(p.Transport.NewRIReqPacket()); err != nil {
+						p.logger.Error("AURP Peer: Couldn't send RI-Req", "error", err)
+					}
+					p.setRState(ReceiverWaitForRIRsp)
+					// restart the receiving sequence
+					p.Transport.RemoteSeq = 0
+					continue
+
+				case ReceiverWaitForRIRsp, ReceiverWaitForTickleAck:
+					p.logger.Error("AURP Peer: Got an RI-Upd while not in Connected state", "rstate", rstate)
+					continue
+				}
+
 				var ackFlag aurp.RoutingFlag
 
 				for _, et := range pkt.Events {
