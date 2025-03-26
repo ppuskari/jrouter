@@ -103,12 +103,16 @@ func (r *Router) AURPInput(ctx context.Context, logger *slog.Logger, wg *sync.Wa
 			go peer.Handle(ctx, wg)
 		}
 
-		switch dh.PacketType {
-		case aurp.PacketTypeRouting:
+		switch tpkt := pkt.(type) {
+		case aurp.RoutingPacket:
+			if dh.PacketType != aurp.PacketTypeRouting {
+				logger.Error("AURP: Packet and domain header type conflict", "pkt-type", reflect.TypeOf(pkt), "dh-packettype", dh.PacketType)
+				continue
+			}
 			// It's AURP routing data.
 			// Pass the packet to the goroutine in charge of this peer.
 			select {
-			case peer.ReceiveCh <- pkt:
+			case peer.ReceiveCh <- tpkt:
 				// That's it for us.
 
 			case <-ctx.Done():
@@ -116,16 +120,15 @@ func (r *Router) AURPInput(ctx context.Context, logger *slog.Logger, wg *sync.Wa
 			}
 			continue
 
-		case aurp.PacketTypeAppleTalk:
-			apkt, ok := pkt.(*aurp.AppleTalkPacket)
-			if !ok {
+		case *aurp.AppleTalkPacket:
+			if dh.PacketType != aurp.PacketTypeAppleTalk {
 				logger.Error("AURP: Packet and domain header type conflict", "pkt-type", reflect.TypeOf(pkt), "dh-packettype", dh.PacketType)
 				continue
 			}
 
 			// Route or otherwise handle the encapsulated AppleTalk traffic
 			ddpkt := new(ddp.ExtPacket)
-			if err := ddp.ExtUnmarshal(apkt.Data, ddpkt); err != nil {
+			if err := ddp.ExtUnmarshal(tpkt.Data, ddpkt); err != nil {
 				logger.Error("AURP: Couldn't unmarshal encapsulated DDP packet", "error", err)
 				continue
 			}

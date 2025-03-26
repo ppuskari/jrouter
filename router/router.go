@@ -39,8 +39,8 @@ func (rtr *Router) Forward(ctx context.Context, ddpkt *ddp.ExtPacket) error {
 	// Check and adjust the Hop Count
 	// Note the ddp package doesn't make this simple
 	hopCount := (ddpkt.Size & 0x3C00) >> 10
-	if hopCount >= 15 {
-		return fmt.Errorf("hop count exceeded (%d >= 15)", hopCount)
+	if hopCount >= maxRouteDistance {
+		return fmt.Errorf("hop count exceeded limit (%d >= %d)", hopCount, maxRouteDistance)
 	}
 	hopCount++
 	ddpkt.Size &^= 0x3C00

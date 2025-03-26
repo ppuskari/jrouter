@@ -61,7 +61,7 @@ type AURPPeer struct {
 	RemoteAddr net.IP
 
 	// Incoming packet channel.
-	ReceiveCh chan aurp.Packet
+	ReceiveCh chan aurp.RoutingPacket
 
 	// Route table (the peer will add/remove/update routes and zones)
 	RouteTable *RouteTable
@@ -92,7 +92,7 @@ type AURPPeer struct {
 // ChatLogEntry is a record of a packet either sent or received and a timestamp.
 // It's used for logging AURP conversations for diagnosis.
 type ChatLogEntry struct {
-	Packet    aurp.Packet
+	Packet    aurp.RoutingPacket
 	Sent      bool // as opposed to Received
 	Timestamp time.Time
 }
@@ -466,10 +466,16 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 
 			p.addToChatLog(pkt, false /* received */)
 
+			header := pkt.AURPHeader()
+			logger := p.logger.With(
+				"cmd-code", header.CommandCode,
+				"flags", header.Flags,
+			)
+
 			switch pkt := pkt.(type) {
 			case *aurp.OpenReqPacket:
 				if sstate := p.SenderState(); sstate != SenderUnconnected {
-					p.logger.Warn("AURP Peer: Open-Req received but sender state is not unconnected", "sender-state", sstate)
+					logger.Warn("AURP Peer: Open-Req received but sender state is not unconnected", "sender-state", sstate)
 				}
 
 				// The peer tells us their connection ID in Open-Req.
@@ -492,7 +498,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 				}
 
 				if _, err := p.send(orsp); err != nil {
-					p.logger.Error("AURP Peer: Couldn't send Open-Rsp", "error", err)
+					logger.Error("AURP Peer: Couldn't send Open-Rsp", "error", err)
 					return
 				}
 				if orsp.RateOrErrCode >= 0 {
@@ -506,7 +512,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 					p.sendRetries.Store(0)
 					p.lastSend.Store(time.Now())
 					if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
-						p.logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
+						logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
 						return
 					}
 					p.setRState(ReceiverWaitForOpenRsp)
@@ -514,21 +520,21 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 
 			case *aurp.OpenRspPacket:
 				if rstate := p.ReceiverState(); rstate != ReceiverWaitForOpenRsp {
-					p.logger.Warn("AURP Peer: Received Open-Rsp but was not waiting for one", "receiver-state", rstate)
+					logger.Warn("AURP Peer: Received Open-Rsp but was not waiting for one", "receiver-state", rstate)
 				}
 				if pkt.RateOrErrCode < 0 {
 					// It's an error code.
-					p.logger.Warn("AURP Peer: Open-Rsp error code from peer", "code", pkt.RateOrErrCode, "error", aurp.ErrorCode(pkt.RateOrErrCode))
+					logger.Warn("AURP Peer: Open-Rsp error code from peer", "code", pkt.RateOrErrCode, "error", aurp.ErrorCode(pkt.RateOrErrCode))
 					p.setRState(ReceiverUnconnected)
 					break
 				}
-				//p.logger.Debug("AURP Peer: Data receiver is connected!")
+				//logger.Debug("AURP Peer: Data receiver is connected!")
 				p.setRState(ReceiverConnected)
 
 				// Send an RI-Req
 				p.sendRetries.Store(0)
 				if _, err := p.send(p.Transport.NewRIReqPacket()); err != nil {
-					p.logger.Error("AURP Peer: Couldn't send RI-Req packet", "error", err)
+					logger.Error("AURP Peer: Couldn't send RI-Req packet", "error", err)
 					return
 				}
 				p.setRState(ReceiverWaitForRIRsp)
@@ -536,7 +542,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 
 			case *aurp.RIReqPacket:
 				if sstate := p.SenderState(); sstate != SenderConnected {
-					p.logger.Warn("AURP Peer: Received RI-Req but was not expecting one", "sender-state", sstate)
+					logger.Warn("AURP Peer: Received RI-Req but was not expecting one", "sender-state", sstate)
 				}
 
 				// TODO: Load ExtraAdvertisedZones and HiddenZones
@@ -564,6 +570,12 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 						continue
 					}
 
+					// Filter routes where the metric is so high that the peer
+					// won't be able to use it
+					if best.Distance >= maxRouteDistance {
+						continue
+					}
+
 					nets = append(nets, aurp.NetworkTuple{
 						Extended:   best.Extended,
 						RangeStart: best.NetStart,
@@ -575,32 +587,35 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 				// TODO: Split tuples across multiple packets as required
 				lastRISent = p.Transport.NewRIRspPacket(aurp.RoutingFlagLast, nets)
 				if _, err := p.send(lastRISent); err != nil {
-					p.logger.Error("AURP Peer: Couldn't send RI-Rsp packet", "error", err)
+					logger.Error("AURP Peer: Couldn't send RI-Rsp packet", "error", err)
 					return
 				}
 				p.setSState(SenderWaitForRIRspAck)
 
 			case *aurp.RIRspPacket:
 				if p.ReceiverState() != ReceiverWaitForRIRsp {
-					p.logger.Warn("Received RI-Rsp but was not waiting for one", "receiver-state", p.ReceiverState())
+					logger.Warn("Received RI-Rsp but was not waiting for one", "receiver-state", p.ReceiverState())
 				}
 
-				p.logger.Debug("AURP Peer: Learned about these networks", "networks", pkt.Networks)
+				logger.Debug("AURP Peer: Learned about these networks", "networks", pkt.Networks)
 
 				for _, nt := range pkt.Networks {
-					p.RouteTable.UpsertRoute(
+					_, err := p.RouteTable.UpsertRoute(
 						p,
 						nt.Extended,
 						ddp.Network(nt.RangeStart),
 						ddp.Network(nt.RangeEnd),
 						nt.Distance+1,
 					)
+					if err != nil {
+						logger.Error("AURP Peer: RI-Rsp: couldn't upsert a route", "error", err)
+					}
 				}
 
 				// TODO: track which networks we don't have zone info for, and
 				// only set SZI for those ?
 				if _, err := p.send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, aurp.RoutingFlagSendZoneInfo)); err != nil {
-					p.logger.Error("AURP Peer: Couldn't send RI-Ack packet", "error", err)
+					logger.Error("AURP Peer: Couldn't send RI-Ack packet", "error", err)
 					return
 				}
 				if pkt.Flags&aurp.RoutingFlagLast != 0 {
@@ -621,7 +636,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 					continue
 
 				default:
-					p.logger.Warn("AURP Peer: Received RI-Ack but was not waiting for one", "sender-state", sstate)
+					logger.Warn("AURP Peer: Received RI-Ack but was not waiting for one", "sender-state", sstate)
 				}
 
 				p.setSState(SenderConnected)
@@ -652,7 +667,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 					zones := p.RouteTable.ZonesForNetworks(nets)
 					// TODO: split ZI-Rsp packets similarly to ZIP Replies
 					if _, err := p.send(p.Transport.NewZIRspPacket(zones)); err != nil {
-						p.logger.Error("AURP Peer: Couldn't send ZI-Rsp packet", "error", err)
+						logger.Error("AURP Peer: Couldn't send ZI-Rsp packet", "error", err)
 					}
 				}
 
@@ -665,7 +680,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 					p.sendRetries.Store(0)
 					p.lastSend.Store(time.Now())
 					if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
-						p.logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
+						logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
 						return
 					}
 					p.setRState(ReceiverWaitForOpenRsp)
@@ -677,12 +692,12 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 					// Business as usual.
 
 				case ReceiverUnconnected, ReceiverWaitForOpenRsp:
-					p.logger.Error("AURP Peer: Got an RI-Upd while not in Connected state", "rstate", rstate)
+					logger.Error("AURP Peer: Got an RI-Upd while not in Connected state", "rstate", rstate)
 					// Remote thinks we are connected, but we are not, or we
 					// are starting from the beginning.
 					// Try an RI-Req, jump to WaitForRIRsp state, and don't ack or use the RI-Upd.
 					if _, err := p.send(p.Transport.NewRIReqPacket()); err != nil {
-						p.logger.Error("AURP Peer: Couldn't send RI-Req", "error", err)
+						logger.Error("AURP Peer: Couldn't send RI-Req", "error", err)
 					}
 					p.setRState(ReceiverWaitForRIRsp)
 					// restart the receiving sequence
@@ -690,19 +705,33 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 					continue
 
 				case ReceiverWaitForRIRsp, ReceiverWaitForTickleAck:
-					p.logger.Error("AURP Peer: Got an RI-Upd while not in Connected state", "rstate", rstate)
+					logger.Error("AURP Peer: Got an RI-Upd while not in Connected state", "rstate", rstate)
 					continue
 				}
 
 				var ackFlag aurp.RoutingFlag
 
 				for _, et := range pkt.Events {
-					p.logger.Debug("AURP Peer: RI-Upd event", "event", et)
+					logger := logger.With(
+						"event-code", et.EventCode,
+						"extended", et.Extended,
+						"net-start", et.RangeStart,
+						"net-end", et.RangeEnd,
+						"distance", et.Distance,
+					)
+					logger.Debug("AURP Peer: RI-Upd event")
+
 					switch et.EventCode {
 					case aurp.EventCodeNull:
+						// This is a liveness test.
 						// Do nothing except respond with RI-Ack
 
 					case aurp.EventCodeNA:
+						if et.Distance >= maxRouteDistance {
+							logger.Info("AURP Peer: RI-Upd NA event: skipping adding because distance is too high")
+							break
+						}
+
 						if _, err := p.RouteTable.UpsertRoute(
 							p,
 							et.Extended,
@@ -710,18 +739,31 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 							et.RangeEnd,
 							et.Distance+1,
 						); err != nil {
-							p.logger.Error("AURP Peer: NA event: couldn't insert route", "error", err)
+							logger.Error("AURP Peer: RI-Upd NA event: couldn't upsert route", "error", err)
+							break
 						}
+						// Always set SZI even if we already have zones for
+						// the network, in case zones have been added since
+						// first learning about the network.
 						ackFlag = aurp.RoutingFlagSendZoneInfo
 
 					case aurp.EventCodeND:
 						if err := p.RouteTable.DeleteRoute(p, et.RangeStart); err != nil {
-							p.logger.Error("AURP Peer: ND event: couldn't delete route", "error", err)
+							logger.Error("AURP Peer: ND event: couldn't delete route", "error", err)
 						}
 
 					case aurp.EventCodeNDC:
+						// "The exterior router that receives an NDC event with
+						// a hop count of 15 should process that event just as
+						// it would an ND event."
+						if et.Distance >= maxRouteDistance {
+							if err := p.RouteTable.DeleteRoute(p, et.RangeStart); err != nil {
+								logger.Error("AURP Peer: NDC event: couldn't delete route", "error", err)
+							}
+							break
+						}
 						if err := p.RouteTable.UpdateDistance(p, et.RangeStart, et.Distance+1); err != nil {
-							p.logger.Error("AURP Peer: NDC event: couldn't update route", "error", err)
+							logger.Error("AURP Peer: NDC event: couldn't update route", "error", err)
 						}
 
 					case aurp.EventCodeNRC:
@@ -731,7 +773,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 						// a tunneling port, causing split-horizoned processing
 						// to eliminate that network's routing information."
 						if err := p.RouteTable.DeleteRoute(p, et.RangeStart); err != nil {
-							p.logger.Error("AURP Peer: NRC event: couldn't delete route", "error", err)
+							logger.Error("AURP Peer: NRC event: couldn't delete route", "error", err)
 						}
 					case aurp.EventCodeZC:
 						// "This event is reserved for future use."
@@ -739,21 +781,21 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 				}
 
 				if _, err := p.send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, ackFlag)); err != nil {
-					p.logger.Error("AURP Peer: Couldn't send RI-Ack", "error", err)
+					logger.Error("AURP Peer: Couldn't send RI-Ack", "error", err)
 					return
 				}
 
 			case *aurp.RDPacket:
 				if rstate := p.ReceiverState(); rstate == ReceiverUnconnected || rstate == ReceiverWaitForOpenRsp {
-					p.logger.Error("AURP Peer: Received RD but was not expecting one", "receiver-state", rstate)
+					logger.Error("AURP Peer: Received RD but was not expecting one", "receiver-state", rstate)
 				}
 
-				p.logger.Info("AURP Peer: Router Down", "code", int(pkt.ErrorCode), "code-str", pkt.ErrorCode)
+				logger.Info("AURP Peer: Router Down", "code", int(pkt.ErrorCode), "code-str", pkt.ErrorCode)
 				p.RouteTable.DeleteTarget(p)
 
 				// Respond with RI-Ack
 				if _, err := p.send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, 0)); err != nil {
-					p.logger.Error("AURP Peer: Couldn't send RI-Ack", "error", err)
+					logger.Error("AURP Peer: Couldn't send RI-Ack", "error", err)
 					return
 				}
 				// Connections closed
@@ -763,44 +805,44 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 				// TODO: split ZI-Rsp packets similarly to ZIP Replies
 				zones := p.RouteTable.ZonesForNetworks(pkt.Networks)
 				if _, err := p.send(p.Transport.NewZIRspPacket(zones)); err != nil {
-					p.logger.Error("AURP Peer: Couldn't send ZI-Rsp packet", "error", err)
+					logger.Error("AURP Peer: Couldn't send ZI-Rsp packet", "error", err)
 					return
 				}
 
 			case *aurp.ZIRspPacket:
-				p.logger.Debug("AURP Peer: Learned about these zones", "zones", pkt.Zones)
+				logger.Debug("AURP Peer: Learned about these zones", "zones", pkt.Zones)
 				for _, zt := range pkt.Zones {
 					p.RouteTable.AddZonesToNetwork(zt.Network, zt.Name)
 				}
 
 			case *aurp.GDZLReqPacket:
 				if _, err := p.send(p.Transport.NewGDZLRspPacket(-1, nil)); err != nil {
-					p.logger.Error("AURP Peer: Couldn't send GDZL-Rsp packet", "error", err)
+					logger.Error("AURP Peer: Couldn't send GDZL-Rsp packet", "error", err)
 					return
 				}
 
 			case *aurp.GDZLRspPacket:
-				p.logger.Warn("AURP Peer: Received a GDZL-Rsp, but I wouldn't have sent a GDZL-Req - so that's weird")
+				logger.Warn("AURP Peer: Received a GDZL-Rsp, but I wouldn't have sent a GDZL-Req - so that's weird")
 
 			case *aurp.GZNReqPacket:
 				if _, err := p.send(p.Transport.NewGZNRspPacket(pkt.ZoneName, false, nil)); err != nil {
-					p.logger.Error("AURP Peer: Couldn't send GZN-Rsp packet", "error", err)
+					logger.Error("AURP Peer: Couldn't send GZN-Rsp packet", "error", err)
 					return
 				}
 
 			case *aurp.GZNRspPacket:
-				p.logger.Warn("AURP Peer: Received a GZN-Rsp, but I wouldn't have sent a GZN-Req - so that's weird")
+				logger.Warn("AURP Peer: Received a GZN-Rsp, but I wouldn't have sent a GZN-Req - so that's weird")
 
 			case *aurp.TicklePacket:
 				// Immediately respond with Tickle-Ack
 				if _, err := p.send(p.Transport.NewTickleAckPacket()); err != nil {
-					p.logger.Error("AURP Peer: Couldn't send Tickle-Ack", "error", err)
+					logger.Error("AURP Peer: Couldn't send Tickle-Ack", "error", err)
 					return
 				}
 
 			case *aurp.TickleAckPacket:
 				if rstate := p.ReceiverState(); rstate != ReceiverWaitForTickleAck {
-					p.logger.Warn("AURP Peer: Received Tickle-Ack but was not waiting for one", "receiver-state", rstate)
+					logger.Warn("AURP Peer: Received Tickle-Ack but was not waiting for one", "receiver-state", rstate)
 				}
 				p.setRState(ReceiverConnected)
 			}
@@ -819,8 +861,8 @@ func (p *AURPPeer) disconnect() {
 // send encodes and sends pkt to the remote host.
 func (p *AURPPeer) send(pkt aurp.Packet) (int, error) {
 	// Record routing-type packets into the chatlog
-	if pkt.GetDomainHeader().PacketType == aurp.PacketTypeRouting {
-		p.addToChatLog(pkt, true /* sent */)
+	if rpkt, ok := pkt.(aurp.RoutingPacket); ok {
+		p.addToChatLog(rpkt, true /* sent */)
 	}
 
 	var b bytes.Buffer
@@ -836,7 +878,7 @@ func (p *AURPPeer) send(pkt aurp.Packet) (int, error) {
 	return p.UDPConn.WriteToUDP(b.Bytes(), &net.UDPAddr{IP: p.RemoteAddr, Port: 387})
 }
 
-func (p *AURPPeer) addToChatLog(pkt aurp.Packet, sent bool) {
+func (p *AURPPeer) addToChatLog(pkt aurp.RoutingPacket, sent bool) {
 	now := time.Now()
 	p.chatLogMu.Lock()
 	defer p.chatLogMu.Unlock()

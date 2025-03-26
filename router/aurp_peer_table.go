@@ -93,7 +93,7 @@ func (t *AURPPeerTable) LookupOrCreate(
 		UDPConn:        udpConn,
 		ConfiguredAddr: peerAddr,
 		RemoteAddr:     raddr,
-		ReceiveCh:      make(chan aurp.Packet, 1024),
+		ReceiveCh:      make(chan aurp.RoutingPacket, 1024),
 		RouteTable:     routes,
 		logger:         logger.With("raddr", raddr, "remote-di", remoteDI),
 	}

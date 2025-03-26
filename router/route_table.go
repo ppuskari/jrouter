@@ -251,6 +251,10 @@ func (rt *RouteTable) find(target RouteTarget, netStart ddp.Network) Route {
 
 // UpdateDistance updates the distance for an existing route.
 func (rt *RouteTable) UpdateDistance(target RouteTarget, netStart ddp.Network, distance uint8) error {
+	if distance > maxRouteDistance {
+		return fmt.Errorf("route distance too high (%d > %d)", distance, maxRouteDistance)
+	}
+
 	oldBest := rt.Lookup(netStart)
 	if oldBest.Zero() {
 		return fmt.Errorf("network %d not found", netStart)
@@ -289,14 +293,17 @@ func (rt *RouteTable) UpdateDistance(target RouteTarget, netStart ddp.Network, d
 	return nil
 }
 
-// UpsertRoute inserts a new route or updates an existing route. It always
-// returns a new Route.
-func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, netEnd ddp.Network, metric uint8) (Route, error) {
+// UpsertRoute validates and inserts a new route or updates an existing route.
+// It always returns a new Route (new route structs fully replace old ones).
+func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, netEnd ddp.Network, distance uint8) (Route, error) {
 	if netStart > netEnd {
 		return Route{}, fmt.Errorf("invalid network range [%d, %d]", netStart, netEnd)
 	}
 	if netStart != netEnd && !extended {
 		return Route{}, fmt.Errorf("invalid network range [%d, %d] for nonextended network", netStart, netEnd)
+	}
+	if distance > maxRouteDistance {
+		return Route{}, fmt.Errorf("route distance too high (%d > %d)", distance, maxRouteDistance)
 	}
 
 	oldBest := rt.Lookup(netStart) // may not exist yet
@@ -312,7 +319,7 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 		Extended: extended,
 		NetEnd:   netEnd,
 		Target:   target,
-		Distance: metric,
+		Distance: distance,
 		LastSeen: time.Now(),
 
 		network: &rt.byNetwork[netStart],

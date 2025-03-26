@@ -23,7 +23,10 @@ import (
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
-const maxRouteAge = 10 * time.Minute // TODO: confirm
+const (
+	maxRouteAge      = 10 * time.Minute // TODO: confirm
+	maxRouteDistance = 15
+)
 
 // Route represents a route: a destination network range, a way to send packets
 // towards the destination, and some other data that affects whether the route
