@@ -20,6 +20,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
 
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
@@ -36,21 +38,6 @@ const (
 	SubcodeGetDomainZoneList Subcode = 0x0004
 )
 
-func (sc Subcode) String() string {
-	switch sc {
-	case SubcodeZoneInfoReq: // == SubcodeZoneInfoNonExt
-		return "ZoneInfo-Req or ZoneInfo-NonExt"
-	case SubcodeZoneInfoExt:
-		return "ZoneInfo-Ext"
-	case SubcodeGetZonesNet:
-		return "GetZonesNet"
-	case SubcodeGetDomainZoneList:
-		return "GetDomainZoneList"
-	default:
-		return "invalid!"
-	}
-}
-
 func parseSubcode(p []byte) (Subcode, []byte, error) {
 	if len(p) < 2 {
 		return 0, p, fmt.Errorf("insufficient input length %d for subcode", len(p))
@@ -65,9 +52,13 @@ type ZIReqPacket struct {
 }
 
 func (p *ZIReqPacket) String() string {
+	subcode := "invalid!"
+	if p.Subcode == SubcodeZoneInfoReq {
+		subcode = "ZoneInfo-Req"
+	}
 	return fmt.Sprintf("%s\nsubcode=%d,%s networks=%v",
 		&p.Header,
-		p.Subcode, p.Subcode, p.Networks,
+		p.Subcode, subcode, p.Networks,
 	)
 }
 
@@ -114,9 +105,17 @@ type ZIRspPacket struct {
 }
 
 func (p *ZIRspPacket) String() string {
+	subcode := "invalid!"
+	switch p.Subcode {
+	case SubcodeZoneInfoNonExt:
+		subcode = "ZoneInfo-NonExt"
+	case SubcodeZoneInfoExt:
+		subcode = "ZoneInfo-Ext"
+	}
+
 	return fmt.Sprintf("%s\nsubcode=%d,%s\nzones:\n%s",
 		&p.Header,
-		p.Subcode, p.Subcode,
+		p.Subcode, subcode,
 		joinStringers(p.Zones, "\n"),
 	)
 }
@@ -146,6 +145,17 @@ type GDZLReqPacket struct {
 	StartIndex uint16
 }
 
+func (p *GDZLReqPacket) String() string {
+	subcode := "invalid!"
+	if p.Subcode == SubcodeGetDomainZoneList {
+		subcode = "GetDomainZoneList"
+	}
+	return fmt.Sprintf("%s\nsubcode=%d,%s start_index=%d",
+		&p.Header,
+		p.Subcode, subcode, p.StartIndex,
+	)
+}
+
 func (p *GDZLReqPacket) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
 	a.writeTo(&p.Header)
@@ -169,6 +179,21 @@ type GDZLRspPacket struct {
 	Subcode
 	StartIndex int16
 	ZoneNames  []string
+}
+
+func (p *GDZLRspPacket) String() string {
+	subcode := "invalid!"
+	if p.Subcode == SubcodeGetDomainZoneList {
+		subcode = "GetDomainZoneList"
+	}
+	zones := make([]string, 0, len(p.ZoneNames))
+	for _, zn := range p.ZoneNames {
+		zones = append(zones, strconv.Quote(zn))
+	}
+	return fmt.Sprintf("%s\nsubcode=%d,%s start_index=%d\nzone_names:\n%s",
+		&p.Header,
+		p.Subcode, subcode, p.StartIndex, strings.Join(zones, "\n"),
+	)
 }
 
 func (p *GDZLRspPacket) WriteTo(w io.Writer) (int64, error) {
@@ -230,6 +255,17 @@ type GZNReqPacket struct {
 	ZoneName string
 }
 
+func (p *GZNReqPacket) String() string {
+	subcode := "invalid!"
+	if p.Subcode == SubcodeGetZonesNet {
+		subcode = "GetZonesNet"
+	}
+	return fmt.Sprintf("%s\nsubcode=%d,%s zone_name=%q",
+		&p.Header,
+		p.Subcode, subcode, p.ZoneName,
+	)
+}
+
 func (p *GZNReqPacket) WriteTo(w io.Writer) (int64, error) {
 	if len(p.ZoneName) > 127 {
 		return 0, fmt.Errorf("zone name %q too long", p.ZoneName)
@@ -264,6 +300,17 @@ type GZNRspPacket struct {
 	ZoneName     string
 	NotSupported bool
 	Networks     NetworkTuples
+}
+
+func (p *GZNRspPacket) String() string {
+	subcode := "invalid!"
+	if p.Subcode == SubcodeGetZonesNet {
+		subcode = "GetZonesNet"
+	}
+	return fmt.Sprintf("%s\nsubcode=%d,%s zone_name=%q not_supported=%t\nnetworks:\n%s",
+		&p.Header,
+		p.Subcode, subcode, p.ZoneName, p.NotSupported, joinStringers(p.Networks, "\n"),
+	)
 }
 
 func (p *GZNRspPacket) WriteTo(w io.Writer) (int64, error) {
