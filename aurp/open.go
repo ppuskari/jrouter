@@ -70,7 +70,7 @@ type OpenRspPacket struct {
 
 func (p *OpenRspPacket) String() string {
 	if p.RateOrErrCode >= 0 {
-		return fmt.Sprintf("%s\rate=%d options=%v",
+		return fmt.Sprintf("%s\nrate=%d options=%v",
 			&p.Header,
 			p.RateOrErrCode,
 			p.Options,

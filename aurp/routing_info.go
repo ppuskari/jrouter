@@ -20,7 +20,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
@@ -33,6 +32,10 @@ type RIRspPacket struct {
 	Header
 
 	Networks NetworkTuples
+}
+
+func (p *RIRspPacket) String() string {
+	return fmt.Sprintf("%s\nnetworks=%v", &p.Header, p.Networks)
 }
 
 func (p *RIRspPacket) WriteTo(w io.Writer) (int64, error) {
@@ -62,6 +65,10 @@ type RIUpdPacket struct {
 	Events EventTuples
 }
 
+func (p *RIUpdPacket) String() string {
+	return fmt.Sprintf("%s\nevents=%v", &p.Header, p.Events)
+}
+
 func (p *RIUpdPacket) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
 	a.writeTo(&p.Header)
@@ -80,17 +87,6 @@ func parseRIUpd(p []byte) (*RIUpdPacket, error) {
 }
 
 type NetworkTuples []NetworkTuple
-
-func (n NetworkTuples) String() string {
-	var sb strings.Builder
-	for i, nt := range n {
-		if i > 0 {
-			sb.WriteString(", ")
-		}
-		fmt.Fprintf(&sb, "%d-%d dist %d", nt.RangeStart, nt.RangeEnd, nt.Distance)
-	}
-	return sb.String()
-}
 
 func (n NetworkTuples) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
@@ -121,6 +117,14 @@ type NetworkTuple struct {
 	Distance   uint8
 	RangeEnd   ddp.Network
 	// 0x00 for extended tuples
+}
+
+func (nt NetworkTuple) String() string {
+	ext := "ext"
+	if !nt.Extended {
+		ext = "non-ext"
+	}
+	return fmt.Sprintf("(%d-%d %s dist %d)", nt.RangeStart, nt.RangeEnd, ext, nt.Distance)
 }
 
 func (nt *NetworkTuple) WriteTo(w io.Writer) (int64, error) {
@@ -196,6 +200,17 @@ type EventTuple struct {
 	RangeStart ddp.Network
 	Distance   uint8
 	RangeEnd   ddp.Network
+}
+
+func (et EventTuple) String() string {
+	ext := "ext"
+	if !et.Extended {
+		ext = "non-ext"
+	}
+	return fmt.Sprintf("(%d,%s %d-%d %s dist %d)",
+		et.EventCode, et.EventCode,
+		et.RangeStart, et.RangeEnd, ext, et.Distance,
+	)
 }
 
 func (et *EventTuple) WriteTo(w io.Writer) (int64, error) {
@@ -286,6 +301,6 @@ func (ec EventCode) String() string {
 	case EventCodeZC:
 		return "zone name change"
 	default:
-		return "unknown"
+		return "invalid!"
 	}
 }
