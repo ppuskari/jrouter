@@ -89,11 +89,7 @@ func (t *AURPPeerTable) LookupOrCreate(
 		remoteDI = aurp.IPDomainIdentifier(raddr)
 	}
 	peer := &AURPPeer{
-		Transport: &aurp.Transport{
-			LocalDI:     localDI,
-			RemoteDI:    remoteDI,
-			LocalConnID: t.nextConnID,
-		},
+		Transport:      aurp.NewTransport(localDI, remoteDI, t.nextConnID, 0),
 		UDPConn:        udpConn,
 		ConfiguredAddr: peerAddr,
 		RemoteAddr:     raddr,

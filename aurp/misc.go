@@ -31,3 +31,13 @@ func joinStringers[S ~[]E, E fmt.Stringer](s S, j string) string {
 	}
 	return sb.String()
 }
+
+// nilToZero returns the zero value for T if a is nil, otherwise it type-asserts
+// a as T.
+func nilToZero[T any](a any) T {
+	if a == nil {
+		var zero T
+		return zero
+	}
+	return a.(T)
+}

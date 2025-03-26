@@ -49,3 +49,13 @@ func (set Set[K]) Insert(ss ...K) {
 func (set Set[K]) Add(t Set[K]) {
 	maps.Copy(set, t)
 }
+
+// nilToZero returns the zero value for T if a is nil, otherwise it type-asserts
+// a as T.
+func nilToZero[T any](a any) T {
+	if a == nil {
+		var zero T
+		return zero
+	}
+	return a.(T)
+}

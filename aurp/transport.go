@@ -20,6 +20,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"sync/atomic"
 
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
@@ -72,7 +73,10 @@ type Transport struct {
 	// DestinationDI.
 	// (When receiving a packet, we expect to see LocalDI as DestinationDI
 	// - but it might not be - and we expect to see RemoteDI as SourceDI.)
-	LocalDI, RemoteDI DomainIdentifier
+	// RemoteDI can change based on incoming packets, so it is wrapped in an
+	// atomic.
+	LocalDI  DomainIdentifier
+	remoteDI atomic.Value //DomainIdentifier
 
 	// LocalConnID is used for packets sent in the role of data receiver.
 	// RemoteConnID is used for packets sent in the role of data sender.
@@ -83,10 +87,28 @@ type Transport struct {
 	LocalSeq, RemoteSeq uint16
 }
 
+func NewTransport(localDI, remoteDI DomainIdentifier, localConnID, remoteConnID uint16) *Transport {
+	tr := &Transport{
+		LocalDI:      localDI,
+		LocalConnID:  localConnID,
+		RemoteConnID: remoteConnID,
+	}
+	tr.SetRemoteDI(remoteDI)
+	return tr
+}
+
+func (tr *Transport) RemoteDI() DomainIdentifier {
+	return nilToZero[DomainIdentifier](tr.remoteDI.Load())
+}
+
+func (tr *Transport) SetRemoteDI(di DomainIdentifier) {
+	tr.remoteDI.Store(di)
+}
+
 // domainHeader returns a new domain header suitable for sending a packet.
 func (tr *Transport) domainHeader(pt PacketType) DomainHeader {
 	return DomainHeader{
-		DestinationDI: tr.RemoteDI,
+		DestinationDI: tr.RemoteDI(),
 		SourceDI:      tr.LocalDI,
 		Version:       1,
 		Reserved:      0,

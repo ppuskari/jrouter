@@ -222,16 +222,6 @@ func (p *AURPPeer) DumpChatLog() []ChatLogEntry {
 	return p.chatLog
 }
 
-// nilToZero returns the zero value for T if a is nil, otherwise it type-asserts
-// a as T.
-func nilToZero[T any](a any) T {
-	if a == nil {
-		var zero T
-		return zero
-	}
-	return a.(T)
-}
-
 // Handle handles incoming packets for this peer. It is safe to call multiple
 // times concurrently - only one will run.
 func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {

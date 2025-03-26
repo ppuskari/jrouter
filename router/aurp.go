@@ -93,6 +93,9 @@ func (r *Router) AURPInput(ctx context.Context, logger *slog.Logger, wg *sync.Wa
 			peer = p
 		}
 
+		// The "call you by what you call yourself" doctrine
+		peer.Transport.SetRemoteDI(dh.SourceDI)
+
 		if !peer.Running() {
 			// Run the peer handler. It doesn't matter if it starts running
 			// concurrently.
