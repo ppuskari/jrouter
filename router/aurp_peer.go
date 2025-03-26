@@ -474,16 +474,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 			now := time.Now()
 			p.lastHeardFrom.Store(now)
 
-			func() {
-				p.chatLogMu.Lock()
-				defer p.chatLogMu.Unlock()
-				p.chatLog = p.chatLog[max(0, len(p.chatLog)-chatLogLimit):]
-				p.chatLog = append(p.chatLog, ChatLogEntry{
-					Packet:    pkt,
-					Sent:      false,
-					Timestamp: now,
-				})
-			}()
+			p.addToChatLog(pkt, false /* received */)
 
 			switch pkt := pkt.(type) {
 			case *aurp.OpenReqPacket:
@@ -816,16 +807,7 @@ func (p *AURPPeer) disconnect() {
 func (p *AURPPeer) send(pkt aurp.Packet) (int, error) {
 	// Record routing-type packets into the chatlog
 	if pkt.GetDomainHeader().PacketType == aurp.PacketTypeRouting {
-		func() {
-			p.chatLogMu.Lock()
-			defer p.chatLogMu.Unlock()
-			p.chatLog = p.chatLog[max(0, len(p.chatLog)-chatLogLimit):]
-			p.chatLog = append(p.chatLog, ChatLogEntry{
-				Packet:    pkt,
-				Sent:      true,
-				Timestamp: time.Now(),
-			})
-		}()
+		p.addToChatLog(pkt, true /* sent */)
 	}
 
 	var b bytes.Buffer
@@ -839,6 +821,18 @@ func (p *AURPPeer) send(pkt aurp.Packet) (int, error) {
 
 	p.logger.Debug("AURP Peer: Sending", "pkt-type", reflect.TypeOf(pkt), "length", b.Len())
 	return p.UDPConn.WriteToUDP(b.Bytes(), &net.UDPAddr{IP: p.RemoteAddr, Port: 387})
+}
+
+func (p *AURPPeer) addToChatLog(pkt aurp.Packet, sent bool) {
+	now := time.Now()
+	p.chatLogMu.Lock()
+	defer p.chatLogMu.Unlock()
+	p.chatLog = append(p.chatLog, ChatLogEntry{
+		Packet:    pkt,
+		Sent:      sent,
+		Timestamp: now,
+	})
+	p.chatLog = p.chatLog[max(0, len(p.chatLog)-chatLogLimit):]
 }
 
 type ReceiverState int32
