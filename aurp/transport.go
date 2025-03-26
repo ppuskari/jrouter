@@ -32,15 +32,25 @@ type TrHeader struct {
 	Sequence     uint16
 }
 
-func (h *TrHeader) GetTrHeader() *TrHeader { return h }
+// GetTrHeader returns itself. This is here to make it easy to get the
+// transport header out of an arbitrary aurp.Packet that embeds it.
+func (th *TrHeader) GetTrHeader() *TrHeader { return th }
+
+func (th *TrHeader) String() string {
+	return fmt.Sprintf("%s\nconn_id=%d seq=%d",
+		&th.DomainHeader,
+		th.ConnectionID,
+		th.Sequence,
+	)
+}
 
 // WriteTo writes the encoded form of the header to w, including the domain
 // header.
-func (h *TrHeader) WriteTo(w io.Writer) (int64, error) {
+func (th *TrHeader) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
-	a.writeTo(&h.DomainHeader)
-	a.write16(h.ConnectionID)
-	a.write16(h.Sequence)
+	a.writeTo(&th.DomainHeader)
+	a.write16(th.ConnectionID)
+	a.write16(th.Sequence)
 	return a.ret()
 }
 

@@ -42,7 +42,16 @@ func (h *Header) WriteTo(w io.Writer) (int64, error) {
 	return a.ret()
 }
 
+// AURPHeader returns itself.
 func (h *Header) AURPHeader() *Header { return h }
+
+func (h *Header) String() string {
+	return fmt.Sprintf("%s\ncmd_code=%s flags=%04x",
+		&h.TrHeader,
+		h.CommandCode,
+		h.Flags,
+	)
+}
 
 func parseHeader(p []byte) (Header, []byte, error) {
 	if len(p) < 4 {
@@ -71,6 +80,35 @@ const (
 	CmdCodeTickle    CmdCode = 0x000e
 	CmdCodeTickleAck CmdCode = 0x000f
 )
+
+func (cc CmdCode) String() string {
+	switch cc {
+	case CmdCodeRIReq:
+		return "RI-Req"
+	case CmdCodeRIRsp:
+		return "RI-Rsp"
+	case CmdCodeRIAck:
+		return "RI-Ack"
+	case CmdCodeRIUpd:
+		return "RI-Upd"
+	case CmdCodeRD:
+		return "RD"
+	case CmdCodeZoneReq:
+		return "Zone-Req"
+	case CmdCodeZoneRsp:
+		return "Zone-Rsp"
+	case CmdCodeOpenReq:
+		return "Open-Req"
+	case CmdCodeOpenRsp:
+		return "Open-Rsp"
+	case CmdCodeTickle:
+		return "Tickle"
+	case CmdCodeTickleAck:
+		return "Tickle-Ack"
+	default:
+		return "invalid!"
+	}
+}
 
 // RoutingFlag is used in the flags field
 type RoutingFlag uint16
@@ -103,6 +141,14 @@ type Packet interface {
 	io.WriterTo
 
 	GetDomainHeader() *DomainHeader
+}
+
+// RoutingPacket represents AURP routing information packets, which include
+// extra layers that encapsulated AppleTalk packets do not have.
+type RoutingPacket interface {
+	Packet
+	GetTrHeader() *TrHeader
+	AURPHeader() *Header
 }
 
 // Inc increments a uint16. It avoids 0 (65535 + 1 = 1).

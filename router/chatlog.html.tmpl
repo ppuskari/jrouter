@@ -97,21 +97,19 @@
 </head>
 <body>
     <h1>Chat log for {{.RemoteAddr}}</h1>
-    <div class="summary">
-        <ul>
-            <li>Configured address: {{.ConfiguredAddr}}</li>
-   	        <li>Resolved address: {{.RemoteAddr}}</li>
-   	        <li>Goroutine <span class="{{if .Running}}green{{else}}red{{end}}">{{if .Running}}running{{else}}stopped{{end}}</li>
-   	        <li>Receiver state: <span class="{{if eq .ReceiverState 0}}red{{else}}green{{end}}">{{.ReceiverState}}</li>
-   	        <li>Sender state: <span class="{{if eq .SenderState 0}}red{{else}}green{{end}}">{{.SenderState}}</li>
-   	        <li>Receive channel length: {{.ReceiveChLen}}</li>
-   	        <li>Last heard from {{.LastHeardFrom | ago}}</li>
-   	        <li>Last reconnect {{.LastReconnect | ago}}</li>
-   	        <li>Last update {{.LastUpdate | ago}}</li>
-   	        <li>Last send {{.LastSend | ago}}</li>
-   	        <li>Send retry count: {{.SendRetries}}</li>
-		</ul>
-    </div>
+    <div class="summary"><p>
+        Configured address: {{.ConfiguredAddr}}<br>
+   	    Resolved address: {{.RemoteAddr}}<br>
+   	    Goroutine <span class="{{if .Running}}green{{else}}red{{end}}">{{if .Running}}running{{else}}stopped{{end}}</span><br>
+   	    Receiver state: <span class="{{if eq .ReceiverState 0}}red{{else}}green{{end}}">{{.ReceiverState}}</span><br>
+   	    Sender state: <span class="{{if eq .SenderState 0}}red{{else}}green{{end}}">{{.SenderState}}</span><br>
+   	    Receive channel length: {{.ReceiveChLen}}<br>
+   	    Last heard from {{.LastHeardFrom | ago}}<br>
+   	    Last reconnect {{.LastReconnect | ago}}<br>
+   	    Last update {{.LastUpdate | ago}}<br>
+   	    Last send {{.LastSend | ago}}<br>
+   	    Send retry count: {{.SendRetries}}<br>
+    </p></div>
     <table>
         <thead><tr>
             <th>Timestamp</th>
@@ -119,9 +117,9 @@
             <th>Sent</th>
         </tr></thead>
         {{range .DumpChatLog}}<tr>
-            <td>{{.Timestamp}}</td>
-            <td>{{if not .Sent}}{{.Packet}}{{end}}</td>
-            <td>{{if .Sent}}{{.Packet}}{{end}}
+            <td><pre>{{.Timestamp.Format "15:04:05.999999"}}</pre></td>
+            <td>{{if not .Sent}}<pre>{{.Packet}}</pre>{{end}}</td>
+            <td>{{if .Sent}}<pre>{{.Packet}}</pre>{{end}}
         </tr>{{end}}
     </table>
 </body>

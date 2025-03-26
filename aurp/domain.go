@@ -42,6 +42,17 @@ const (
 	PacketTypeRouting   PacketType = 0x0003
 )
 
+func (pt PacketType) String() string {
+	switch pt {
+	case PacketTypeAppleTalk:
+		return "encapsulated AppleTalk"
+	case PacketTypeRouting:
+		return "routing information"
+	default:
+		return "invalid!"
+	}
+}
+
 // WriteTo writes the encoded form of the domain header to w.
 func (dh *DomainHeader) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
@@ -53,7 +64,18 @@ func (dh *DomainHeader) WriteTo(w io.Writer) (int64, error) {
 	return a.ret()
 }
 
+// GetDomainHeader returns itself. This is here to make it easy to get the
+// domain header out of an arbitrary aurp.Packet that embeds it.
 func (dh *DomainHeader) GetDomainHeader() *DomainHeader { return dh }
+
+func (dh *DomainHeader) String() string {
+	return fmt.Sprintf("%s → %s v%d %s",
+		dh.SourceDI,
+		dh.DestinationDI,
+		dh.Version,
+		dh.PacketType,
+	)
+}
 
 // ParseDomainHeader parses a domain header, returning the DH and the remainder
 // of the input slice. It does not validate the version or packet type fields.
