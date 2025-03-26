@@ -20,7 +20,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
@@ -37,6 +36,21 @@ const (
 	SubcodeGetDomainZoneList Subcode = 0x0004
 )
 
+func (sc Subcode) String() string {
+	switch sc {
+	case SubcodeZoneInfoReq: // == SubcodeZoneInfoNonExt
+		return "ZoneInfo-Req or ZoneInfo-NonExt"
+	case SubcodeZoneInfoExt:
+		return "ZoneInfo-Ext"
+	case SubcodeGetZonesNet:
+		return "GetZonesNet"
+	case SubcodeGetDomainZoneList:
+		return "GetDomainZoneList"
+	default:
+		return "invalid!"
+	}
+}
+
 func parseSubcode(p []byte) (Subcode, []byte, error) {
 	if len(p) < 2 {
 		return 0, p, fmt.Errorf("insufficient input length %d for subcode", len(p))
@@ -48,6 +62,13 @@ type ZIReqPacket struct {
 	Header
 	Subcode
 	Networks []ddp.Network
+}
+
+func (p *ZIReqPacket) String() string {
+	return fmt.Sprintf("%s\nsubcode=%d,%s networks=%v",
+		&p.Header,
+		p.Subcode, p.Subcode, p.Networks,
+	)
 }
 
 func (p *ZIReqPacket) WriteTo(w io.Writer) (int64, error) {
@@ -90,6 +111,14 @@ type ZIRspPacket struct {
 	Header
 	Subcode
 	Zones ZoneTuples
+}
+
+func (p *ZIRspPacket) String() string {
+	return fmt.Sprintf("%s\nsubcode=%d,%s\nzones:\n%s",
+		&p.Header,
+		p.Subcode, p.Subcode,
+		joinStringers(p.Zones, "\n"),
+	)
 }
 
 func (p *ZIRspPacket) WriteTo(w io.Writer) (int64, error) {
@@ -288,20 +317,13 @@ func parseGZNRspPacket(p []byte) (*GZNRspPacket, error) {
 
 type ZoneTuples []ZoneTuple
 
-func (zs ZoneTuples) String() string {
-	var sb strings.Builder
-	for i, zt := range zs {
-		if i > 0 {
-			sb.WriteString(", ")
-		}
-		fmt.Fprintf(&sb, "%d %q", zt.Network, zt.Name)
-	}
-	return sb.String()
-}
-
 type ZoneTuple struct {
 	Network ddp.Network
 	Name    string
+}
+
+func (zt ZoneTuple) String() string {
+	return fmt.Sprintf("(network=%d zone=%q)", zt.Network, zt.Name)
 }
 
 func (zs ZoneTuples) WriteTo(w io.Writer) (int64, error) {

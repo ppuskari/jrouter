@@ -35,7 +35,7 @@ type RIRspPacket struct {
 }
 
 func (p *RIRspPacket) String() string {
-	return fmt.Sprintf("%s\nnetworks=%v", &p.Header, p.Networks)
+	return fmt.Sprintf("%s\nnetworks:\n%s", &p.Header, joinStringers(p.Networks, "\n"))
 }
 
 func (p *RIRspPacket) WriteTo(w io.Writer) (int64, error) {
@@ -66,7 +66,7 @@ type RIUpdPacket struct {
 }
 
 func (p *RIUpdPacket) String() string {
-	return fmt.Sprintf("%s\nevents=%v", &p.Header, p.Events)
+	return fmt.Sprintf("%s\nevents:\n%s", &p.Header, joinStringers(p.Events, "\n"))
 }
 
 func (p *RIUpdPacket) WriteTo(w io.Writer) (int64, error) {

@@ -114,7 +114,7 @@ type OptionTuple struct {
 }
 
 func (ot OptionTuple) String() string {
-	return fmt.Sprintf("(type=%s data=%x)", ot.Type, ot.Data)
+	return fmt.Sprintf("(type=%d,%s data=%x)", ot.Type, ot.Type, ot.Data)
 }
 
 func (ot *OptionTuple) WriteTo(w io.Writer) (int64, error) {

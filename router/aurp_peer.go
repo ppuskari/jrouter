@@ -40,7 +40,7 @@ const (
 	reconnectTimer     = 10 * time.Minute
 	updateTimer        = 10 * time.Second
 
-	chatLogLimit = 1000
+	chatLogLimit = 200
 )
 
 // AURPPeer handles the peering with a peer AURP router.

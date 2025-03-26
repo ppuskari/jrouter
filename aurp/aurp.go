@@ -46,10 +46,49 @@ func (h *Header) WriteTo(w io.Writer) (int64, error) {
 func (h *Header) AURPHeader() *Header { return h }
 
 func (h *Header) String() string {
-	return fmt.Sprintf("%s\ncmd_code=%s flags=%04x",
+	// Flag interpretation depends on the command code...
+	var flags []string
+	switch h.CommandCode {
+	case CmdCodeOpenReq, CmdCodeRIReq:
+		if h.Flags&RoutingFlagSUINA != 0 {
+			flags = append(flags, "NA")
+		}
+		if h.Flags&RoutingFlagSUINDOrNRC != 0 {
+			flags = append(flags, "ND|NRC")
+		}
+		if h.Flags&RoutingFlagSUINDC != 0 {
+			flags = append(flags, "NDC")
+		}
+		if h.Flags&RoutingFlagSUIZC != 0 {
+			flags = append(flags, "ZC")
+		}
+
+	case CmdCodeOpenRsp:
+		if h.Flags&RoutingFlagRemappingActive != 0 {
+			flags = append(flags, "RemappingActive")
+		}
+		if h.Flags&RoutingFlagHopCountReduction != 0 {
+			flags = append(flags, "HopCountReduction")
+		}
+		if h.Flags&RoutingFlagReservedEnv != 0 {
+			flags = append(flags, "Reserved")
+		}
+
+	case CmdCodeRIRsp, CmdCodeZoneReq:
+		if h.Flags&RoutingFlagLast != 0 {
+			flags = []string{"Last"}
+		}
+
+	case CmdCodeRIAck:
+		if h.Flags&RoutingFlagSendZoneInfo != 0 {
+			flags = []string{"SendZoneInfo"}
+		}
+	}
+
+	return fmt.Sprintf("%s\ncmd_code=%d,%s flags=%04x %v",
 		&h.TrHeader,
-		h.CommandCode,
-		h.Flags,
+		h.CommandCode, h.CommandCode,
+		h.Flags, flags,
 	)
 }
 
