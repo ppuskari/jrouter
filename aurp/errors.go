@@ -30,13 +30,22 @@ const (
 )
 
 func (e ErrorCode) String() string {
-	return map[ErrorCode]string{
-		ErrCodeNormalClose:           "normal connection close",
-		ErrCodeRoutingLoop:           "routing loop detected",
-		ErrCodeOutOfSync:             "connection out of sync",
-		ErrCodeOptionNegotiation:     "option-negotiation error",
-		ErrCodeInvalidVersion:        "invalid version number",
-		ErrCodeInsufficientResources: "insufficient resources for connection",
-		ErrCodeAuthentication:        "authentication error",
-	}[e]
+	switch e {
+	case ErrCodeNormalClose:
+		return "normal connection close"
+	case ErrCodeRoutingLoop:
+		return "routing loop detected"
+	case ErrCodeOutOfSync:
+		return "connection out of sync"
+	case ErrCodeOptionNegotiation:
+		return "option-negotiation error"
+	case ErrCodeInvalidVersion:
+		return "invalid version number"
+	case ErrCodeInsufficientResources:
+		return "insufficient resources for connection"
+	case ErrCodeAuthentication:
+		return "authentication error"
+	default:
+		return "invalid!"
+	}
 }

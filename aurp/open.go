@@ -30,6 +30,14 @@ type OpenReqPacket struct {
 	Options Options
 }
 
+func (p *OpenReqPacket) String() string {
+	return fmt.Sprintf("%s\nversion=%d options=%v",
+		&p.Header,
+		p.Version,
+		p.Options,
+	)
+}
+
 func (p *OpenReqPacket) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
 	a.writeTo(&p.Header)
@@ -60,6 +68,21 @@ type OpenRspPacket struct {
 	Options       Options
 }
 
+func (p *OpenRspPacket) String() string {
+	if p.RateOrErrCode >= 0 {
+		return fmt.Sprintf("%s\rate=%d options=%v",
+			&p.Header,
+			p.RateOrErrCode,
+			p.Options,
+		)
+	}
+	return fmt.Sprintf("%s\nerror_code=%d,%s options=%v",
+		&p.Header,
+		p.RateOrErrCode, ErrorCode(p.RateOrErrCode),
+		p.Options,
+	)
+}
+
 func (p *OpenRspPacket) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
 	a.writeTo(&p.Header)
@@ -88,6 +111,10 @@ type OptionTuple struct {
 	// Length uint8 = 1(for Type) + len(Data)
 	Type OptionType
 	Data []byte
+}
+
+func (ot OptionTuple) String() string {
+	return fmt.Sprintf("(type=%s data=%x)", ot.Type, ot.Data)
 }
 
 func (ot *OptionTuple) WriteTo(w io.Writer) (int64, error) {
@@ -127,6 +154,15 @@ const (
 	OptionTypeAuthentication OptionType = 0x01
 	// All other types reserved
 )
+
+func (ot OptionType) String() string {
+	switch ot {
+	case OptionTypeAuthentication:
+		return "authentication"
+	default:
+		return "unknown option type"
+	}
+}
 
 type Options []OptionTuple
 

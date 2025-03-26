@@ -28,6 +28,13 @@ type RDPacket struct {
 	ErrorCode ErrorCode
 }
 
+func (p *RDPacket) String() string {
+	return fmt.Sprintf("%s\nerror_code=%d,%s",
+		&p.Header,
+		p.ErrorCode, p.ErrorCode,
+	)
+}
+
 func (p *RDPacket) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
 	a.writeTo(&p.Header)
