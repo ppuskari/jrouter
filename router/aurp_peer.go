@@ -470,12 +470,14 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 			logger := p.logger.With(
 				"cmd-code", header.CommandCode,
 				"flags", header.Flags,
+				"receiver-state", p.ReceiverState(),
+				"sender-state", p.SenderState(),
 			)
 
 			switch pkt := pkt.(type) {
 			case *aurp.OpenReqPacket:
 				if sstate := p.SenderState(); sstate != SenderUnconnected {
-					logger.Warn("AURP Peer: Open-Req received but sender state is not unconnected", "sender-state", sstate)
+					logger.Warn("AURP Peer: Open-Req received but sender state is not unconnected")
 				}
 
 				// The peer tells us their connection ID in Open-Req.
@@ -520,7 +522,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 
 			case *aurp.OpenRspPacket:
 				if rstate := p.ReceiverState(); rstate != ReceiverWaitForOpenRsp {
-					logger.Warn("AURP Peer: Received Open-Rsp but was not waiting for one", "receiver-state", rstate)
+					logger.Warn("AURP Peer: Received Open-Rsp but was not waiting for one")
 				}
 				if pkt.RateOrErrCode < 0 {
 					// It's an error code.
@@ -542,7 +544,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 
 			case *aurp.RIReqPacket:
 				if sstate := p.SenderState(); sstate != SenderConnected {
-					logger.Warn("AURP Peer: Received RI-Req but was not expecting one", "sender-state", sstate)
+					logger.Warn("AURP Peer: Received RI-Req but was not expecting one")
 				}
 
 				// TODO: Load ExtraAdvertisedZones and HiddenZones
@@ -594,17 +596,28 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 
 			case *aurp.RIRspPacket:
 				if p.ReceiverState() != ReceiverWaitForRIRsp {
-					logger.Warn("Received RI-Rsp but was not waiting for one", "receiver-state", p.ReceiverState())
+					logger.Warn("Received RI-Rsp but was not waiting for one")
 				}
 
 				logger.Debug("AURP Peer: Learned about these networks", "networks", pkt.Networks)
 
 				for _, nt := range pkt.Networks {
+					logger := logger.With(
+						"extended", nt.Extended,
+						"net-start", nt.RangeStart,
+						"net-end", nt.RangeEnd,
+						"distance", nt.Distance,
+					)
+
+					if nt.Distance >= maxRouteDistance {
+						logger.Info("AURP Peer: RI-Rsp: skipping adding route because distance is too high")
+						break
+					}
 					_, err := p.RouteTable.UpsertRoute(
 						p,
 						nt.Extended,
-						ddp.Network(nt.RangeStart),
-						ddp.Network(nt.RangeEnd),
+						nt.RangeStart,
+						nt.RangeEnd,
 						nt.Distance+1,
 					)
 					if err != nil {
@@ -636,7 +649,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 					continue
 
 				default:
-					logger.Warn("AURP Peer: Received RI-Ack but was not waiting for one", "sender-state", sstate)
+					logger.Warn("AURP Peer: Received RI-Ack but was not waiting for one")
 				}
 
 				p.setSState(SenderConnected)
@@ -692,7 +705,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 					// Business as usual.
 
 				case ReceiverUnconnected, ReceiverWaitForOpenRsp:
-					logger.Error("AURP Peer: Got an RI-Upd while not in Connected state", "rstate", rstate)
+					logger.Error("AURP Peer: Got an RI-Upd while not in Connected state")
 					// Remote thinks we are connected, but we are not, or we
 					// are starting from the beginning.
 					// Try an RI-Req, jump to WaitForRIRsp state, and don't ack or use the RI-Upd.
@@ -705,7 +718,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 					continue
 
 				case ReceiverWaitForRIRsp, ReceiverWaitForTickleAck:
-					logger.Error("AURP Peer: Got an RI-Upd while not in Connected state", "rstate", rstate)
+					logger.Error("AURP Peer: Got an RI-Upd while not in Connected state")
 					continue
 				}
 
@@ -787,7 +800,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 
 			case *aurp.RDPacket:
 				if rstate := p.ReceiverState(); rstate == ReceiverUnconnected || rstate == ReceiverWaitForOpenRsp {
-					logger.Error("AURP Peer: Received RD but was not expecting one", "receiver-state", rstate)
+					logger.Error("AURP Peer: Received RD but was not expecting one")
 				}
 
 				logger.Info("AURP Peer: Router Down", "code", int(pkt.ErrorCode), "code-str", pkt.ErrorCode)
@@ -842,7 +855,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 
 			case *aurp.TickleAckPacket:
 				if rstate := p.ReceiverState(); rstate != ReceiverWaitForTickleAck {
-					logger.Warn("AURP Peer: Received Tickle-Ack but was not waiting for one", "receiver-state", rstate)
+					logger.Warn("AURP Peer: Received Tickle-Ack but was not waiting for one")
 				}
 				p.setRState(ReceiverConnected)
 			}
