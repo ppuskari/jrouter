@@ -468,11 +468,23 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 
 			header := pkt.AURPHeader()
 			logger := p.logger.With(
+				"conn-id", header.ConnectionID,
+				"seq", header.Sequence,
 				"cmd-code", header.CommandCode,
 				"flags", header.Flags,
 				"receiver-state", p.ReceiverState(),
 				"sender-state", p.SenderState(),
 			)
+
+			if wantConnID := p.Transport.RemoteConnID(); wantConnID != 0 {
+				if header.ConnectionID != wantConnID {
+					// "If the packet contains a connection ID that does not
+					// match that expected for the connection, the exterior
+					// outer discards the packet."
+					logger.Warn("AURP Peer: connection ID mismatch, dropping packet", "old-conn-id", wantConnID)
+					continue
+				}
+			}
 
 			switch pkt := pkt.(type) {
 			case *aurp.OpenReqPacket:
@@ -948,6 +960,10 @@ func (p *AURPPeer) setRState(rstate ReceiverState) { p.rstate.Store(int32(rstate
 func (p *AURPPeer) setSState(sstate SenderState)   { p.sstate.Store(int32(sstate)) }
 
 func (p *AURPPeer) disconnect() {
+	p.Transport.ResetLocalSeq()
+	p.Transport.ResetRemoteSeq()
+	// TODO: increment local connection ID
+	p.Transport.SetRemoteConnID(0)
 	p.setRState(ReceiverUnconnected)
 	p.setSState(SenderUnconnected)
 }
