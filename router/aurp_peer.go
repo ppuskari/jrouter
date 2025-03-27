@@ -354,7 +354,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 					}
 					p.sendRetries.Add(1)
 					p.lastSend.Store(time.Now())
-					aurp.Inc(&p.Transport.LocalSeq)
+					p.Transport.IncLocalSeq()
 					events := aurp.EventTuples{{
 						EventCode: aurp.EventCodeNull,
 					}}
@@ -423,7 +423,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 				// TODO: split pending events to fit within a packet
 
 				p.lastUpdate.Store(time.Now())
-				aurp.Inc(&p.Transport.LocalSeq)
+				p.Transport.IncLocalSeq()
 				lastRISent = p.Transport.NewRIUpdPacket(pending)
 				if _, err := p.send(lastRISent); err != nil {
 					p.logger.Error("AURP Peer: Couldn't send RI-Upd packet", "error", err)
@@ -479,7 +479,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 				}
 
 				// The peer tells us their connection ID in Open-Req.
-				p.Transport.RemoteConnID = pkt.ConnectionID
+				p.Transport.SetRemoteConnID(pkt.ConnectionID)
 
 				// Formulate a response.
 				var orsp *aurp.OpenRspPacket
@@ -538,7 +538,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 					return
 				}
 				p.setRState(ReceiverWaitForRIRsp)
-				p.Transport.RemoteSeq = 0
+				p.Transport.ResetRemoteSeq()
 
 			case *aurp.RIReqPacket:
 				if sstate := p.SenderState(); sstate != SenderConnected {
@@ -583,7 +583,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 						Distance:   best.Distance,
 					})
 				}
-				p.Transport.LocalSeq = 1
+				p.Transport.ResetLocalSeq()
 				// TODO: Split tuples across multiple packets as required
 				lastRISent = p.Transport.NewRIRspPacket(aurp.RoutingFlagLast, nets)
 				if _, err := p.send(lastRISent); err != nil {
@@ -701,7 +701,7 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 					}
 					p.setRState(ReceiverWaitForRIRsp)
 					// restart the receiving sequence
-					p.Transport.RemoteSeq = 0
+					p.Transport.ResetRemoteSeq()
 					continue
 
 				case ReceiverWaitForRIRsp, ReceiverWaitForTickleAck:

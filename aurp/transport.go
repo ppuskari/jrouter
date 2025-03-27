@@ -76,33 +76,99 @@ type Transport struct {
 	// RemoteDI can change based on incoming packets, so it is wrapped in an
 	// atomic.
 	LocalDI  DomainIdentifier
-	remoteDI atomic.Value //DomainIdentifier
+	remoteDI atomic.Value // DomainIdentifier
 
 	// LocalConnID is used for packets sent in the role of data receiver.
 	// RemoteConnID is used for packets sent in the role of data sender.
-	LocalConnID, RemoteConnID uint16
+	LocalConnID  uint16
+	remoteConnID atomic.Uint32 // uint16
 
-	// LocalSeq is used for packets sent (as data sender)
-	// RemoteSeq is used to check packets received (remote is the data sender).
-	LocalSeq, RemoteSeq uint16
+	// LocalSeq is used for packets sent (as data sender). Received RI-Acks
+	// should match, otherwise packets went missing and we should either resend
+	// the last RI-Upd to the peer, or restart the sender connection.
+	// RemoteSeq is used to check RI-Upds received (remote is data sender).
+	// If an RI-Upd has a higher number than expected, intervening packets went
+	// missing and we should restart the receiver connection.
+	localSeq  atomic.Uint32 // uint16
+	remoteSeq atomic.Uint32 // uint16
 }
 
+// NewTransport creates a new AURP-Tr transport.
 func NewTransport(localDI, remoteDI DomainIdentifier, localConnID, remoteConnID uint16) *Transport {
 	tr := &Transport{
-		LocalDI:      localDI,
-		LocalConnID:  localConnID,
-		RemoteConnID: remoteConnID,
+		LocalDI:     localDI,
+		LocalConnID: localConnID,
 	}
 	tr.SetRemoteDI(remoteDI)
+	tr.SetRemoteConnID(remoteConnID)
+	tr.ResetLocalSeq()
+	tr.ResetRemoteSeq()
 	return tr
 }
 
+// RemoteDI returns the domain identifier for the remote side of the connection.
 func (tr *Transport) RemoteDI() DomainIdentifier {
 	return nilToZero[DomainIdentifier](tr.remoteDI.Load())
 }
 
+// RemoteConnID returns the connection ID supplied by the remote side.
+func (tr *Transport) RemoteConnID() uint16 {
+	return uint16(tr.remoteConnID.Load())
+}
+
+// LocalSeq returns the sequence number for data sent by us.
+func (tr *Transport) LocalSeq() uint16 {
+	return uint16(tr.localSeq.Load())
+}
+
+// RemoteSeq returns the expected sequence number for data sent by the remote.
+func (tr *Transport) RemoteSeq() uint16 {
+	return uint16(tr.remoteSeq.Load())
+}
+
+// SetRemoteDI updates the domain identifier for the remote side.
 func (tr *Transport) SetRemoteDI(di DomainIdentifier) {
 	tr.remoteDI.Store(di)
+}
+
+// SetRemoteConnID updates the connection ID.
+func (tr *Transport) SetRemoteConnID(id uint16) {
+	tr.remoteConnID.Store(uint32(id))
+}
+
+// ResetLocalSeq resets the sequence number back to 1.
+func (tr *Transport) ResetLocalSeq() {
+	tr.localSeq.Store(1)
+}
+
+// ResetRemoteSeq resets the expected sequence number back to 1.
+func (tr *Transport) ResetRemoteSeq() {
+	tr.remoteSeq.Store(1)
+}
+
+// IncLocalSeq increments the sequence number. It avoids 0, which is reserved.
+func (tr *Transport) IncLocalSeq() {
+	for {
+		n0 := tr.LocalSeq()
+		n1 := n0
+		Inc(&n1)
+		if tr.localSeq.CompareAndSwap(uint32(n0), uint32(n1)) {
+			break
+		}
+	}
+}
+
+// IncRemoteSeq increments the expected sequence number. It avoids 0, which is
+// reserved.
+func (tr *Transport) IncRemoteSeq() {
+	for {
+		n0 := tr.RemoteSeq()
+		n1 := n0
+		Inc(&n1)
+		if tr.remoteSeq.CompareAndSwap(uint32(n0), uint32(n1)) {
+			break
+		}
+	}
 }
 
 // domainHeader returns a new domain header suitable for sending a packet.
@@ -164,7 +230,7 @@ func (tr *Transport) NewOpenReqPacket(opts Options) *OpenReqPacket {
 func (tr *Transport) NewOpenRspPacket(envFlags RoutingFlag, rateOrErr int16, opts Options) *OpenRspPacket {
 	return &OpenRspPacket{
 		Header: Header{
-			TrHeader:    tr.transaction(tr.RemoteConnID),
+			TrHeader:    tr.transaction(tr.RemoteConnID()),
 			CommandCode: CmdCodeOpenRsp,
 			Flags:       envFlags,
 		},
@@ -189,7 +255,7 @@ func (tr *Transport) NewRIReqPacket() *RIReqPacket {
 func (tr *Transport) NewRIRspPacket(last RoutingFlag, nets NetworkTuples) *RIRspPacket {
 	return &RIRspPacket{
 		Header: Header{
-			TrHeader:    tr.sequenced(tr.RemoteConnID, tr.LocalSeq),
+			TrHeader:    tr.sequenced(tr.RemoteConnID(), tr.LocalSeq()),
 			CommandCode: CmdCodeRIRsp,
 			Flags:       last,
 		},
@@ -212,7 +278,7 @@ func (tr *Transport) NewRIAckPacket(connID, seq uint16, szi RoutingFlag) *RIAckP
 func (tr *Transport) NewRIUpdPacket(events EventTuples) *RIUpdPacket {
 	return &RIUpdPacket{
 		Header: Header{
-			TrHeader:    tr.sequenced(tr.RemoteConnID, tr.LocalSeq),
+			TrHeader:    tr.sequenced(tr.RemoteConnID(), tr.LocalSeq()),
 			CommandCode: CmdCodeRIUpd,
 			Flags:       0,
 		},
@@ -244,7 +310,7 @@ func (tr *Transport) NewZIRspPacket(zoneLists map[ddp.Network][]string) *ZIRspPa
 
 	return &ZIRspPacket{
 		Header: Header{
-			TrHeader:    tr.transaction(tr.RemoteConnID),
+			TrHeader:    tr.transaction(tr.RemoteConnID()),
 			CommandCode: CmdCodeZoneRsp,
 			Flags:       0,
 		},
@@ -271,7 +337,7 @@ func (tr *Transport) NewGDZLReqPacket(startIdx uint16) *GDZLReqPacket {
 func (tr *Transport) NewGDZLRspPacket(startIdx int16, zoneNames []string) *GDZLRspPacket {
 	return &GDZLRspPacket{
 		Header: Header{
-			TrHeader:    tr.transaction(tr.RemoteConnID),
+			TrHeader:    tr.transaction(tr.RemoteConnID()),
 			CommandCode: CmdCodeZoneReq,
 			Flags:       0,
 		},
@@ -299,7 +365,7 @@ func (tr *Transport) NewGZNReqPacket(zoneName string) *GZNReqPacket {
 func (tr *Transport) NewGZNRspPacket(zoneName string, notSupported bool, nets NetworkTuples) *GZNRspPacket {
 	return &GZNRspPacket{
 		Header: Header{
-			TrHeader:    tr.transaction(tr.RemoteConnID),
+			TrHeader:    tr.transaction(tr.RemoteConnID()),
 			CommandCode: CmdCodeZoneReq,
 			Flags:       0,
 		},
@@ -337,7 +403,7 @@ func (tr *Transport) NewTicklePacket() *TicklePacket {
 func (tr *Transport) NewTickleAckPacket() *TickleAckPacket {
 	return &TickleAckPacket{
 		Header: Header{
-			TrHeader:    tr.transaction(tr.RemoteConnID),
+			TrHeader:    tr.transaction(tr.RemoteConnID()),
 			CommandCode: CmdCodeTickleAck,
 			Flags:       0,
 		},
