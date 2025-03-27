@@ -190,12 +190,22 @@ type RoutingPacket interface {
 	AURPHeader() *Header
 }
 
-// Inc increments a uint16. It avoids 0 (65535 + 1 = 1).
-func Inc(p *uint16) {
-	*p++
-	if *p == 0 {
-		*p++
+// Succ returns the next number, avoiding 0 (succ(65535) = 1)
+func Succ(n uint16) uint16 {
+	n++
+	if n == 0 {
+		n++
 	}
+	return n
+}
+
+// Pred returns the previous number, avoiding 0 (pred(1) = 65535)
+func Pred(n uint16) uint16 {
+	n--
+	if n == 0 {
+		n--
+	}
+	return n
 }
 
 // ParsePacket parses the body of a UDP packet for a domain header, and then

@@ -149,10 +149,8 @@ func (tr *Transport) ResetRemoteSeq() {
 // IncLocalSeq increments the sequence number. It avoids 0, which is reserved.
 func (tr *Transport) IncLocalSeq() {
 	for {
-		n0 := tr.LocalSeq()
-		n1 := n0
-		Inc(&n1)
-		if tr.localSeq.CompareAndSwap(uint32(n0), uint32(n1)) {
+		n := tr.LocalSeq()
+		if tr.localSeq.CompareAndSwap(uint32(n), uint32(Succ(n))) {
 			break
 		}
 	}
@@ -162,10 +160,8 @@ func (tr *Transport) IncLocalSeq() {
 // reserved.
 func (tr *Transport) IncRemoteSeq() {
 	for {
-		n0 := tr.RemoteSeq()
-		n1 := n0
-		Inc(&n1)
-		if tr.remoteSeq.CompareAndSwap(uint32(n0), uint32(n1)) {
+		n := tr.RemoteSeq()
+		if tr.remoteSeq.CompareAndSwap(uint32(n), uint32(Succ(n))) {
 			break
 		}
 	}
