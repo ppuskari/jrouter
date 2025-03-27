@@ -106,7 +106,7 @@ func (t *AURPPeerTable) LookupOrCreate(
 	}
 	// New.
 	t.peersByIP[key] = peer
-	aurp.Inc(&t.nextConnID)
+	t.nextConnID = aurp.Succ(t.nextConnID)
 
 	return peer, nil
 }
