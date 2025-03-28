@@ -697,54 +697,8 @@ func (p *AURPPeer) handleRIRsp(logger *slog.Logger, pkt *aurp.RIRspPacket) error
 		logger.Warn("Received RI-Rsp but was not waiting for one")
 	}
 
-	// Sequence number checking
-	switch seq := p.Transport.RemoteSeq(); pkt.Sequence {
-	case aurp.Pred(seq):
-		// "If the data receiver expects sequence number n and
-		// receives a packet with the sequence number n–1, that
-		// packet was delayed and is a duplicate of another packet
-		// already received. The data receiver must retransmit an
-		// RI-Ack packet, because the data sender may not have
-		// received the RI-Ack packet previously sent—that is, the
-		// RI-Ack may have been lost."
-		logger.Warn("AURP Peer: repeated RI-Rsp")
-		if _, err := p.send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, aurp.RoutingFlagSendZoneInfo)); err != nil {
-			logger.Error("AURP Peer: Couldn't send RI-Ack packet", "error", err)
-			return err
-		}
-		return nil
-
-	case seq:
-		// "Whenever the data receiver receives an RI-Rsp, RI-Upd,
-		// or RD packet that has the expected sequence number and
-		// connection ID..."
-		// As expected. Continue below.
-
-	case aurp.Succ(seq):
-		// If the data receiver expects sequence number n and
-		// receives a packet with the sequence number n+1, it should
-		// discard the packet and terminate the one-way connection
-		// on which it is the data receiver. Because AURP-Tr
-		// supports only one outstanding transaction at a time, the
-		// receipt of such a packet indicates that the connection is
-		// out of sync.
-
-		logger.Warn("AURP Peer: RI-Rsp out of sequence, resetting connection")
-		p.setRState(ReceiverUnconnected)
-		p.Transport.ResetRemoteSeq()
-		return nil
-
-	default:
-		// "If the data receiver expects sequence number n and
-		// receives a packet with a sequence number other than n–1,
-		// n, or n+1, the packet was delayed and is a duplicate of
-		// another packet already received. The data receiver need
-		// not send an RI-Ack, because the data sender must have
-		// received an RI-Ack for that sequence number prior to
-		// sending a packet with the sequence number n–1. The data
-		// receiver should discard the packet."
-		logger.Warn("AURP Peer: RI-Rsp out of sequence, discarding packet")
-		return nil
+	if err := p.checkRemoteSeq(logger, &pkt.TrHeader); err != nil {
+		return err
 	}
 
 	logger.Debug("AURP Peer: Learned about these networks", "networks", pkt.Networks)
@@ -875,29 +829,8 @@ func (p *AURPPeer) handleRIUpd(logger *slog.Logger, pkt *aurp.RIUpdPacket) error
 		return nil
 	}
 
-	// Sequence number checking
-	// See comments in RI-Rsp block.
-	switch seq := p.Transport.RemoteSeq(); pkt.Sequence {
-	case aurp.Pred(seq):
-		logger.Warn("AURP Peer: repeated RI-Upd")
-		if _, err := p.send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, aurp.RoutingFlagSendZoneInfo)); err != nil {
-			logger.Error("AURP Peer: Couldn't send RI-Ack packet", "error", err)
-			return err
-		}
-		return nil
-
-	case seq:
-		// As expected. Continue below.
-
-	case aurp.Succ(seq):
-		logger.Warn("AURP Peer: RI-Upd out of sequence, resetting connection")
-		p.setRState(ReceiverUnconnected)
-		p.Transport.ResetRemoteSeq()
-		return nil
-
-	default:
-		logger.Warn("AURP Peer: RI-Upd out of sequence, discarding packet")
-		return nil
+	if err := p.checkRemoteSeq(logger, &pkt.TrHeader); err != nil {
+		return err
 	}
 
 	var ackFlag aurp.RoutingFlag
@@ -1060,6 +993,59 @@ func (p *AURPPeer) handleTickleAck(logger *slog.Logger, _ *aurp.TickleAckPacket)
 		logger.Warn("AURP Peer: Received Tickle-Ack but was not waiting for one")
 	}
 	p.setRState(ReceiverConnected)
+	return nil
+}
+
+// checkRemoteSeq checks the sequence number in the packet against
+func (p *AURPPeer) checkRemoteSeq(logger *slog.Logger, trheader *aurp.TrHeader) error {
+	switch got, want := p.Transport.RemoteSeq(), trheader.Sequence; got {
+	case aurp.Pred(want):
+		// "If the data receiver expects sequence number n and
+		// receives a packet with the sequence number n–1, that
+		// packet was delayed and is a duplicate of another packet
+		// already received. The data receiver must retransmit an
+		// RI-Ack packet, because the data sender may not have
+		// received the RI-Ack packet previously sent—that is, the
+		// RI-Ack may have been lost."
+		logger.Warn("AURP Peer: repeated routing information packet")
+		if _, err := p.send(p.Transport.NewRIAckPacket(trheader.ConnectionID, trheader.Sequence, aurp.RoutingFlagSendZoneInfo)); err != nil {
+			logger.Error("AURP Peer: Couldn't send RI-Ack packet", "error", err)
+			return err
+		}
+		return nil
+
+	case want:
+		// "Whenever the data receiver receives an RI-Rsp, RI-Upd,
+		// or RD packet that has the expected sequence number and
+		// connection ID..."
+		// As expected. Continue below.
+
+	case aurp.Succ(want):
+		// If the data receiver expects sequence number n and
+		// receives a packet with the sequence number n+1, it should
+		// discard the packet and terminate the one-way connection
+		// on which it is the data receiver. Because AURP-Tr
+		// supports only one outstanding transaction at a time, the
+		// receipt of such a packet indicates that the connection is
+		// out of sync.
+
+		logger.Warn("AURP Peer: routing information packet out of sequence, resetting connection")
+		p.setRState(ReceiverUnconnected)
+		p.Transport.ResetRemoteSeq()
+		return nil
+
+	default:
+		// "If the data receiver expects sequence number n and
+		// receives a packet with a sequence number other than n–1,
+		// n, or n+1, the packet was delayed and is a duplicate of
+		// another packet already received. The data receiver need
+		// not send an RI-Ack, because the data sender must have
+		// received an RI-Ack for that sequence number prior to
+		// sending a packet with the sequence number n–1. The data
+		// receiver should discard the packet."
+		logger.Warn("AURP Peer: routing information packet out of sequence, discarding packet")
+		return nil
+	}
 	return nil
 }
 
