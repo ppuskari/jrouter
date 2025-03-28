@@ -79,17 +79,20 @@ type Transport struct {
 	remoteDI atomic.Value // DomainIdentifier
 
 	// LocalConnID is used for packets sent in the role of data receiver.
-	// RemoteConnID is used for packets sent in the role of data sender.
-	LocalConnID  uint16
+	LocalConnID uint16
+
+	// RemoteConnID is used for packets sent in the role of data sender. It
+	// changes when we receive a new Open-Req from the peer.
 	remoteConnID atomic.Uint32 // uint16
 
 	// LocalSeq is used for packets sent (as data sender). Received RI-Acks
 	// should match, otherwise packets went missing and we should either resend
 	// the last RI-Upd to the peer, or restart the sender connection.
+	localSeq atomic.Uint32 // uint16
+
 	// RemoteSeq is used to check RI-Upds received (remote is data sender).
 	// If an RI-Upd has a higher number than expected, intervening packets went
 	// missing and we should restart the receiver connection.
-	localSeq  atomic.Uint32 // uint16
 	remoteSeq atomic.Uint32 // uint16
 }
 

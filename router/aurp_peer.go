@@ -797,6 +797,8 @@ func (p *AURPPeer) handleRIAck(logger *slog.Logger, pkt *aurp.RIAckPacket) error
 		return err
 	}
 
+	// TODO: check sequence number
+
 	switch sstate := p.SenderState(); sstate {
 	case SenderWaitForRIRspAck:
 		// We sent an RI-Rsp, this is the RI-Ack we expected.
@@ -805,7 +807,7 @@ func (p *AURPPeer) handleRIAck(logger *slog.Logger, pkt *aurp.RIAckPacket) error
 		// We sent an RI-Upd, this is the RI-Ack we expected.
 
 	case SenderWaitForRDAck:
-		// We sent an RD... Why are we here?
+		// We sent an RD, this is the RI-Ack we... wait, why are we here?
 		return nil
 
 	default:
@@ -847,9 +849,8 @@ func (p *AURPPeer) handleRIAck(logger *slog.Logger, pkt *aurp.RIAckPacket) error
 	// TODO: Continue sending next RI-Rsp (streamed)?
 
 	if p.ReceiverState() == ReceiverUnconnected {
-		// Receiver is unconnected, but their receiver sent us an
-		// RI-Ack for something
-		// Try to reconnect?
+		// Receiver is unconnected, but their receiver sent us an RI-Ack for
+		// something. Try to reconnect?
 		p.sendRetries.Store(0)
 		p.lastSend.Store(time.Now())
 		if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
@@ -878,9 +879,9 @@ func (p *AURPPeer) handleRIUpd(logger *slog.Logger, pkt *aurp.RIUpdPacket) error
 
 	case ReceiverUnconnected, ReceiverWaitForOpenRsp:
 		logger.Error("AURP Peer: Got an RI-Upd while not in Connected state")
-		// Remote thinks we are connected, but we are not, or we
-		// are starting from the beginning.
-		// Try an RI-Req, jump to WaitForRIRsp state, and don't ack or use the RI-Upd.
+		// Remote thinks we are connected, but we are not, or we are starting
+		// from the beginning. Try an RI-Req, jump to WaitForRIRsp state, and
+		// don't ack or use the RI-Upd.
 		if _, err := p.send(p.Transport.NewRIReqPacket()); err != nil {
 			logger.Error("AURP Peer: Couldn't send RI-Req", "error", err)
 		}
@@ -1181,16 +1182,21 @@ func (p *AURPPeer) checkRemoteSeq(logger *slog.Logger, trheader *aurp.TrHeader) 
 		return nil
 
 	case aurp.Succ(want):
-		// If the data receiver expects sequence number n and
+		// "If the data receiver expects sequence number n and
 		// receives a packet with the sequence number n+1, it should
 		// discard the packet and terminate the one-way connection
 		// on which it is the data receiver. Because AURP-Tr
 		// supports only one outstanding transaction at a time, the
 		// receipt of such a packet indicates that the connection is
-		// out of sync.
+		// out of sync."
 
 		logger.Warn("AURP Peer: routing information packet out of sequence, resetting connection")
 		p.setRState(ReceiverUnconnected)
+		// "When establishing a one-way connection with a given data sender, a
+		// data receiver using AURP-Tr must send an Open-Req that has a
+		// different connection ID from that used in its last connection with
+		// the data sender." So change it.
+		p.Transport.LocalConnID = aurp.Succ(p.Transport.LocalConnID)
 		p.Transport.ResetRemoteSeq()
 		return errDropPacket
 
