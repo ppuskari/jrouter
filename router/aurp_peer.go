@@ -19,6 +19,7 @@ package router
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"reflect"
@@ -42,6 +43,8 @@ const (
 
 	chatLogLimit = 200
 )
+
+var errDropPacket = errors.New("drop packet")
 
 // AURPPeer handles the peering with a peer AURP router.
 type AURPPeer struct {
@@ -502,16 +505,6 @@ func (p *AURPPeer) handlePacket(pkt aurp.RoutingPacket) error {
 		"sender-state", p.SenderState(),
 	)
 
-	// if wantConnID := p.Transport.RemoteConnID(); wantConnID != 0 {
-	// 	if header.ConnectionID != wantConnID {
-	// 		// "If the packet contains a connection ID that does not
-	// 		// match that expected for the connection, the exterior
-	// 		// outer discards the packet."
-	// 		logger.Warn("AURP Peer: connection ID mismatch, dropping packet", "old-conn-id", wantConnID)
-	// 		continue
-	// 	}
-	// }
-
 	switch pkt := pkt.(type) {
 	case *aurp.OpenReqPacket:
 		return p.handleOpenReq(logger, pkt)
@@ -565,9 +558,28 @@ func (p *AURPPeer) handlePacket(pkt aurp.RoutingPacket) error {
 }
 
 func (p *AURPPeer) handleOpenReq(logger *slog.Logger, pkt *aurp.OpenReqPacket) error {
+	// We are: sender
+	// They are: receiver
+
 	if sstate := p.SenderState(); sstate != SenderUnconnected {
 		logger.Warn("AURP Peer: Open-Req received but sender state is not unconnected")
 	}
+
+	// TODO: implement the following
+	//
+	// "If a data sender receives an Open-Req from an exterior router with which
+	// it already has a connection and the connection ID does not match that for
+	// the connection already established, it should not discard the packet
+	// without verifying whether the connection is still active. The receipt of
+	// such a packet may indicate that the data receiver on the connection has
+	// been restarted and has opened a new one-way connection, without first
+	// terminating its original connection. The exterior router acting as the
+	// data sender should send a null RI-Upd over the connection to determine
+	// whether it is still active. If the data sender receives an RI-Ack in
+	// response to the null RI-Upd, it discards the Open-Req and the original
+	// connection remains active. If the data sender receives no RI-Ack after
+	// retransmitting the null RI-Upd, it closes the original connection, then
+	// sends an Open-Rsp to the next Open-Req received."
 
 	// The peer tells us their connection ID in Open-Req.
 	p.Transport.SetRemoteConnID(pkt.ConnectionID)
@@ -613,6 +625,16 @@ func (p *AURPPeer) handleOpenReq(logger *slog.Logger, pkt *aurp.OpenReqPacket) e
 }
 
 func (p *AURPPeer) handleOpenRsp(logger *slog.Logger, pkt *aurp.OpenRspPacket) error {
+	// We are: receiver
+	// They are: sender
+
+	if err := p.checkLocalConnID(logger, &pkt.TrHeader); err != nil {
+		if err == errDropPacket {
+			return nil
+		}
+		return err
+	}
+
 	if rstate := p.ReceiverState(); rstate != ReceiverWaitForOpenRsp {
 		logger.Warn("AURP Peer: Received Open-Rsp but was not waiting for one")
 	}
@@ -637,7 +659,17 @@ func (p *AURPPeer) handleOpenRsp(logger *slog.Logger, pkt *aurp.OpenRspPacket) e
 	return nil
 }
 
-func (p *AURPPeer) handleRIReq(logger *slog.Logger, _ *aurp.RIReqPacket) error {
+func (p *AURPPeer) handleRIReq(logger *slog.Logger, pkt *aurp.RIReqPacket) error {
+	// We are: sender
+	// They are: receiver
+
+	if err := p.checkRemoteConnID(logger, &pkt.TrHeader); err != nil {
+		if err == errDropPacket {
+			return nil
+		}
+		return err
+	}
+
 	if sstate := p.SenderState(); sstate != SenderConnected {
 		logger.Warn("AURP Peer: Received RI-Req but was not expecting one")
 	}
@@ -693,11 +725,24 @@ func (p *AURPPeer) handleRIReq(logger *slog.Logger, _ *aurp.RIReqPacket) error {
 }
 
 func (p *AURPPeer) handleRIRsp(logger *slog.Logger, pkt *aurp.RIRspPacket) error {
+	// We are: receiver
+	// They are: sender
+
+	if err := p.checkLocalConnID(logger, &pkt.TrHeader); err != nil {
+		if err == errDropPacket {
+			return nil
+		}
+		return err
+	}
+
 	if p.ReceiverState() != ReceiverWaitForRIRsp {
 		logger.Warn("Received RI-Rsp but was not waiting for one")
 	}
 
 	if err := p.checkRemoteSeq(logger, &pkt.TrHeader); err != nil {
+		if err == errDropPacket {
+			return nil
+		}
 		return err
 	}
 
@@ -742,6 +787,16 @@ func (p *AURPPeer) handleRIRsp(logger *slog.Logger, pkt *aurp.RIRspPacket) error
 }
 
 func (p *AURPPeer) handleRIAck(logger *slog.Logger, pkt *aurp.RIAckPacket) error {
+	// We are: sender
+	// They are: receiver
+
+	if err := p.checkRemoteConnID(logger, &pkt.TrHeader); err != nil {
+		if err == errDropPacket {
+			return nil
+		}
+		return err
+	}
+
 	switch sstate := p.SenderState(); sstate {
 	case SenderWaitForRIRspAck:
 		// We sent an RI-Rsp, this is the RI-Ack we expected.
@@ -807,6 +862,16 @@ func (p *AURPPeer) handleRIAck(logger *slog.Logger, pkt *aurp.RIAckPacket) error
 }
 
 func (p *AURPPeer) handleRIUpd(logger *slog.Logger, pkt *aurp.RIUpdPacket) error {
+	// We are: receiver
+	// They are: sender
+
+	if err := p.checkLocalConnID(logger, &pkt.TrHeader); err != nil {
+		if err == errDropPacket {
+			return nil
+		}
+		return err
+	}
+
 	switch rstate := p.ReceiverState(); rstate {
 	case ReceiverConnected:
 		// Business as usual.
@@ -830,6 +895,9 @@ func (p *AURPPeer) handleRIUpd(logger *slog.Logger, pkt *aurp.RIUpdPacket) error
 	}
 
 	if err := p.checkRemoteSeq(logger, &pkt.TrHeader); err != nil {
+		if err == errDropPacket {
+			return nil
+		}
 		return err
 	}
 
@@ -914,6 +982,16 @@ func (p *AURPPeer) handleRIUpd(logger *slog.Logger, pkt *aurp.RIUpdPacket) error
 }
 
 func (p *AURPPeer) handleRD(logger *slog.Logger, pkt *aurp.RDPacket) error {
+	// We are: sender
+	// They are: receiver
+
+	if err := p.checkRemoteConnID(logger, &pkt.TrHeader); err != nil {
+		if err == errDropPacket {
+			return nil
+		}
+		return err
+	}
+
 	if rstate := p.ReceiverState(); rstate == ReceiverUnconnected || rstate == ReceiverWaitForOpenRsp {
 		logger.Error("AURP Peer: Received RD but was not expecting one")
 	}
@@ -936,6 +1014,16 @@ func (p *AURPPeer) handleRD(logger *slog.Logger, pkt *aurp.RDPacket) error {
 }
 
 func (p *AURPPeer) handleZIReq(logger *slog.Logger, pkt *aurp.ZIReqPacket) error {
+	// We are: sender
+	// They are: receiver
+
+	if err := p.checkRemoteConnID(logger, &pkt.TrHeader); err != nil {
+		if err == errDropPacket {
+			return nil
+		}
+		return err
+	}
+
 	// TODO: split ZI-Rsp packets similarly to ZIP Replies
 	zones := p.RouteTable.ZonesForNetworks(pkt.Networks)
 	if _, err := p.send(p.Transport.NewZIRspPacket(zones)); err != nil {
@@ -946,6 +1034,16 @@ func (p *AURPPeer) handleZIReq(logger *slog.Logger, pkt *aurp.ZIReqPacket) error
 }
 
 func (p *AURPPeer) handleZIRsp(logger *slog.Logger, pkt *aurp.ZIRspPacket) error {
+	// We are: receiver
+	// They are: sender
+
+	if err := p.checkLocalConnID(logger, &pkt.TrHeader); err != nil {
+		if err == errDropPacket {
+			return nil
+		}
+		return err
+	}
+
 	logger.Debug("AURP Peer: Learned about these zones", "zones", pkt.Zones)
 	for _, zt := range pkt.Zones {
 		p.RouteTable.AddZonesToNetwork(zt.Network, zt.Name)
@@ -953,7 +1051,17 @@ func (p *AURPPeer) handleZIRsp(logger *slog.Logger, pkt *aurp.ZIRspPacket) error
 	return nil
 }
 
-func (p *AURPPeer) handleGDZLReq(logger *slog.Logger, _ *aurp.GDZLReqPacket) error {
+func (p *AURPPeer) handleGDZLReq(logger *slog.Logger, pkt *aurp.GDZLReqPacket) error {
+	// We are: sender
+	// They are: receiver
+
+	if err := p.checkRemoteConnID(logger, &pkt.TrHeader); err != nil {
+		if err == errDropPacket {
+			return nil
+		}
+		return err
+	}
+
 	if _, err := p.send(p.Transport.NewGDZLRspPacket(-1, nil)); err != nil {
 		logger.Error("AURP Peer: Couldn't send GDZL-Rsp packet", "error", err)
 		return err
@@ -961,12 +1069,32 @@ func (p *AURPPeer) handleGDZLReq(logger *slog.Logger, _ *aurp.GDZLReqPacket) err
 	return nil
 }
 
-func (p *AURPPeer) handleGDZLRsp(logger *slog.Logger, _ *aurp.GDZLRspPacket) error {
+func (p *AURPPeer) handleGDZLRsp(logger *slog.Logger, pkt *aurp.GDZLRspPacket) error {
+	// We are: receiver
+	// They are: sender
+
+	if err := p.checkLocalConnID(logger, &pkt.TrHeader); err != nil {
+		if err == errDropPacket {
+			return nil
+		}
+		return err
+	}
+
 	logger.Warn("AURP Peer: Received a GDZL-Rsp, but I wouldn't have sent a GDZL-Req - so that's weird")
 	return nil
 }
 
 func (p *AURPPeer) handleGZNReq(logger *slog.Logger, pkt *aurp.GZNReqPacket) error {
+	// We are: sender
+	// They are: receiver
+
+	if err := p.checkRemoteConnID(logger, &pkt.TrHeader); err != nil {
+		if err == errDropPacket {
+			return nil
+		}
+		return err
+	}
+
 	if _, err := p.send(p.Transport.NewGZNRspPacket(pkt.ZoneName, false, nil)); err != nil {
 		logger.Error("AURP Peer: Couldn't send GZN-Rsp packet", "error", err)
 		return err
@@ -974,12 +1102,32 @@ func (p *AURPPeer) handleGZNReq(logger *slog.Logger, pkt *aurp.GZNReqPacket) err
 	return nil
 }
 
-func (p *AURPPeer) handleGZNRsp(logger *slog.Logger, _ *aurp.GZNRspPacket) error {
+func (p *AURPPeer) handleGZNRsp(logger *slog.Logger, pkt *aurp.GZNRspPacket) error {
+	// We are: receiver
+	// They are: sender
+
+	if err := p.checkLocalConnID(logger, &pkt.TrHeader); err != nil {
+		if err == errDropPacket {
+			return nil
+		}
+		return err
+	}
+
 	logger.Warn("AURP Peer: Received a GZN-Rsp, but I wouldn't have sent a GZN-Req - so that's weird")
 	return nil
 }
 
-func (p *AURPPeer) handleTickle(logger *slog.Logger, _ *aurp.TicklePacket) error {
+func (p *AURPPeer) handleTickle(logger *slog.Logger, pkt *aurp.TicklePacket) error {
+	// We are: sender
+	// They are: receiver
+
+	if err := p.checkRemoteConnID(logger, &pkt.TrHeader); err != nil {
+		if err == errDropPacket {
+			return nil
+		}
+		return err
+	}
+
 	// Immediately respond with Tickle-Ack
 	if _, err := p.send(p.Transport.NewTickleAckPacket()); err != nil {
 		logger.Error("AURP Peer: Couldn't send Tickle-Ack", "error", err)
@@ -988,7 +1136,17 @@ func (p *AURPPeer) handleTickle(logger *slog.Logger, _ *aurp.TicklePacket) error
 	return nil
 }
 
-func (p *AURPPeer) handleTickleAck(logger *slog.Logger, _ *aurp.TickleAckPacket) error {
+func (p *AURPPeer) handleTickleAck(logger *slog.Logger, pkt *aurp.TickleAckPacket) error {
+	// We are: receiver
+	// They are: sender
+
+	if err := p.checkLocalConnID(logger, &pkt.TrHeader); err != nil {
+		if err == errDropPacket {
+			return nil
+		}
+		return err
+	}
+
 	if rstate := p.ReceiverState(); rstate != ReceiverWaitForTickleAck {
 		logger.Warn("AURP Peer: Received Tickle-Ack but was not waiting for one")
 	}
@@ -996,9 +1154,10 @@ func (p *AURPPeer) handleTickleAck(logger *slog.Logger, _ *aurp.TickleAckPacket)
 	return nil
 }
 
-// checkRemoteSeq checks the sequence number in the packet against
+// checkRemoteSeq checks the sequence number in the packet against the expected
+// sequence number from the transport.
 func (p *AURPPeer) checkRemoteSeq(logger *slog.Logger, trheader *aurp.TrHeader) error {
-	switch got, want := p.Transport.RemoteSeq(), trheader.Sequence; got {
+	switch got, want := trheader.Sequence, p.Transport.RemoteSeq(); got {
 	case aurp.Pred(want):
 		// "If the data receiver expects sequence number n and
 		// receives a packet with the sequence number n–1, that
@@ -1012,13 +1171,14 @@ func (p *AURPPeer) checkRemoteSeq(logger *slog.Logger, trheader *aurp.TrHeader) 
 			logger.Error("AURP Peer: Couldn't send RI-Ack packet", "error", err)
 			return err
 		}
-		return nil
+		return errDropPacket
 
 	case want:
 		// "Whenever the data receiver receives an RI-Rsp, RI-Upd,
 		// or RD packet that has the expected sequence number and
 		// connection ID..."
-		// As expected. Continue below.
+		// As expected. Continue.
+		return nil
 
 	case aurp.Succ(want):
 		// If the data receiver expects sequence number n and
@@ -1032,7 +1192,7 @@ func (p *AURPPeer) checkRemoteSeq(logger *slog.Logger, trheader *aurp.TrHeader) 
 		logger.Warn("AURP Peer: routing information packet out of sequence, resetting connection")
 		p.setRState(ReceiverUnconnected)
 		p.Transport.ResetRemoteSeq()
-		return nil
+		return errDropPacket
 
 	default:
 		// "If the data receiver expects sequence number n and
@@ -1044,7 +1204,39 @@ func (p *AURPPeer) checkRemoteSeq(logger *slog.Logger, trheader *aurp.TrHeader) 
 		// sending a packet with the sequence number n–1. The data
 		// receiver should discard the packet."
 		logger.Warn("AURP Peer: routing information packet out of sequence, discarding packet")
+		return errDropPacket
+	}
+}
+
+// checkLocalConnID checks that the ConnectionID in the header matches the
+// transport's LocalConnID.
+func (p *AURPPeer) checkLocalConnID(logger *slog.Logger, trheader *aurp.TrHeader) error {
+	got, want := trheader.ConnectionID, p.Transport.LocalConnID
+	// LocalConnID should always be set to something
+	if got != want {
+		// "If the packet contains a connection ID that does not
+		// match that expected for the connection, the exterior
+		// outer discards the packet."
+		logger.Warn("AURP Peer: connection ID mismatch, dropping packet", "want-conn-id", want)
+		return errDropPacket
+	}
+	return nil
+}
+
+// checkRemoteConnID checks that the ConnectionID in the header matches the
+// transport's RemoteConnID.
+func (p *AURPPeer) checkRemoteConnID(logger *slog.Logger, trheader *aurp.TrHeader) error {
+	got, want := trheader.ConnectionID, p.Transport.RemoteConnID()
+	if want == 0 {
+		// Connection not established yet, so it can be anything
 		return nil
+	}
+	if got != want {
+		// "If the packet contains a connection ID that does not
+		// match that expected for the connection, the exterior
+		// outer discards the packet."
+		logger.Warn("AURP Peer: connection ID mismatch, dropping packet", "want-conn-id", want)
+		return errDropPacket
 	}
 	return nil
 }
