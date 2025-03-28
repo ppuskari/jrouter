@@ -87,6 +87,9 @@ type AURPPeer struct {
 	// Used for debugging AURP conversations.
 	chatLogMu sync.RWMutex
 	chatLog   []ChatLogEntry
+
+	// Other bits of internal state
+	lastRISent aurp.RoutingPacket
 }
 
 // ChatLogEntry is a record of a packet either sent or received and a timestamp.
@@ -222,8 +225,9 @@ func (p *AURPPeer) DumpChatLog() []ChatLogEntry {
 	return p.chatLog
 }
 
-// Handle handles incoming packets for this peer. It is safe to call multiple
-// times concurrently - only one will run.
+// Handle handles incoming packets, maintains the connections, and runs periodic
+// tasks for this peer. It is safe to call multiple times concurrently - only
+// one will run.
 func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 	if !p.running.CompareAndSwap(false, true) {
@@ -248,8 +252,6 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 	sticker := time.NewTicker(1 * time.Second)
 	defer sticker.Stop()
 
-	var lastRISent aurp.Packet
-
 	// Write an Open-Req packet
 	if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
 		p.logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
@@ -266,694 +268,718 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 				return
 			}
 			// Send a best-effort Router Down before returning
-			lastRISent = p.Transport.NewRDPacket(aurp.ErrCodeNormalClose)
-			if _, err := p.send(lastRISent); err != nil {
+			p.lastRISent = p.Transport.NewRDPacket(aurp.ErrCodeNormalClose)
+			if _, err := p.send(p.lastRISent); err != nil {
 				p.logger.Error("Couldn't send RD packet", "error", err)
 			}
 			return
 
 		case <-rticker.C:
-			switch p.ReceiverState() {
-			case ReceiverWaitForOpenRsp:
-				if time.Since(p.LastSend()) <= sendRetryTimer {
-					break
-				}
-				if p.SendRetries() >= sendRetryLimit {
-					p.logger.Warn("AURP Peer: Send retry limit reached while waiting for Open-Rsp, closing connection")
-					p.setRState(ReceiverUnconnected)
-					break
-				}
-
-				// Send another Open-Req
-				p.sendRetries.Add(1)
-				p.lastSend.Store(time.Now())
-				if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
-					p.logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
-					return
-				}
-
-			case ReceiverConnected:
-				// Check LHFT, send tickle?
-				if time.Since(p.LastHeardFrom()) <= lastHeardFromTimer {
-					break
-				}
-				if _, err := p.send(p.Transport.NewTicklePacket()); err != nil {
-					p.logger.Error("AURP Peer: Couldn't send Tickle", "error", err)
-					return
-				}
-				p.setRState(ReceiverWaitForTickleAck)
-				p.sendRetries.Store(0)
-				p.lastSend.Store(time.Now())
-
-			case ReceiverWaitForTickleAck:
-				if time.Since(p.LastSend()) <= sendRetryTimer {
-					break
-				}
-				if p.SendRetries() >= tickleRetryLimit {
-					p.logger.Warn("AURP Peer: Send retry limit reached while waiting for Tickle-Ack, closing connection")
-					p.setRState(ReceiverUnconnected)
-					p.RouteTable.DeleteTarget(p)
-					break
-				}
-
-				p.sendRetries.Add(1)
-				p.lastSend.Store(time.Now())
-				if _, err := p.send(p.Transport.NewTicklePacket()); err != nil {
-					p.logger.Error("AURP Peer: Couldn't send Tickle", "error", err)
-					return
-				}
-				// still in Wait For Tickle-Ack
-
-			case ReceiverWaitForRIRsp:
-				if time.Since(p.LastSend()) <= sendRetryTimer {
-					break
-				}
-				if p.SendRetries() >= sendRetryLimit {
-					p.logger.Warn("AURP Peer: Send retry limit reached while waiting for RI-Rsp, closing connection")
-					p.setRState(ReceiverUnconnected)
-					p.RouteTable.DeleteTarget(p)
-					break
-				}
-
-				// RI-Req is stateless, so we don't need to cache the one we
-				// sent earlier just to send it again
-				p.sendRetries.Add(1)
-				p.lastSend.Store(time.Now())
-				if _, err := p.send(p.Transport.NewRIReqPacket()); err != nil {
-					p.logger.Error("AURP Peer: Couldn't send RI-Req packet", "error", err)
-					return
-				}
-				// still in Wait For RI-Rsp
-
-			case ReceiverUnconnected:
-				// Data receiver is unconnected. If data sender is connected,
-				// send a null RI-Upd to check if the sender is also unconnected
-				if p.SenderState() == SenderConnected && time.Since(p.LastSend()) > sendRetryTimer {
-					if p.SendRetries() >= sendRetryLimit {
-						p.logger.Warn("AURP Peer: Send retry limit reached while probing sender connect, closing connection")
-					}
-					p.sendRetries.Add(1)
-					p.lastSend.Store(time.Now())
-					p.Transport.IncLocalSeq()
-					events := aurp.EventTuples{{
-						EventCode: aurp.EventCodeNull,
-					}}
-					lastRISent = p.Transport.NewRIUpdPacket(events)
-					if _, err := p.send(lastRISent); err != nil {
-						p.logger.Error("AURP Peer: Couldn't send RI-Upd packet: %v", "error", err)
-						return
-					}
-					p.setSState(SenderWaitForRIUpdAck)
-				}
-
-				// TODO: lift the retry logic out into main, so that if the IP changes
-				// the peersByIP map can be updated easily
-				if p.ConfiguredAddr != "" {
-					// Periodically try to reconnect, if this peer is in the config file
-					if time.Since(p.LastReconnect()) <= reconnectTimer {
-						break
-					}
-
-					// In case it's a DNS name, re-resolve it before reconnecting
-					raddr, err := net.ResolveIPAddr("ip4", p.ConfiguredAddr)
-					if err != nil {
-						p.logger.Warn("Couldn't resolve UDP address, skipping", "configured-addr", p.ConfiguredAddr, "error", err)
-						break
-					}
-					p.logger.Debug("AURP Peer: resolved address", "configured-addr", p.ConfiguredAddr, "raddr", raddr)
-					if raddr.IP.To4() == nil {
-						p.logger.Warn("Resolved peer address is not an IPv4 address, skipping", "configured-addr", p.ConfiguredAddr, "raddr", raddr)
-					}
-					p.RemoteAddr = raddr.IP
-
-					now := time.Now()
-					p.lastReconnect.Store(now)
-					p.lastSend.Store(now)
-					p.sendRetries.Store(0)
-					if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
-						p.logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
-						return
-					}
-					p.setRState(ReceiverWaitForOpenRsp)
-				}
+			if err := p.rtickerTasks(); err != nil {
+				return
 			}
 
 		case <-sticker.C:
-			switch p.SenderState() {
-			case SenderUnconnected:
-				// Do nothing
-
-			case SenderConnected:
-				if time.Since(p.LastUpdate()) <= updateTimer {
-					break
-				}
-
-				// Are there routing updates to send?
-				p.pendingEventsMu.Lock()
-				if len(p.pendingEvents) == 0 {
-					p.pendingEventsMu.Unlock()
-					break
-				}
-				// Yes - swap the slices, release the mutex, then send them
-				pending := p.pendingEvents
-				p.pendingEvents = make(aurp.EventTuples, 0, cap(pending))
-				p.pendingEventsMu.Unlock()
-
-				// TODO: eliminate events that cancel out (e.g. NA then ND)
-				// TODO: split pending events to fit within a packet
-
-				p.lastUpdate.Store(time.Now())
-				p.Transport.IncLocalSeq()
-				lastRISent = p.Transport.NewRIUpdPacket(pending)
-				if _, err := p.send(lastRISent); err != nil {
-					p.logger.Error("AURP Peer: Couldn't send RI-Upd packet", "error", err)
-					return
-				}
-				p.setSState(SenderWaitForRIUpdAck)
-
-			case SenderWaitForRIRspAck, SenderWaitForRIUpdAck:
-				if time.Since(p.LastSend()) <= sendRetryTimer {
-					break
-				}
-				if lastRISent == nil {
-					p.logger.Error("AURP Peer: sender retry: lastRISent = nil?")
-					continue
-				}
-				if p.SendRetries() >= sendRetryLimit {
-					p.logger.Warn("AURP Peer: Send retry limit reached, closing connection")
-					p.setSState(SenderUnconnected)
-					p.RouteTable.RemoveObserver(p)
-					continue
-				}
-				p.sendRetries.Add(1)
-				p.lastSend.Store(time.Now())
-				if _, err := p.send(lastRISent); err != nil {
-					p.logger.Error("AURP Peer: Couldn't re-send", "last-RI-sent-type", reflect.TypeOf(lastRISent), "error", err)
-					return
-				}
-
-			case SenderWaitForRDAck:
-				if time.Since(p.LastSend()) <= sendRetryTimer {
-					break
-				}
-				p.setSState(SenderUnconnected)
-				p.RouteTable.RemoveObserver(p)
+			if err := p.stickerTasks(); err != nil {
+				return
 			}
 
 		case pkt := <-p.ReceiveCh:
-			now := time.Now()
-			p.lastHeardFrom.Store(now)
-
-			p.addToChatLog(pkt, false /* received */)
-
-			header := pkt.AURPHeader()
-			logger := p.logger.With(
-				"conn-id", header.ConnectionID,
-				"seq", header.Sequence,
-				"cmd-code", header.CommandCode,
-				"flags", header.Flags,
-				"receiver-state", p.ReceiverState(),
-				"sender-state", p.SenderState(),
-			)
-
-			if wantConnID := p.Transport.RemoteConnID(); wantConnID != 0 {
-				if header.ConnectionID != wantConnID {
-					// "If the packet contains a connection ID that does not
-					// match that expected for the connection, the exterior
-					// outer discards the packet."
-					logger.Warn("AURP Peer: connection ID mismatch, dropping packet", "old-conn-id", wantConnID)
-					continue
-				}
-			}
-
-			switch pkt := pkt.(type) {
-			case *aurp.OpenReqPacket:
-				if sstate := p.SenderState(); sstate != SenderUnconnected {
-					logger.Warn("AURP Peer: Open-Req received but sender state is not unconnected")
-				}
-
-				// The peer tells us their connection ID in Open-Req.
-				p.Transport.SetRemoteConnID(pkt.ConnectionID)
-
-				// Formulate a response.
-				var orsp *aurp.OpenRspPacket
-				switch {
-				case pkt.Version != 1:
-					// Respond with Open-Rsp with unknown version error.
-					orsp = p.Transport.NewOpenRspPacket(0, int16(aurp.ErrCodeInvalidVersion), nil)
-
-				case len(pkt.Options) > 0:
-					// Options? OPTIONS? We don't accept no stinkin' _options_
-					orsp = p.Transport.NewOpenRspPacket(0, int16(aurp.ErrCodeOptionNegotiation), nil)
-
-				default:
-					// Accept it I guess.
-					orsp = p.Transport.NewOpenRspPacket(0, 1, nil)
-				}
-
-				if _, err := p.send(orsp); err != nil {
-					logger.Error("AURP Peer: Couldn't send Open-Rsp", "error", err)
-					return
-				}
-				if orsp.RateOrErrCode >= 0 {
-					// Data sender is successfully in connected state
-					p.setSState(SenderConnected)
-					p.RouteTable.AddObserver(p)
-				}
-
-				// If receiver is unconnected, commence connecting
-				if p.ReceiverState() == ReceiverUnconnected {
-					p.sendRetries.Store(0)
-					p.lastSend.Store(time.Now())
-					if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
-						logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
-						return
-					}
-					p.setRState(ReceiverWaitForOpenRsp)
-				}
-
-			case *aurp.OpenRspPacket:
-				if rstate := p.ReceiverState(); rstate != ReceiverWaitForOpenRsp {
-					logger.Warn("AURP Peer: Received Open-Rsp but was not waiting for one")
-				}
-				if pkt.RateOrErrCode < 0 {
-					// It's an error code.
-					logger.Warn("AURP Peer: Open-Rsp error code from peer", "code", pkt.RateOrErrCode, "error", aurp.ErrorCode(pkt.RateOrErrCode))
-					p.setRState(ReceiverUnconnected)
-					break
-				}
-				//logger.Debug("AURP Peer: Data receiver is connected!")
-				p.setRState(ReceiverConnected)
-
-				// Send an RI-Req
-				p.sendRetries.Store(0)
-				if _, err := p.send(p.Transport.NewRIReqPacket()); err != nil {
-					logger.Error("AURP Peer: Couldn't send RI-Req packet", "error", err)
-					return
-				}
-				p.setRState(ReceiverWaitForRIRsp)
-				p.Transport.ResetRemoteSeq()
-
-			case *aurp.RIReqPacket:
-				if sstate := p.SenderState(); sstate != SenderConnected {
-					logger.Warn("AURP Peer: Received RI-Req but was not expecting one")
-				}
-
-				// TODO: Load ExtraAdvertisedZones and HiddenZones
-
-				// Build up the slice of network tuples
-				var nets aurp.NetworkTuples
-
-				// TODO: filter these by HiddenZones
-				for r := range p.RouteTable.ValidRoutesForClass(TargetClassDirect) {
-					// Being direct, the best route should be the direct, and
-					// the best distance should always be 0.
-					nets = append(nets, aurp.NetworkTuple{
-						Extended:   r.Extended,
-						RangeStart: r.NetStart,
-						RangeEnd:   r.NetEnd,
-						Distance:   r.Distance,
-					})
-				}
-				// TODO: filter these by ExtraAdvertisedZones and HiddenZones
-				for r := range p.RouteTable.ValidRoutesForClass(TargetClassAppleTalkPeer) {
-					// Check this route is the best route for the network.
-					// If not, per split-horizon it should be hidden.
-					best := p.RouteTable.Lookup(r.NetStart)
-					if best.Zero() || best.Target.Class() != TargetClassAppleTalkPeer {
-						continue
-					}
-
-					// Filter routes where the metric is so high that the peer
-					// won't be able to use it
-					if best.Distance >= maxRouteDistance {
-						continue
-					}
-
-					nets = append(nets, aurp.NetworkTuple{
-						Extended:   best.Extended,
-						RangeStart: best.NetStart,
-						RangeEnd:   best.NetEnd,
-						Distance:   best.Distance,
-					})
-				}
-				p.Transport.ResetLocalSeq()
-				// TODO: Split tuples across multiple packets as required
-				lastRISent = p.Transport.NewRIRspPacket(aurp.RoutingFlagLast, nets)
-				if _, err := p.send(lastRISent); err != nil {
-					logger.Error("AURP Peer: Couldn't send RI-Rsp packet", "error", err)
-					return
-				}
-				p.setSState(SenderWaitForRIRspAck)
-
-			case *aurp.RIRspPacket:
-				if p.ReceiverState() != ReceiverWaitForRIRsp {
-					logger.Warn("Received RI-Rsp but was not waiting for one")
-				}
-
-				// Sequence number checking
-				switch seq := p.Transport.RemoteSeq(); pkt.Sequence {
-				case aurp.Pred(seq):
-					// "If the data receiver expects sequence number n and
-					// receives a packet with the sequence number n–1, that
-					// packet was delayed and is a duplicate of another packet
-					// already received. The data receiver must retransmit an
-					// RI-Ack packet, because the data sender may not have
-					// received the RI-Ack packet previously sent—that is, the
-					// RI-Ack may have been lost."
-					logger.Warn("AURP Peer: repeated RI-Rsp")
-					if _, err := p.send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, aurp.RoutingFlagSendZoneInfo)); err != nil {
-						logger.Error("AURP Peer: Couldn't send RI-Ack packet", "error", err)
-						return
-					}
-					continue
-
-				case seq:
-					// "Whenever the data receiver receives an RI-Rsp, RI-Upd,
-					// or RD packet that has the expected sequence number and
-					// connection ID..."
-					// As expected. Continue below.
-
-				case aurp.Succ(seq):
-					// If the data receiver expects sequence number n and
-					// receives a packet with the sequence number n+1, it should
-					// discard the packet and terminate the one-way connection
-					// on which it is the data receiver. Because AURP-Tr
-					// supports only one outstanding transaction at a time, the
-					// receipt of such a packet indicates that the connection is
-					// out of sync.
-
-					logger.Warn("AURP Peer: RI-Rsp out of sequence, resetting connection")
-					p.setRState(ReceiverUnconnected)
-					p.Transport.ResetRemoteSeq()
-					continue
-
-				default:
-					// "If the data receiver expects sequence number n and
-					// receives a packet with a sequence number other than n–1,
-					// n, or n+1, the packet was delayed and is a duplicate of
-					// another packet already received. The data receiver need
-					// not send an RI-Ack, because the data sender must have
-					// received an RI-Ack for that sequence number prior to
-					// sending a packet with the sequence number n–1. The data
-					// receiver should discard the packet."
-					logger.Warn("AURP Peer: RI-Rsp out of sequence, discarding packet")
-					continue
-				}
-
-				logger.Debug("AURP Peer: Learned about these networks", "networks", pkt.Networks)
-
-				for _, nt := range pkt.Networks {
-					logger := logger.With(
-						"extended", nt.Extended,
-						"net-start", nt.RangeStart,
-						"net-end", nt.RangeEnd,
-						"distance", nt.Distance,
-					)
-
-					if nt.Distance >= maxRouteDistance {
-						logger.Info("AURP Peer: RI-Rsp: skipping adding route because distance is too high")
-						break
-					}
-					_, err := p.RouteTable.UpsertRoute(
-						p,
-						nt.Extended,
-						nt.RangeStart,
-						nt.RangeEnd,
-						nt.Distance+1,
-					)
-					if err != nil {
-						logger.Error("AURP Peer: RI-Rsp: couldn't upsert a route", "error", err)
-					}
-				}
-
-				// TODO: track which networks we don't have zone info for, and
-				// only set SZI for those ?
-				if _, err := p.send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, aurp.RoutingFlagSendZoneInfo)); err != nil {
-					logger.Error("AURP Peer: Couldn't send RI-Ack packet", "error", err)
-					return
-				}
-				if pkt.Flags&aurp.RoutingFlagLast != 0 {
-					// No longer waiting for an RI-Rsp
-					p.setRState(ReceiverConnected)
-				}
-				p.Transport.IncRemoteSeq()
-
-			case *aurp.RIAckPacket:
-				switch sstate := p.SenderState(); sstate {
-				case SenderWaitForRIRspAck:
-					// We sent an RI-Rsp, this is the RI-Ack we expected.
-
-				case SenderWaitForRIUpdAck:
-					// We sent an RI-Upd, this is the RI-Ack we expected.
-
-				case SenderWaitForRDAck:
-					// We sent an RD... Why are we here?
-					continue
-
-				default:
-					logger.Warn("AURP Peer: Received RI-Ack but was not waiting for one")
-				}
-
-				p.setSState(SenderConnected)
-				p.sendRetries.Store(0)
-				p.RouteTable.AddObserver(p)
-
-				// If SZI flag is set, send ZI-Rsp (transaction)
-				if pkt.Flags&aurp.RoutingFlagSendZoneInfo != 0 {
-					// Inspect last routing info packet sent to determine
-					// networks to gather names for
-					var nets []ddp.Network
-					switch last := lastRISent.(type) {
-					case *aurp.RIRspPacket:
-						for _, nt := range last.Networks {
-							nets = append(nets, nt.RangeStart)
-						}
-
-					case *aurp.RIUpdPacket:
-						for _, et := range last.Events {
-							// Only networks that were added
-							if et.EventCode != aurp.EventCodeNA {
-								continue
-							}
-							nets = append(nets, et.RangeStart)
-						}
-
-					}
-					zones := p.RouteTable.ZonesForNetworks(nets)
-					// TODO: split ZI-Rsp packets similarly to ZIP Replies
-					if _, err := p.send(p.Transport.NewZIRspPacket(zones)); err != nil {
-						logger.Error("AURP Peer: Couldn't send ZI-Rsp packet", "error", err)
-					}
-				}
-
-				// TODO: Continue sending next RI-Rsp (streamed)?
-
-				if p.ReceiverState() == ReceiverUnconnected {
-					// Receiver is unconnected, but their receiver sent us an
-					// RI-Ack for something
-					// Try to reconnect?
-					p.sendRetries.Store(0)
-					p.lastSend.Store(time.Now())
-					if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
-						logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
-						return
-					}
-					p.setRState(ReceiverWaitForOpenRsp)
-				}
-
-			case *aurp.RIUpdPacket:
-				switch rstate := p.ReceiverState(); rstate {
-				case ReceiverConnected:
-					// Business as usual.
-
-				case ReceiverUnconnected, ReceiverWaitForOpenRsp:
-					logger.Error("AURP Peer: Got an RI-Upd while not in Connected state")
-					// Remote thinks we are connected, but we are not, or we
-					// are starting from the beginning.
-					// Try an RI-Req, jump to WaitForRIRsp state, and don't ack or use the RI-Upd.
-					if _, err := p.send(p.Transport.NewRIReqPacket()); err != nil {
-						logger.Error("AURP Peer: Couldn't send RI-Req", "error", err)
-					}
-					p.setRState(ReceiverWaitForRIRsp)
-					// restart the receiving sequence
-					p.Transport.ResetRemoteSeq()
-					continue
-
-				case ReceiverWaitForRIRsp, ReceiverWaitForTickleAck:
-					logger.Error("AURP Peer: Got an RI-Upd while not in Connected state")
-					continue
-				}
-
-				// Sequence number checking
-				// See comments in RI-Rsp block.
-				switch seq := p.Transport.RemoteSeq(); pkt.Sequence {
-				case aurp.Pred(seq):
-					logger.Warn("AURP Peer: repeated RI-Upd")
-					if _, err := p.send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, aurp.RoutingFlagSendZoneInfo)); err != nil {
-						logger.Error("AURP Peer: Couldn't send RI-Ack packet", "error", err)
-						return
-					}
-					continue
-
-				case seq:
-					// As expected. Continue below.
-
-				case aurp.Succ(seq):
-					logger.Warn("AURP Peer: RI-Upd out of sequence, resetting connection")
-					p.setRState(ReceiverUnconnected)
-					p.Transport.ResetRemoteSeq()
-					continue
-
-				default:
-					logger.Warn("AURP Peer: RI-Upd out of sequence, discarding packet")
-					continue
-				}
-
-				var ackFlag aurp.RoutingFlag
-
-				for _, et := range pkt.Events {
-					logger := logger.With(
-						"event-code", et.EventCode,
-						"extended", et.Extended,
-						"net-start", et.RangeStart,
-						"net-end", et.RangeEnd,
-						"distance", et.Distance,
-					)
-					logger.Debug("AURP Peer: RI-Upd event")
-
-					switch et.EventCode {
-					case aurp.EventCodeNull:
-						// This is a liveness test.
-						// Do nothing except respond with RI-Ack
-
-					case aurp.EventCodeNA:
-						if et.Distance >= maxRouteDistance {
-							logger.Info("AURP Peer: RI-Upd NA event: skipping adding because distance is too high")
-							break
-						}
-
-						if _, err := p.RouteTable.UpsertRoute(
-							p,
-							et.Extended,
-							et.RangeStart,
-							et.RangeEnd,
-							et.Distance+1,
-						); err != nil {
-							logger.Error("AURP Peer: RI-Upd NA event: couldn't upsert route", "error", err)
-							break
-						}
-						// Always set SZI even if we already have zones for
-						// the network, in case zones have been added since
-						// first learning about the network.
-						ackFlag = aurp.RoutingFlagSendZoneInfo
-
-					case aurp.EventCodeND:
-						if err := p.RouteTable.DeleteRoute(p, et.RangeStart); err != nil {
-							logger.Error("AURP Peer: ND event: couldn't delete route", "error", err)
-						}
-
-					case aurp.EventCodeNDC:
-						// "The exterior router that receives an NDC event with
-						// a hop count of 15 should process that event just as
-						// it would an ND event."
-						if et.Distance >= maxRouteDistance {
-							if err := p.RouteTable.DeleteRoute(p, et.RangeStart); err != nil {
-								logger.Error("AURP Peer: NDC event: couldn't delete route", "error", err)
-							}
-							break
-						}
-						if err := p.RouteTable.UpdateDistance(p, et.RangeStart, et.Distance+1); err != nil {
-							logger.Error("AURP Peer: NDC event: couldn't update route", "error", err)
-						}
-
-					case aurp.EventCodeNRC:
-						// "An exterior router sends a Network Route Change
-						// (NRC) event if the path to an exported network
-						// through its local internet changes to a path through
-						// a tunneling port, causing split-horizoned processing
-						// to eliminate that network's routing information."
-						if err := p.RouteTable.DeleteRoute(p, et.RangeStart); err != nil {
-							logger.Error("AURP Peer: NRC event: couldn't delete route", "error", err)
-						}
-					case aurp.EventCodeZC:
-						// "This event is reserved for future use."
-					}
-				}
-
-				if _, err := p.send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, ackFlag)); err != nil {
-					logger.Error("AURP Peer: Couldn't send RI-Ack", "error", err)
-					return
-				}
-				p.Transport.IncRemoteSeq()
-
-			case *aurp.RDPacket:
-				if rstate := p.ReceiverState(); rstate == ReceiverUnconnected || rstate == ReceiverWaitForOpenRsp {
-					logger.Error("AURP Peer: Received RD but was not expecting one")
-				}
-
-				// TODO: check sequence number
-				// "Whenever the data receiver receives an RI-Rsp, RI-Upd, or RD packet
-				// that has the expected sequence number and connection ID..."
-
-				logger.Info("AURP Peer: Router Down", "code", int(pkt.ErrorCode), "code-str", pkt.ErrorCode)
-				p.RouteTable.DeleteTarget(p)
-
-				// Respond with RI-Ack
-				if _, err := p.send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, 0)); err != nil {
-					logger.Error("AURP Peer: Couldn't send RI-Ack", "error", err)
-					return
-				}
-				// Connections closed
-				p.disconnect()
-
-			case *aurp.ZIReqPacket:
-				// TODO: split ZI-Rsp packets similarly to ZIP Replies
-				zones := p.RouteTable.ZonesForNetworks(pkt.Networks)
-				if _, err := p.send(p.Transport.NewZIRspPacket(zones)); err != nil {
-					logger.Error("AURP Peer: Couldn't send ZI-Rsp packet", "error", err)
-					return
-				}
-
-			case *aurp.ZIRspPacket:
-				logger.Debug("AURP Peer: Learned about these zones", "zones", pkt.Zones)
-				for _, zt := range pkt.Zones {
-					p.RouteTable.AddZonesToNetwork(zt.Network, zt.Name)
-				}
-
-			case *aurp.GDZLReqPacket:
-				if _, err := p.send(p.Transport.NewGDZLRspPacket(-1, nil)); err != nil {
-					logger.Error("AURP Peer: Couldn't send GDZL-Rsp packet", "error", err)
-					return
-				}
-
-			case *aurp.GDZLRspPacket:
-				logger.Warn("AURP Peer: Received a GDZL-Rsp, but I wouldn't have sent a GDZL-Req - so that's weird")
-
-			case *aurp.GZNReqPacket:
-				if _, err := p.send(p.Transport.NewGZNRspPacket(pkt.ZoneName, false, nil)); err != nil {
-					logger.Error("AURP Peer: Couldn't send GZN-Rsp packet", "error", err)
-					return
-				}
-
-			case *aurp.GZNRspPacket:
-				logger.Warn("AURP Peer: Received a GZN-Rsp, but I wouldn't have sent a GZN-Req - so that's weird")
-
-			case *aurp.TicklePacket:
-				// Immediately respond with Tickle-Ack
-				if _, err := p.send(p.Transport.NewTickleAckPacket()); err != nil {
-					logger.Error("AURP Peer: Couldn't send Tickle-Ack", "error", err)
-					return
-				}
-
-			case *aurp.TickleAckPacket:
-				if rstate := p.ReceiverState(); rstate != ReceiverWaitForTickleAck {
-					logger.Warn("AURP Peer: Received Tickle-Ack but was not waiting for one")
-				}
-				p.setRState(ReceiverConnected)
+			if err := p.handlePacket(pkt); err != nil {
+				return
 			}
 		}
 	}
+}
+
+func (p *AURPPeer) rtickerTasks() error {
+	switch p.ReceiverState() {
+	case ReceiverWaitForOpenRsp:
+		if time.Since(p.LastSend()) <= sendRetryTimer {
+			break
+		}
+		if p.SendRetries() >= sendRetryLimit {
+			p.logger.Warn("AURP Peer: Send retry limit reached while waiting for Open-Rsp, closing connection")
+			p.setRState(ReceiverUnconnected)
+			break
+		}
+
+		// Send another Open-Req
+		p.sendRetries.Add(1)
+		p.lastSend.Store(time.Now())
+		if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
+			p.logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
+			return err
+		}
+
+	case ReceiverConnected:
+		// Check LHFT, send tickle?
+		if time.Since(p.LastHeardFrom()) <= lastHeardFromTimer {
+			break
+		}
+		if _, err := p.send(p.Transport.NewTicklePacket()); err != nil {
+			p.logger.Error("AURP Peer: Couldn't send Tickle", "error", err)
+			return err
+		}
+		p.setRState(ReceiverWaitForTickleAck)
+		p.sendRetries.Store(0)
+		p.lastSend.Store(time.Now())
+
+	case ReceiverWaitForTickleAck:
+		if time.Since(p.LastSend()) <= sendRetryTimer {
+			break
+		}
+		if p.SendRetries() >= tickleRetryLimit {
+			p.logger.Warn("AURP Peer: Send retry limit reached while waiting for Tickle-Ack, closing connection")
+			p.setRState(ReceiverUnconnected)
+			p.RouteTable.DeleteTarget(p)
+			break
+		}
+
+		p.sendRetries.Add(1)
+		p.lastSend.Store(time.Now())
+		if _, err := p.send(p.Transport.NewTicklePacket()); err != nil {
+			p.logger.Error("AURP Peer: Couldn't send Tickle", "error", err)
+			return err
+		}
+		// still in Wait For Tickle-Ack
+
+	case ReceiverWaitForRIRsp:
+		if time.Since(p.LastSend()) <= sendRetryTimer {
+			break
+		}
+		if p.SendRetries() >= sendRetryLimit {
+			p.logger.Warn("AURP Peer: Send retry limit reached while waiting for RI-Rsp, closing connection")
+			p.setRState(ReceiverUnconnected)
+			p.RouteTable.DeleteTarget(p)
+			break
+		}
+
+		// RI-Req is stateless, so we don't need to cache the one we
+		// sent earlier just to send it again
+		p.sendRetries.Add(1)
+		p.lastSend.Store(time.Now())
+		if _, err := p.send(p.Transport.NewRIReqPacket()); err != nil {
+			p.logger.Error("AURP Peer: Couldn't send RI-Req packet", "error", err)
+			return err
+		}
+		// still in Wait For RI-Rsp
+
+	case ReceiverUnconnected:
+		// Data receiver is unconnected. If data sender is connected,
+		// send a null RI-Upd to check if the sender is also unconnected
+		if p.SenderState() == SenderConnected && time.Since(p.LastSend()) > sendRetryTimer {
+			if p.SendRetries() >= sendRetryLimit {
+				p.logger.Warn("AURP Peer: Send retry limit reached while probing sender connect, closing connection")
+			}
+			p.sendRetries.Add(1)
+			p.lastSend.Store(time.Now())
+			p.Transport.IncLocalSeq()
+			events := aurp.EventTuples{{
+				EventCode: aurp.EventCodeNull,
+			}}
+			p.lastRISent = p.Transport.NewRIUpdPacket(events)
+			if _, err := p.send(p.lastRISent); err != nil {
+				p.logger.Error("AURP Peer: Couldn't send RI-Upd packet: %v", "error", err)
+				return err
+			}
+			p.setSState(SenderWaitForRIUpdAck)
+		}
+
+		// TODO: lift the retry logic out into main, so that if the IP changes
+		// the peersByIP map can be updated easily
+		if p.ConfiguredAddr != "" {
+			// Periodically try to reconnect, if this peer is in the config file
+			if time.Since(p.LastReconnect()) <= reconnectTimer {
+				break
+			}
+
+			// In case it's a DNS name, re-resolve it before reconnecting
+			raddr, err := net.ResolveIPAddr("ip4", p.ConfiguredAddr)
+			if err != nil {
+				p.logger.Warn("Couldn't resolve UDP address, skipping", "configured-addr", p.ConfiguredAddr, "error", err)
+				break
+			}
+			p.logger.Debug("AURP Peer: resolved address", "configured-addr", p.ConfiguredAddr, "raddr", raddr)
+			if raddr.IP.To4() == nil {
+				p.logger.Warn("Resolved peer address is not an IPv4 address, skipping", "configured-addr", p.ConfiguredAddr, "raddr", raddr)
+			}
+			p.RemoteAddr = raddr.IP
+
+			now := time.Now()
+			p.lastReconnect.Store(now)
+			p.lastSend.Store(now)
+			p.sendRetries.Store(0)
+			if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
+				p.logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
+				return err
+			}
+			p.setRState(ReceiverWaitForOpenRsp)
+		}
+	}
+
+	return nil
+}
+
+func (p *AURPPeer) stickerTasks() error {
+	switch p.SenderState() {
+	case SenderUnconnected:
+		// Do nothing
+
+	case SenderConnected:
+		if time.Since(p.LastUpdate()) <= updateTimer {
+			break
+		}
+
+		// Are there routing updates to send?
+		p.pendingEventsMu.Lock()
+		if len(p.pendingEvents) == 0 {
+			p.pendingEventsMu.Unlock()
+			break
+		}
+		// Yes - swap the slices, release the mutex, then send them
+		pending := p.pendingEvents
+		p.pendingEvents = make(aurp.EventTuples, 0, cap(pending))
+		p.pendingEventsMu.Unlock()
+
+		// TODO: eliminate events that cancel out (e.g. NA then ND)
+		// TODO: split pending events to fit within a packet
+
+		p.lastUpdate.Store(time.Now())
+		p.Transport.IncLocalSeq()
+		p.lastRISent = p.Transport.NewRIUpdPacket(pending)
+		if _, err := p.send(p.lastRISent); err != nil {
+			p.logger.Error("AURP Peer: Couldn't send RI-Upd packet", "error", err)
+			return err
+		}
+		p.setSState(SenderWaitForRIUpdAck)
+
+	case SenderWaitForRIRspAck, SenderWaitForRIUpdAck:
+		if time.Since(p.LastSend()) <= sendRetryTimer {
+			break
+		}
+		if p.lastRISent == nil {
+			p.logger.Error("AURP Peer: sender retry: lastRISent = nil?")
+			break
+		}
+		if p.SendRetries() >= sendRetryLimit {
+			p.logger.Warn("AURP Peer: Send retry limit reached, closing connection")
+			p.setSState(SenderUnconnected)
+			p.RouteTable.RemoveObserver(p)
+			break
+		}
+		p.sendRetries.Add(1)
+		p.lastSend.Store(time.Now())
+		if _, err := p.send(p.lastRISent); err != nil {
+			p.logger.Error("AURP Peer: Couldn't re-send", "last-RI-sent-type", reflect.TypeOf(p.lastRISent), "error", err)
+			return err
+		}
+
+	case SenderWaitForRDAck:
+		if time.Since(p.LastSend()) <= sendRetryTimer {
+			break
+		}
+		p.setSState(SenderUnconnected)
+		p.RouteTable.RemoveObserver(p)
+	}
+
+	return nil
+}
+
+func (p *AURPPeer) handlePacket(pkt aurp.RoutingPacket) error {
+	now := time.Now()
+	p.lastHeardFrom.Store(now)
+
+	p.addToChatLog(pkt, false /* received */)
+
+	header := pkt.AURPHeader()
+	logger := p.logger.With(
+		"conn-id", header.ConnectionID,
+		"seq", header.Sequence,
+		"cmd-code", header.CommandCode,
+		"flags", header.Flags,
+		"receiver-state", p.ReceiverState(),
+		"sender-state", p.SenderState(),
+	)
+
+	// if wantConnID := p.Transport.RemoteConnID(); wantConnID != 0 {
+	// 	if header.ConnectionID != wantConnID {
+	// 		// "If the packet contains a connection ID that does not
+	// 		// match that expected for the connection, the exterior
+	// 		// outer discards the packet."
+	// 		logger.Warn("AURP Peer: connection ID mismatch, dropping packet", "old-conn-id", wantConnID)
+	// 		continue
+	// 	}
+	// }
+
+	switch pkt := pkt.(type) {
+	case *aurp.OpenReqPacket:
+		if sstate := p.SenderState(); sstate != SenderUnconnected {
+			logger.Warn("AURP Peer: Open-Req received but sender state is not unconnected")
+		}
+
+		// The peer tells us their connection ID in Open-Req.
+		p.Transport.SetRemoteConnID(pkt.ConnectionID)
+
+		// Formulate a response.
+		var orsp *aurp.OpenRspPacket
+		switch {
+		case pkt.Version != 1:
+			// Respond with Open-Rsp with unknown version error.
+			orsp = p.Transport.NewOpenRspPacket(0, int16(aurp.ErrCodeInvalidVersion), nil)
+
+		case len(pkt.Options) > 0:
+			// Options? OPTIONS? We don't accept no stinkin' _options_
+			orsp = p.Transport.NewOpenRspPacket(0, int16(aurp.ErrCodeOptionNegotiation), nil)
+
+		default:
+			// Accept it I guess.
+			orsp = p.Transport.NewOpenRspPacket(0, 1, nil)
+		}
+
+		if _, err := p.send(orsp); err != nil {
+			logger.Error("AURP Peer: Couldn't send Open-Rsp", "error", err)
+			return err
+		}
+		if orsp.RateOrErrCode >= 0 {
+			// Data sender is successfully in connected state
+			p.setSState(SenderConnected)
+			p.RouteTable.AddObserver(p)
+		}
+
+		// If receiver is unconnected, commence connecting
+		if p.ReceiverState() == ReceiverUnconnected {
+			p.sendRetries.Store(0)
+			p.lastSend.Store(time.Now())
+			if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
+				logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
+				return err
+			}
+			p.setRState(ReceiverWaitForOpenRsp)
+		}
+
+	case *aurp.OpenRspPacket:
+		if rstate := p.ReceiverState(); rstate != ReceiverWaitForOpenRsp {
+			logger.Warn("AURP Peer: Received Open-Rsp but was not waiting for one")
+		}
+		if pkt.RateOrErrCode < 0 {
+			// It's an error code.
+			logger.Warn("AURP Peer: Open-Rsp error code from peer", "code", pkt.RateOrErrCode, "error", aurp.ErrorCode(pkt.RateOrErrCode))
+			p.setRState(ReceiverUnconnected)
+			break
+		}
+		//logger.Debug("AURP Peer: Data receiver is connected!")
+		p.setRState(ReceiverConnected)
+
+		// Send an RI-Req
+		p.sendRetries.Store(0)
+		if _, err := p.send(p.Transport.NewRIReqPacket()); err != nil {
+			logger.Error("AURP Peer: Couldn't send RI-Req packet", "error", err)
+			return err
+		}
+		p.setRState(ReceiverWaitForRIRsp)
+		p.Transport.ResetRemoteSeq()
+
+	case *aurp.RIReqPacket:
+		if sstate := p.SenderState(); sstate != SenderConnected {
+			logger.Warn("AURP Peer: Received RI-Req but was not expecting one")
+		}
+
+		// TODO: Load ExtraAdvertisedZones and HiddenZones
+
+		// Build up the slice of network tuples
+		var nets aurp.NetworkTuples
+
+		// TODO: filter these by HiddenZones
+		for r := range p.RouteTable.ValidRoutesForClass(TargetClassDirect) {
+			// Being direct, the best route should be the direct, and
+			// the best distance should always be 0.
+			nets = append(nets, aurp.NetworkTuple{
+				Extended:   r.Extended,
+				RangeStart: r.NetStart,
+				RangeEnd:   r.NetEnd,
+				Distance:   r.Distance,
+			})
+		}
+		// TODO: filter these by ExtraAdvertisedZones and HiddenZones
+		for r := range p.RouteTable.ValidRoutesForClass(TargetClassAppleTalkPeer) {
+			// Check this route is the best route for the network.
+			// If not, per split-horizon it should be hidden.
+			best := p.RouteTable.Lookup(r.NetStart)
+			if best.Zero() || best.Target.Class() != TargetClassAppleTalkPeer {
+				continue
+			}
+
+			// Filter routes where the metric is so high that the peer
+			// won't be able to use it
+			if best.Distance >= maxRouteDistance {
+				continue
+			}
+
+			nets = append(nets, aurp.NetworkTuple{
+				Extended:   best.Extended,
+				RangeStart: best.NetStart,
+				RangeEnd:   best.NetEnd,
+				Distance:   best.Distance,
+			})
+		}
+		p.Transport.ResetLocalSeq()
+		// TODO: Split tuples across multiple packets as required
+		p.lastRISent = p.Transport.NewRIRspPacket(aurp.RoutingFlagLast, nets)
+		if _, err := p.send(p.lastRISent); err != nil {
+			logger.Error("AURP Peer: Couldn't send RI-Rsp packet", "error", err)
+			return err
+		}
+		p.setSState(SenderWaitForRIRspAck)
+
+	case *aurp.RIRspPacket:
+		if p.ReceiverState() != ReceiverWaitForRIRsp {
+			logger.Warn("Received RI-Rsp but was not waiting for one")
+		}
+
+		// Sequence number checking
+		switch seq := p.Transport.RemoteSeq(); pkt.Sequence {
+		case aurp.Pred(seq):
+			// "If the data receiver expects sequence number n and
+			// receives a packet with the sequence number n–1, that
+			// packet was delayed and is a duplicate of another packet
+			// already received. The data receiver must retransmit an
+			// RI-Ack packet, because the data sender may not have
+			// received the RI-Ack packet previously sent—that is, the
+			// RI-Ack may have been lost."
+			logger.Warn("AURP Peer: repeated RI-Rsp")
+			if _, err := p.send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, aurp.RoutingFlagSendZoneInfo)); err != nil {
+				logger.Error("AURP Peer: Couldn't send RI-Ack packet", "error", err)
+				return err
+			}
+			return nil
+
+		case seq:
+			// "Whenever the data receiver receives an RI-Rsp, RI-Upd,
+			// or RD packet that has the expected sequence number and
+			// connection ID..."
+			// As expected. Continue below.
+
+		case aurp.Succ(seq):
+			// If the data receiver expects sequence number n and
+			// receives a packet with the sequence number n+1, it should
+			// discard the packet and terminate the one-way connection
+			// on which it is the data receiver. Because AURP-Tr
+			// supports only one outstanding transaction at a time, the
+			// receipt of such a packet indicates that the connection is
+			// out of sync.
+
+			logger.Warn("AURP Peer: RI-Rsp out of sequence, resetting connection")
+			p.setRState(ReceiverUnconnected)
+			p.Transport.ResetRemoteSeq()
+			return nil
+
+		default:
+			// "If the data receiver expects sequence number n and
+			// receives a packet with a sequence number other than n–1,
+			// n, or n+1, the packet was delayed and is a duplicate of
+			// another packet already received. The data receiver need
+			// not send an RI-Ack, because the data sender must have
+			// received an RI-Ack for that sequence number prior to
+			// sending a packet with the sequence number n–1. The data
+			// receiver should discard the packet."
+			logger.Warn("AURP Peer: RI-Rsp out of sequence, discarding packet")
+			return nil
+		}
+
+		logger.Debug("AURP Peer: Learned about these networks", "networks", pkt.Networks)
+
+		for _, nt := range pkt.Networks {
+			logger := logger.With(
+				"extended", nt.Extended,
+				"net-start", nt.RangeStart,
+				"net-end", nt.RangeEnd,
+				"distance", nt.Distance,
+			)
+
+			if nt.Distance >= maxRouteDistance {
+				logger.Info("AURP Peer: RI-Rsp: skipping adding route because distance is too high")
+				break
+			}
+			_, err := p.RouteTable.UpsertRoute(
+				p,
+				nt.Extended,
+				nt.RangeStart,
+				nt.RangeEnd,
+				nt.Distance+1,
+			)
+			if err != nil {
+				logger.Error("AURP Peer: RI-Rsp: couldn't upsert a route", "error", err)
+			}
+		}
+
+		// TODO: track which networks we don't have zone info for, and
+		// only set SZI for those ?
+		if _, err := p.send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, aurp.RoutingFlagSendZoneInfo)); err != nil {
+			logger.Error("AURP Peer: Couldn't send RI-Ack packet", "error", err)
+			return err
+		}
+		if pkt.Flags&aurp.RoutingFlagLast != 0 {
+			// No longer waiting for an RI-Rsp
+			p.setRState(ReceiverConnected)
+		}
+		p.Transport.IncRemoteSeq()
+
+	case *aurp.RIAckPacket:
+		switch sstate := p.SenderState(); sstate {
+		case SenderWaitForRIRspAck:
+			// We sent an RI-Rsp, this is the RI-Ack we expected.
+
+		case SenderWaitForRIUpdAck:
+			// We sent an RI-Upd, this is the RI-Ack we expected.
+
+		case SenderWaitForRDAck:
+			// We sent an RD... Why are we here?
+			return nil
+
+		default:
+			logger.Warn("AURP Peer: Received RI-Ack but was not waiting for one")
+		}
+
+		p.setSState(SenderConnected)
+		p.sendRetries.Store(0)
+		p.RouteTable.AddObserver(p)
+
+		// If SZI flag is set, send ZI-Rsp (transaction)
+		if pkt.Flags&aurp.RoutingFlagSendZoneInfo != 0 {
+			// Inspect last routing info packet sent to determine
+			// networks to gather names for
+			var nets []ddp.Network
+			switch last := p.lastRISent.(type) {
+			case *aurp.RIRspPacket:
+				for _, nt := range last.Networks {
+					nets = append(nets, nt.RangeStart)
+				}
+
+			case *aurp.RIUpdPacket:
+				for _, et := range last.Events {
+					// Only networks that were added
+					if et.EventCode != aurp.EventCodeNA {
+						continue
+					}
+					nets = append(nets, et.RangeStart)
+				}
+
+			}
+			zones := p.RouteTable.ZonesForNetworks(nets)
+			// TODO: split ZI-Rsp packets similarly to ZIP Replies
+			if _, err := p.send(p.Transport.NewZIRspPacket(zones)); err != nil {
+				logger.Error("AURP Peer: Couldn't send ZI-Rsp packet", "error", err)
+			}
+		}
+
+		// TODO: Continue sending next RI-Rsp (streamed)?
+
+		if p.ReceiverState() == ReceiverUnconnected {
+			// Receiver is unconnected, but their receiver sent us an
+			// RI-Ack for something
+			// Try to reconnect?
+			p.sendRetries.Store(0)
+			p.lastSend.Store(time.Now())
+			if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
+				logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
+				return err
+			}
+			p.setRState(ReceiverWaitForOpenRsp)
+		}
+
+	case *aurp.RIUpdPacket:
+		switch rstate := p.ReceiverState(); rstate {
+		case ReceiverConnected:
+			// Business as usual.
+
+		case ReceiverUnconnected, ReceiverWaitForOpenRsp:
+			logger.Error("AURP Peer: Got an RI-Upd while not in Connected state")
+			// Remote thinks we are connected, but we are not, or we
+			// are starting from the beginning.
+			// Try an RI-Req, jump to WaitForRIRsp state, and don't ack or use the RI-Upd.
+			if _, err := p.send(p.Transport.NewRIReqPacket()); err != nil {
+				logger.Error("AURP Peer: Couldn't send RI-Req", "error", err)
+			}
+			p.setRState(ReceiverWaitForRIRsp)
+			// restart the receiving sequence
+			p.Transport.ResetRemoteSeq()
+			return nil
+
+		case ReceiverWaitForRIRsp, ReceiverWaitForTickleAck:
+			logger.Error("AURP Peer: Got an RI-Upd while not in Connected state")
+			return nil
+		}
+
+		// Sequence number checking
+		// See comments in RI-Rsp block.
+		switch seq := p.Transport.RemoteSeq(); pkt.Sequence {
+		case aurp.Pred(seq):
+			logger.Warn("AURP Peer: repeated RI-Upd")
+			if _, err := p.send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, aurp.RoutingFlagSendZoneInfo)); err != nil {
+				logger.Error("AURP Peer: Couldn't send RI-Ack packet", "error", err)
+				return err
+			}
+			return nil
+
+		case seq:
+			// As expected. Continue below.
+
+		case aurp.Succ(seq):
+			logger.Warn("AURP Peer: RI-Upd out of sequence, resetting connection")
+			p.setRState(ReceiverUnconnected)
+			p.Transport.ResetRemoteSeq()
+			return nil
+
+		default:
+			logger.Warn("AURP Peer: RI-Upd out of sequence, discarding packet")
+			return nil
+		}
+
+		var ackFlag aurp.RoutingFlag
+
+		for _, et := range pkt.Events {
+			logger := logger.With(
+				"event-code", et.EventCode,
+				"extended", et.Extended,
+				"net-start", et.RangeStart,
+				"net-end", et.RangeEnd,
+				"distance", et.Distance,
+			)
+			logger.Debug("AURP Peer: RI-Upd event")
+
+			switch et.EventCode {
+			case aurp.EventCodeNull:
+				// This is a liveness test.
+				// Do nothing except respond with RI-Ack
+
+			case aurp.EventCodeNA:
+				if et.Distance >= maxRouteDistance {
+					logger.Info("AURP Peer: RI-Upd NA event: skipping adding because distance is too high")
+					break
+				}
+
+				if _, err := p.RouteTable.UpsertRoute(
+					p,
+					et.Extended,
+					et.RangeStart,
+					et.RangeEnd,
+					et.Distance+1,
+				); err != nil {
+					logger.Error("AURP Peer: RI-Upd NA event: couldn't upsert route", "error", err)
+					break
+				}
+				// Always set SZI even if we already have zones for
+				// the network, in case zones have been added since
+				// first learning about the network.
+				ackFlag = aurp.RoutingFlagSendZoneInfo
+
+			case aurp.EventCodeND:
+				if err := p.RouteTable.DeleteRoute(p, et.RangeStart); err != nil {
+					logger.Error("AURP Peer: ND event: couldn't delete route", "error", err)
+				}
+
+			case aurp.EventCodeNDC:
+				// "The exterior router that receives an NDC event with
+				// a hop count of 15 should process that event just as
+				// it would an ND event."
+				if et.Distance >= maxRouteDistance {
+					if err := p.RouteTable.DeleteRoute(p, et.RangeStart); err != nil {
+						logger.Error("AURP Peer: NDC event: couldn't delete route", "error", err)
+					}
+					break
+				}
+				if err := p.RouteTable.UpdateDistance(p, et.RangeStart, et.Distance+1); err != nil {
+					logger.Error("AURP Peer: NDC event: couldn't update route", "error", err)
+				}
+
+			case aurp.EventCodeNRC:
+				// "An exterior router sends a Network Route Change
+				// (NRC) event if the path to an exported network
+				// through its local internet changes to a path through
+				// a tunneling port, causing split-horizoned processing
+				// to eliminate that network's routing information."
+				if err := p.RouteTable.DeleteRoute(p, et.RangeStart); err != nil {
+					logger.Error("AURP Peer: NRC event: couldn't delete route", "error", err)
+				}
+			case aurp.EventCodeZC:
+				// "This event is reserved for future use."
+			}
+		}
+
+		if _, err := p.send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, ackFlag)); err != nil {
+			logger.Error("AURP Peer: Couldn't send RI-Ack", "error", err)
+			return err
+		}
+		p.Transport.IncRemoteSeq()
+
+	case *aurp.RDPacket:
+		if rstate := p.ReceiverState(); rstate == ReceiverUnconnected || rstate == ReceiverWaitForOpenRsp {
+			logger.Error("AURP Peer: Received RD but was not expecting one")
+		}
+
+		// TODO: check sequence number
+		// "Whenever the data receiver receives an RI-Rsp, RI-Upd, or RD packet
+		// that has the expected sequence number and connection ID..."
+
+		logger.Info("AURP Peer: Router Down", "code", int(pkt.ErrorCode), "code-str", pkt.ErrorCode)
+		p.RouteTable.DeleteTarget(p)
+
+		// Respond with RI-Ack
+		if _, err := p.send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, 0)); err != nil {
+			logger.Error("AURP Peer: Couldn't send RI-Ack", "error", err)
+			return err
+		}
+		// Connections closed
+		p.disconnect()
+
+	case *aurp.ZIReqPacket:
+		// TODO: split ZI-Rsp packets similarly to ZIP Replies
+		zones := p.RouteTable.ZonesForNetworks(pkt.Networks)
+		if _, err := p.send(p.Transport.NewZIRspPacket(zones)); err != nil {
+			logger.Error("AURP Peer: Couldn't send ZI-Rsp packet", "error", err)
+			return err
+		}
+
+	case *aurp.ZIRspPacket:
+		logger.Debug("AURP Peer: Learned about these zones", "zones", pkt.Zones)
+		for _, zt := range pkt.Zones {
+			p.RouteTable.AddZonesToNetwork(zt.Network, zt.Name)
+		}
+
+	case *aurp.GDZLReqPacket:
+		if _, err := p.send(p.Transport.NewGDZLRspPacket(-1, nil)); err != nil {
+			logger.Error("AURP Peer: Couldn't send GDZL-Rsp packet", "error", err)
+			return err
+		}
+
+	case *aurp.GDZLRspPacket:
+		logger.Warn("AURP Peer: Received a GDZL-Rsp, but I wouldn't have sent a GDZL-Req - so that's weird")
+
+	case *aurp.GZNReqPacket:
+		if _, err := p.send(p.Transport.NewGZNRspPacket(pkt.ZoneName, false, nil)); err != nil {
+			logger.Error("AURP Peer: Couldn't send GZN-Rsp packet", "error", err)
+			return err
+		}
+
+	case *aurp.GZNRspPacket:
+		logger.Warn("AURP Peer: Received a GZN-Rsp, but I wouldn't have sent a GZN-Req - so that's weird")
+
+	case *aurp.TicklePacket:
+		// Immediately respond with Tickle-Ack
+		if _, err := p.send(p.Transport.NewTickleAckPacket()); err != nil {
+			logger.Error("AURP Peer: Couldn't send Tickle-Ack", "error", err)
+			return err
+		}
+
+	case *aurp.TickleAckPacket:
+		if rstate := p.ReceiverState(); rstate != ReceiverWaitForTickleAck {
+			logger.Warn("AURP Peer: Received Tickle-Ack but was not waiting for one")
+		}
+		p.setRState(ReceiverConnected)
+	}
+
+	return nil
 }
 
 func (p *AURPPeer) setRState(rstate ReceiverState) { p.rstate.Store(int32(rstate)) }
