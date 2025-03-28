@@ -797,7 +797,16 @@ func (p *AURPPeer) handleRIAck(logger *slog.Logger, pkt *aurp.RIAckPacket) error
 		return err
 	}
 
-	// TODO: check sequence number
+	// "When the data sender receives an RI-Ack, it verifies that the RI-Ack
+	// corresponds to the outstanding RI-Rsp—that is, both packets have the same
+	// connection ID and sequence number. Once the data sender has verified the
+	// information in the RI-Ack, it responds by sending the next RI-Rsp in the
+	// sequence, if any."
+	// So I think this is the most reasonable behaviour.
+	if got, want := pkt.Sequence, p.Transport.LocalSeq(); got != want {
+		logger.Warn("AURP Peer: RI-Ack out of sequence, discarding packet", "want-seq", want)
+		return nil
+	}
 
 	switch sstate := p.SenderState(); sstate {
 	case SenderWaitForRIRspAck:
@@ -1167,7 +1176,7 @@ func (p *AURPPeer) checkRemoteSeq(logger *slog.Logger, trheader *aurp.TrHeader) 
 		// RI-Ack packet, because the data sender may not have
 		// received the RI-Ack packet previously sent—that is, the
 		// RI-Ack may have been lost."
-		logger.Warn("AURP Peer: repeated routing information packet")
+		logger.Warn("AURP Peer: repeated routing information packet", "want-seq", want)
 		if _, err := p.send(p.Transport.NewRIAckPacket(trheader.ConnectionID, trheader.Sequence, aurp.RoutingFlagSendZoneInfo)); err != nil {
 			logger.Error("AURP Peer: Couldn't send RI-Ack packet", "error", err)
 			return err
@@ -1190,7 +1199,7 @@ func (p *AURPPeer) checkRemoteSeq(logger *slog.Logger, trheader *aurp.TrHeader) 
 		// receipt of such a packet indicates that the connection is
 		// out of sync."
 
-		logger.Warn("AURP Peer: routing information packet out of sequence, resetting connection")
+		logger.Warn("AURP Peer: routing information packet out of sequence, resetting connection", "want-seq", want)
 		p.setRState(ReceiverUnconnected)
 		// "When establishing a one-way connection with a given data sender, a
 		// data receiver using AURP-Tr must send an Open-Req that has a
@@ -1209,7 +1218,7 @@ func (p *AURPPeer) checkRemoteSeq(logger *slog.Logger, trheader *aurp.TrHeader) 
 		// received an RI-Ack for that sequence number prior to
 		// sending a packet with the sequence number n–1. The data
 		// receiver should discard the packet."
-		logger.Warn("AURP Peer: routing information packet out of sequence, discarding packet")
+		logger.Warn("AURP Peer: routing information packet out of sequence, discarding packet", "want-seq", want)
 		return errDropPacket
 	}
 }
