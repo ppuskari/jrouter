@@ -17,17 +17,18 @@ Home-grown alternative implementation of Apple Internet Router 3.0
 
 ## Things that used to be caveats
 
-* Previously it would listen for all EtherTalk traffic, regardless of destination.
-  Now it doesn't do that, which should help it co-exist with other routers on
-  the same host.
-* You can configure an alternate Ethernet address if you are reusing the same
+  * Previously it would listen for all EtherTalk traffic, regardless of
+  destination. Now it doesn't do that, which should help it co-exist with other
+  routers on the same host.
+  * You can configure an alternate Ethernet address if you are reusing the same
   network interface for multiple different EtherTalk software.
-* In addition to the configured EtherTalk network and zone, it now learns routes
-  and zones from other EtherTalk routers, and should share them across AURP.
-* There's a status endpoint that outputs diagnostic information about the state
-  of the server. Set the `monitoring_addr` config option and then browse to
-  `http://[your router]:[port you configured]/status` to see information about
-  the state of jrouter.
+  * In addition to the configured EtherTalk network and zone, it now learns
+  routes and zones from other EtherTalk routers, and should share them across
+  AURP.
+  * There's a status endpoint that outputs diagnostic information about the
+  state of the server. Set the `monitoring_addr` config option and then browse
+  to `http://[your router]:[port you configured]/status` to see information
+  about the state of jrouter.
 
 ## Caveats & known bugs
 
@@ -37,10 +38,8 @@ Home-grown alternative implementation of Apple Internet Router 3.0
   that it is (at best) very flaky (zones appearing and disappearing). For now I
   recommend running `jrouter` and `netatalk` on separate hosts.
 * Some packet types aren't currently split correctly to fit within limits. This
-  mainly affects routers with lots of distinct routes in the local EtherTalk
-  network.
-* The AURP implementation is about 95% complete. The main thing missing is
-  sequence number checking.
+  mainly affects routers try to that advertise lots of routes or zones.
+* The AURP implementation is about 99.5% complete.
 
 The issues in this repo should be updated as things get fixed.
 
@@ -120,13 +119,16 @@ directly.
 
 1. Install [Go](https://go.dev/dl).
 2. Run these commands (for Debian-variety Linuxen, e.g. Ubuntu, Raspbian, Mint...):
+
   ```shell
   sudo apt install git build-essential libpcap-dev
   go install drjosh.dev/jrouter@latest   # or substitute @latest with @(version) e.g. @v0.0.12
   sudo setcap 'CAP_NET_BIND_SERVICE=ep CAP_NET_RAW=ep' ~/go/bin/jrouter
   ```
+
 3. Configure `jrouter.yaml`
 4. To run:
+
   ```shell
   ~/go/bin/jrouter
   ```
@@ -139,6 +141,7 @@ Notes:
 * `NET_RAW` is needed for `jrouter` to listen for and send EtherTalk packets
 * By default `jrouter` looks for `jrouter` in the current directory. It can be
   changed with the `config` flag:
+
   ```shell
   jrouter -config /etc/jrouter/jrouter.yaml
   ```
@@ -155,6 +158,7 @@ specifically for the container.
 3.  `docker build -t jrouter .`
 
 Example `docker run` command:
+
     ```shell
     docker run \
       -v ./cfg:/etc/jrouter \
