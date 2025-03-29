@@ -69,6 +69,9 @@ type AURPPeer struct {
 	// Route table (the peer will add/remove/update routes and zones)
 	RouteTable *RouteTable
 
+	// Used to signal that the peer handler loop should attempt to reconnect.
+	reconnectCh chan struct{}
+
 	// Event tuples yet to be sent to this peer in an RI-Upd.
 	pendingEventsMu sync.Mutex
 	pendingEvents   aurp.EventTuples
@@ -277,6 +280,20 @@ func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
 			}
 			return
 
+		case <-p.reconnectCh:
+			if p.ReceiverState() != ReceiverUnconnected || time.Since(p.LastReconnect()) <= reconnectTimer {
+				continue
+			}
+			now := time.Now()
+			p.lastReconnect.Store(now)
+			p.lastSend.Store(now)
+			p.sendRetries.Store(0)
+			if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
+				p.logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
+				return
+			}
+			p.setRState(ReceiverWaitForOpenRsp)
+
 		case <-rticker.C:
 			if err := p.rtickerTasks(); err != nil {
 				return
@@ -303,7 +320,7 @@ func (p *AURPPeer) rtickerTasks() error {
 		}
 		if p.SendRetries() >= sendRetryLimit {
 			p.logger.Warn("AURP Peer: Send retry limit reached while waiting for Open-Rsp, closing connection")
-			p.setRState(ReceiverUnconnected)
+			p.disconnectReceiver()
 			break
 		}
 
@@ -334,7 +351,7 @@ func (p *AURPPeer) rtickerTasks() error {
 		}
 		if p.SendRetries() >= tickleRetryLimit {
 			p.logger.Warn("AURP Peer: Send retry limit reached while waiting for Tickle-Ack, closing connection")
-			p.setRState(ReceiverUnconnected)
+			p.disconnectReceiver()
 			p.RouteTable.DeleteTarget(p)
 			break
 		}
@@ -353,7 +370,7 @@ func (p *AURPPeer) rtickerTasks() error {
 		}
 		if p.SendRetries() >= sendRetryLimit {
 			p.logger.Warn("AURP Peer: Send retry limit reached while waiting for RI-Rsp, closing connection")
-			p.setRState(ReceiverUnconnected)
+			p.disconnectReceiver()
 			p.RouteTable.DeleteTarget(p)
 			break
 		}
@@ -388,39 +405,7 @@ func (p *AURPPeer) rtickerTasks() error {
 			}
 			p.setSState(SenderWaitForRIUpdAck)
 		}
-
-		// TODO: lift the retry logic out into main, so that if the IP changes
-		// the peersByIP map can be updated easily
-		if p.ConfiguredAddr != "" {
-			// Periodically try to reconnect, if this peer is in the config file
-			if time.Since(p.LastReconnect()) <= reconnectTimer {
-				break
-			}
-
-			// In case it's a DNS name, re-resolve it before reconnecting
-			raddr, err := net.ResolveIPAddr("ip4", p.ConfiguredAddr)
-			if err != nil {
-				p.logger.Warn("Couldn't resolve UDP address, skipping", "configured-addr", p.ConfiguredAddr, "error", err)
-				break
-			}
-			p.logger.Debug("AURP Peer: resolved address", "configured-addr", p.ConfiguredAddr, "raddr", raddr)
-			if raddr.IP.To4() == nil {
-				p.logger.Warn("Resolved peer address is not an IPv4 address, skipping", "configured-addr", p.ConfiguredAddr, "raddr", raddr)
-			}
-			p.RemoteAddr = raddr.IP
-
-			now := time.Now()
-			p.lastReconnect.Store(now)
-			p.lastSend.Store(now)
-			p.sendRetries.Store(0)
-			if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
-				p.logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
-				return err
-			}
-			p.setRState(ReceiverWaitForOpenRsp)
-		}
 	}
-
 	return nil
 }
 
@@ -641,7 +626,7 @@ func (p *AURPPeer) handleOpenRsp(logger *slog.Logger, pkt *aurp.OpenRspPacket) e
 	if pkt.RateOrErrCode < 0 {
 		// It's an error code.
 		logger.Warn("AURP Peer: Open-Rsp error code from peer", "code", pkt.RateOrErrCode, "error", aurp.ErrorCode(pkt.RateOrErrCode))
-		p.setRState(ReceiverUnconnected)
+		p.disconnectReceiver()
 		return nil
 	}
 	//logger.Debug("AURP Peer: Data receiver is connected!")
@@ -1200,13 +1185,7 @@ func (p *AURPPeer) checkRemoteSeq(logger *slog.Logger, trheader *aurp.TrHeader) 
 		// out of sync."
 
 		logger.Warn("AURP Peer: routing information packet out of sequence, resetting connection", "want-seq", want)
-		p.setRState(ReceiverUnconnected)
-		// "When establishing a one-way connection with a given data sender, a
-		// data receiver using AURP-Tr must send an Open-Req that has a
-		// different connection ID from that used in its last connection with
-		// the data sender." So change it.
-		p.Transport.LocalConnID = aurp.Succ(p.Transport.LocalConnID)
-		p.Transport.ResetRemoteSeq()
+		p.disconnectReceiver()
 		return errDropPacket
 
 	default:
@@ -1226,7 +1205,7 @@ func (p *AURPPeer) checkRemoteSeq(logger *slog.Logger, trheader *aurp.TrHeader) 
 // checkLocalConnID checks that the ConnectionID in the header matches the
 // transport's LocalConnID.
 func (p *AURPPeer) checkLocalConnID(logger *slog.Logger, trheader *aurp.TrHeader) error {
-	got, want := trheader.ConnectionID, p.Transport.LocalConnID
+	got, want := trheader.ConnectionID, p.Transport.LocalConnID()
 	// LocalConnID should always be set to something
 	if got != want {
 		// "If the packet contains a connection ID that does not
@@ -1259,13 +1238,25 @@ func (p *AURPPeer) checkRemoteConnID(logger *slog.Logger, trheader *aurp.TrHeade
 func (p *AURPPeer) setRState(rstate ReceiverState) { p.rstate.Store(int32(rstate)) }
 func (p *AURPPeer) setSState(sstate SenderState)   { p.sstate.Store(int32(sstate)) }
 
-func (p *AURPPeer) disconnect() {
-	p.Transport.ResetLocalSeq()
+func (p *AURPPeer) disconnectReceiver() {
+	// "When establishing a one-way connection with a given data sender, a
+	// data receiver using AURP-Tr must send an Open-Req that has a
+	// different connection ID from that used in its last connection with
+	// the data sender." Hence, IncLocalConnID.
 	p.Transport.ResetRemoteSeq()
-	// TODO: increment local connection ID
-	p.Transport.SetRemoteConnID(0)
+	p.Transport.IncLocalConnID()
 	p.setRState(ReceiverUnconnected)
+}
+
+func (p *AURPPeer) disconnectSender() {
+	p.Transport.ResetLocalSeq()
+	p.Transport.SetRemoteConnID(0)
 	p.setSState(SenderUnconnected)
+}
+
+func (p *AURPPeer) disconnect() {
+	p.disconnectReceiver()
+	p.disconnectSender()
 }
 
 // send encodes and sends pkt to the remote host.

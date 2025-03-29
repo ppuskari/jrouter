@@ -29,6 +29,7 @@ import (
 	"slices"
 	"sync"
 	"text/template"
+	"time"
 
 	"drjosh.dev/jrouter/aurp"
 	"drjosh.dev/jrouter/status"
@@ -40,7 +41,7 @@ type AURPPeerTable struct {
 	logger *slog.Logger
 
 	mu         sync.RWMutex
-	peersByIP  map[[4]byte]*AURPPeer
+	peersByIP  map[[4]byte]*AURPPeer // for dispatching packets
 	nextConnID uint16
 }
 
@@ -95,7 +96,9 @@ func (t *AURPPeerTable) LookupOrCreate(
 		RemoteAddr:     raddr,
 		ReceiveCh:      make(chan aurp.RoutingPacket, 1024),
 		RouteTable:     routes,
-		logger:         logger.With("raddr", raddr, "remote-di", remoteDI),
+
+		logger:      logger.With("raddr", raddr, "remote-di", remoteDI),
+		reconnectCh: make(chan struct{}, 1),
 	}
 
 	t.mu.Lock()
@@ -177,6 +180,96 @@ func bool2Int(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// PeriodicallyAttemptConnections scans the peer table every 10 seconds looking
+// for configured peers that are disconnected, and attempts to connect them.
+func (t *AURPPeerTable) PeriodicallyAttemptConnections(ctx context.Context, logger *slog.Logger, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	ctx, setStatus, _ := status.AddSimpleItem(ctx, "Periodically Attempt Connections")
+	setStatus("Running")
+	defer setStatus("Stopped!")
+
+	scanTicker := time.NewTicker(10 * time.Second)
+	defer scanTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case <-scanTicker.C:
+			// continue below
+		}
+
+		peers := func() []*AURPPeer {
+			t.mu.RLock()
+			defer t.mu.RUnlock()
+			peers := make([]*AURPPeer, 0, len(t.peersByIP))
+			for _, peer := range t.peersByIP {
+				if peer.ConfiguredAddr != "" && peer.ReceiverState() == ReceiverUnconnected {
+					peers = append(peers, peer)
+				}
+			}
+			return peers
+		}()
+
+		for _, peer := range peers {
+			t.reconnectPeer(ctx, logger, wg, peer)
+		}
+	}
+}
+
+func (t *AURPPeerTable) reconnectPeer(ctx context.Context, logger *slog.Logger, wg *sync.WaitGroup, peer *AURPPeer) error {
+	if peer.ConfiguredAddr == "" {
+		return nil
+	}
+
+	raddr, err := net.ResolveIPAddr("ip4", peer.ConfiguredAddr)
+	if err != nil {
+		logger.Warn("Couldn't resolve UDP address, skipping", "configured-addr", peer.ConfiguredAddr, "error", err)
+		return nil
+	}
+	logger.Debug("AURP Peer: resolved address", "configured-addr", peer.ConfiguredAddr, "raddr", raddr)
+	raddr4 := raddr.IP.To4()
+	if raddr4 == nil {
+		logger.Warn("Resolved peer address is not an IPv4 address, skipping", "configured-addr", peer.ConfiguredAddr, "raddr", raddr)
+		return nil
+	}
+
+	// Did it resolve to the same address?
+	if peer.RemoteAddr.Equal(raddr4) {
+		peer.reconnectCh <- struct{}{}
+		return nil
+	}
+
+	// It was a different address.
+	newPeer, err := t.LookupOrCreate(ctx, logger,
+		peer.RouteTable,
+		peer.UDPConn,
+		peer.ConfiguredAddr,
+		raddr4,
+		peer.Transport.LocalDI(),
+		peer.Transport.RemoteDI(),
+	)
+	if err != nil {
+		return err
+	}
+
+	// Make the new peer the "configured" peer.
+	newPeer.ConfiguredAddr = peer.ConfiguredAddr
+	peer.ConfiguredAddr = ""
+
+	if newPeer.Running() {
+		newPeer.reconnectCh <- struct{}{}
+		return nil
+	}
+
+	// Not running. The handle loop sends an Open-Req on startup.
+	wg.Add(1)
+	go newPeer.Handle(ctx, wg)
+	return nil
 }
 
 //go:embed chatlog.html.tmpl

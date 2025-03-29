@@ -328,6 +328,9 @@ func main() {
 	wg.Add(1)
 	go rooter.AURPInput(ctx, logger, wg, cfg, udpConn, localDI)
 
+	wg.Add(1)
+	go rooter.AURPPeers.PeriodicallyAttemptConnections(ctx, logger, wg)
+
 	// Among other things, peer handlers send outbound Open-Reqs, initiating
 	// outbound connections.
 	rooter.AURPPeers.RunAll(ctx, wg)
