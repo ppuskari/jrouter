@@ -191,6 +191,20 @@ func (p *AURPPeer) SenderState() SenderState {
 	return SenderState(p.sstate.Load())
 }
 
+// ReceiverConnected returns a simple bool reflecting whether the receiver is
+// connected.
+func (p *AURPPeer) ReceiverConnected() bool {
+	rstate := p.ReceiverState()
+	return rstate != ReceiverUnconnected && rstate != ReceiverWaitForOpenRsp
+}
+
+// SenderConnected returns a simple bool reflecting whether the sender is
+// connected.
+func (p *AURPPeer) SenderConnected() bool {
+	rstate := p.ReceiverState()
+	return rstate != ReceiverUnconnected && rstate != ReceiverWaitForOpenRsp
+}
+
 // LastReconnect returns the time of the last reconnect to this peer.
 func (p *AURPPeer) LastReconnect() time.Time {
 	return nilToZero[time.Time](p.lastReconnect.Load())
