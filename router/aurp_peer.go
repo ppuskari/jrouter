@@ -201,8 +201,8 @@ func (p *AURPPeer) ReceiverConnected() bool {
 // SenderConnected returns a simple bool reflecting whether the sender is
 // connected.
 func (p *AURPPeer) SenderConnected() bool {
-	rstate := p.ReceiverState()
-	return rstate != ReceiverUnconnected && rstate != ReceiverWaitForOpenRsp
+	sstate := p.SenderState()
+	return sstate != SenderUnconnected && sstate != SenderWaitForRDAck
 }
 
 // LastReconnect returns the time of the last reconnect to this peer.

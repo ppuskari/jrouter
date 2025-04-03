@@ -77,12 +77,12 @@ func (t *AURPPeerTable) Collect(ch chan<- prometheus.Metric) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	for _, p := range t.peersByIP {
-		rconn, sconn := 1, 1
-		if p.ReceiverState() == ReceiverUnconnected || p.ReceiverState() == ReceiverWaitForOpenRsp {
-			rconn = 0
+		rconn, sconn := 0, 0
+		if p.ReceiverConnected() {
+			rconn = 1
 		}
-		if p.SenderState() == SenderUnconnected || p.SenderState() == SenderWaitForRDAck {
-			sconn = 0
+		if p.SenderConnected() {
+			sconn = 1
 		}
 		raddr := p.RemoteAddr.String()
 		ch <- prometheus.MustNewConstMetric(

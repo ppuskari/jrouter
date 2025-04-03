@@ -298,8 +298,8 @@ const peerTableTemplate = `
 		<td>{{$peer.ConfiguredAddr}}</td>
 		<td><a href="/chatlog/{{$peer.RemoteAddr}}">{{$peer.RemoteAddr}}</a></td>
 		<td class="{{if $peer.Running}}green{{else}}red{{end}}">{{if $peer.Running}}running{{else}}stopped{{end}}</td>
-		<td class="{{if eq $peer.ReceiverState 0}}red{{else}}green{{end}}">{{$peer.ReceiverState}}</td>
-		<td class="{{if eq $peer.SenderState 0}}red{{else}}green{{end}}">{{$peer.SenderState}}</td>
+		<td class="{{if $peer.ReceiverConnected}}green{{else}}red{{end}}">{{$peer.ReceiverState}}</td>
+		<td class="{{if $peer.SenderConnected}green{{else}}red{{end}}">{{$peer.SenderState}}</td>
 		<td>{{$peer.ReceiveChLen}}</td>
 		<td>{{$peer.LastHeardFrom | ago}}</td>
 		<td>{{$peer.LastReconnect | ago}}</td>
