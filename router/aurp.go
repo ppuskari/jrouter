@@ -148,7 +148,6 @@ func (r *Router) AURPInput(ctx context.Context, logger *slog.Logger, wg *sync.Wa
 			if ddpkt.DstNode == 0 && localPort != nil { // Node 0 = any router for the network = me
 				// Is it NBP? FwdReq needs translating.
 				if ddpkt.DstSocket != 2 {
-					// Something else?? TODO
 					logger.Debug("DDP/AURP: I don't have anything 'listening' on that socket", "dst-socket", ddpkt.DstSocket)
 					continue
 				}

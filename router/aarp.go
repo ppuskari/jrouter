@@ -33,7 +33,6 @@ import (
 )
 
 const (
-	// TODO: verify parameters
 	maxAMTEntryAge        = 30 * time.Second
 	aarpRequestRetransmit = 1 * time.Second
 	aarpRequestTimeout    = 10 * time.Second
