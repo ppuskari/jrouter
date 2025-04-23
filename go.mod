@@ -7,7 +7,7 @@ require (
 	github.com/google/gopacket v1.1.19
 	github.com/lmittmann/tint v1.0.7
 	github.com/magefile/mage v1.15.0
-	github.com/prometheus/client_golang v1.21.1
+	github.com/prometheus/client_golang v1.22.0
 	github.com/sfiera/multitalk v0.2.0
 	gopkg.in/yaml.v3 v3.0.1
 )
