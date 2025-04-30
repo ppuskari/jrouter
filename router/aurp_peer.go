@@ -1054,6 +1054,12 @@ func (p *AURPPeer) handleZIRsp(logger *slog.Logger, pkt *aurp.ZIRspPacket) error
 
 	logger.Debug("AURP Peer: Learned about these zones", "zones", pkt.Zones)
 	for _, zt := range pkt.Zones {
+		// Filter out our own networks, because we manage those.
+		// (A peer that is reflecting routes is probably reflecting zones too.)
+		route := p.RouteTable.Lookup(zt.Network)
+		if route.Target != nil && route.Target.Class() == TargetClassDirect {
+			continue
+		}
 		p.RouteTable.AddZonesToNetwork(zt.Network, zt.Name)
 	}
 	return nil
