@@ -5,7 +5,7 @@ go 1.24
 require (
 	github.com/google/go-cmp v0.7.0
 	github.com/google/gopacket v1.1.19
-	github.com/lmittmann/tint v1.0.7
+	github.com/lmittmann/tint v1.1.0
 	github.com/magefile/mage v1.15.0
 	github.com/prometheus/client_golang v1.22.0
 	github.com/sfiera/multitalk v0.2.0
