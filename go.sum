@@ -113,6 +113,7 @@ github.com/goreleaser/nfpm/v2 v2.43.2/go.mod h1:gj1p1m05X1WZ/6tjngIaEPGa5H+kmhkp
 github.com/goreleaser/nfpm/v2 v2.43.3/go.mod h1:gj1p1m05X1WZ/6tjngIaEPGa5H+kmhkpSId2Tz9lX3g=
 github.com/goreleaser/nfpm/v2 v2.43.4/go.mod h1:gj1p1m05X1WZ/6tjngIaEPGa5H+kmhkpSId2Tz9lX3g=
 github.com/goreleaser/nfpm/v2 v2.44.0/go.mod h1:sLNhEIplQWuRK5QLxUsMCpkttUiM8lI1cH7rkjmziZU=
+github.com/goreleaser/nfpm/v2 v2.44.1/go.mod h1:drIYLqkla9SaOLbSnaFOmSIv5LXGfhHcbK54st97b4s=
 github.com/huandu/xstrings v1.5.0 h1:2ag3IFq9ZDANvthTwTiqSSZLjDc+BedvHPAp5tJy2TI=
 github.com/huandu/xstrings v1.5.0/go.mod h1:y5/lhBue+AyNmUVz9RLU9xbLR0o4KIIExikq4ovT0aE=
 github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=
