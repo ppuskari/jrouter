@@ -22,7 +22,7 @@ import (
 	"os"
 
 	"github.com/sfiera/multitalk/pkg/ddp"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 type Config struct {
