@@ -243,8 +243,6 @@ func main() {
 	peerCh := make(chan string)
 	for range runtime.GOMAXPROCS(0) {
 		resolverWG.Go(func() {
-			defer resolverWG.Done()
-
 			for {
 				var peerStr string
 				select {
