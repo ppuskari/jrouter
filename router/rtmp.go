@@ -182,15 +182,14 @@ func (port *EtherTalkPort) RunRTMP(ctx context.Context) (err error) {
 	first := make(chan struct{}, 1)
 	first <- struct{}{}
 
-	bcastTicker := time.NewTicker(10 * time.Second)
-	defer bcastTicker.Stop()
+	bcastTicker := time.Tick(10 * time.Second)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 
-		case <-bcastTicker.C:
+		case <-bcastTicker:
 			// continue below
 		case <-first:
 			// continue below

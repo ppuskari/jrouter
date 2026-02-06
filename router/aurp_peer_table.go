@@ -188,15 +188,14 @@ func (t *AURPPeerTable) PeriodicallyAttemptConnections(ctx context.Context, logg
 	setStatus("Running")
 	defer setStatus("Stopped!")
 
-	scanTicker := time.NewTicker(10 * time.Second)
-	defer scanTicker.Stop()
+	scanTicker := time.Tick(10 * time.Second)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 
-		case <-scanTicker.C:
+		case <-scanTicker:
 			// continue below
 		}
 

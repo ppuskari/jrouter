@@ -148,22 +148,21 @@ func (a *AARPMachine) Run(ctx context.Context) error {
 	}
 	a.mu.Unlock()
 
-	ticker := time.NewTicker(200 * time.Millisecond) // 200ms is the AARP probe retransmit
-	defer ticker.Stop()
+	ticker := time.Tick(200 * time.Millisecond) // 200ms is the AARP probe retransmit
 
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 
-		case <-ticker.C:
+		case <-ticker:
 			if a.probes >= 10 {
 				a.mu.Lock()
 				a.statusMsg = fmt.Sprintf("Assigned address %d.%d", a.myAddr.Proto.Network, a.myAddr.Proto.Node)
 				a.assigned = true
 				a.mu.Unlock()
 				close(a.assignedCh)
-				ticker.Stop()
+				ticker = nil
 				continue
 			}
 
