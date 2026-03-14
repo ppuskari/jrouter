@@ -136,6 +136,25 @@ func LoadConfig(cfgPath string) (*Config, error) {
 
 	// Check zone names
 	for _, port := range c.EtherTalk {
+		// Invalid network numbers are:
+		//
+		// 	0x0000 (0) - used for unknown or the local network
+		// 	0xff00 - 0xfffe (65280 thru 65534) - the startup range
+		// 	0xffff (65535) - probably invalid? I couldn't find anything
+		// 		talking about it in Inside AppleTalk
+		if port.NetStart > port.NetEnd {
+			validationErrs = append(validationErrs, fmt.Errorf("the network number range used for port %q is backwards (start %d > end %d)", port.Device, port.NetStart, port.NetEnd))
+		}
+		if port.NetStart == 0 || port.NetEnd == 0 {
+			validationErrs = append(validationErrs, fmt.Errorf("invalid network number 0 used for port %q", port.Device))
+		}
+		if port.NetStart == 0xffff || port.NetEnd == 0xffff {
+			validationErrs = append(validationErrs, fmt.Errorf("invalid network number 65535 used for port %q", port.Device))
+		}
+		if (port.NetStart >= 0xff00 && port.NetStart <= 0xfffe) || (port.NetEnd >= 0xff00 && port.NetEnd <= 0xfffe) {
+			validationErrs = append(validationErrs, fmt.Errorf("invalid network number range (%d - %d) used for port %q; it must not overlap the startup range (65280 - 65534)", port.NetStart, port.NetEnd, port.Device))
+		}
+
 		// 255 is the limit on available zones for a network.
 		if zoneCount := len(port.ExtraZones) + 1; zoneCount > 255 {
 			validationErrs = append(validationErrs, fmt.Errorf("too many zones (%d > 255) for port %q", zoneCount, port.Device))
