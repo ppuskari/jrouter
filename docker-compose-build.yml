@@ -1,9 +1,6 @@
 x-builder: &builder
   build:
-    dockerfile_inline: |
-      FROM golang:alpine
-      RUN --mount=type=cache,target=/var/cache/apk \
-         	apk add build-base libpcap-dev
+    dockerfile: Dockerfile-builder
   volumes:
     # Source code:
     - ".:/go/src/jrouter"

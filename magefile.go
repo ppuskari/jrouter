@@ -86,7 +86,7 @@ func LinuxBinary(arch string) error {
 	if arch == "" {
 		arch = runtime.GOARCH
 	}
-	mg.Deps(MkdirDist)
+	mg.Deps(MkdirDist, BuildCompose)
 
 	cmd := exec.Command("docker", "compose", "-f", "docker-compose-build.yml", "up", "build-"+arch)
 	cmd.Stdout = os.Stdout
@@ -96,9 +96,17 @@ func LinuxBinary(arch string) error {
 
 // Binaries builds binaries for all supported platforms (linux_{arm64,amd64}).
 func Binaries() error {
-	mg.Deps(MkdirDist)
+	mg.Deps(MkdirDist, BuildCompose)
 
 	cmd := exec.Command("docker", "compose", "-f", "docker-compose-build.yml", "up")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// BuildCompose rebuilds docker compose.
+func BuildCompose() error {
+	cmd := exec.Command("docker", "compose", "-f", "docker-compose-build.yml", "build")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
