@@ -66,6 +66,7 @@ github.com/go-git/go-git-fixtures/v4 v4.3.2-0.20231010084843-55a94097c399 h1:eMj
 github.com/go-git/go-git-fixtures/v4 v4.3.2-0.20231010084843-55a94097c399/go.mod h1:1OCfN199q1Jm3HZlxleg+Dw/mwps2Wbk9frAWm+4FII=
 github.com/go-git/go-git/v5 v5.17.1 h1:WnljyxIzSj9BRRUlnmAU35ohDsjRK0EKmL0evDqi5Jk=
 github.com/go-git/go-git/v5 v5.17.1/go.mod h1:pW/VmeqkanRFqR6AljLcs7EA7FbZaN5MQqO7oZADXpo=
+github.com/go-git/go-git/v5 v5.18.0/go.mod h1:pW/VmeqkanRFqR6AljLcs7EA7FbZaN5MQqO7oZADXpo=
 github.com/go-viper/mapstructure/v2 v2.4.0 h1:EBsztssimR/CONLSZZ04E8qAkxNYq4Qp9LvH92wZUgs=
 github.com/go-viper/mapstructure/v2 v2.4.0/go.mod h1:oJDH3BJKyqBA2TXFhDsKDGDTlndYOZ6rGS0BRZIxGhM=
 github.com/gobwas/glob v0.2.3 h1:A4xDbljILXROh+kObIiy5kIaPYD8e96x1tgBhUI5J+Y=
@@ -89,6 +90,7 @@ github.com/goreleaser/fileglob v1.4.0/go.mod h1:1pbHx7hhmJIxNZvm6fi6WVrnP0tndq6p
 github.com/goreleaser/nfpm/v2 v2.46.0 h1:tDNpWQyQZteuqoHIwLAO2Oj0oeU6ZKUi7SPoHCOlAsI=
 github.com/goreleaser/nfpm/v2 v2.46.0/go.mod h1:v4YsmytLaZHAWADynvk3/A93sOx2rOMIO48L4DCi2xA=
 github.com/goreleaser/nfpm/v2 v2.46.1/go.mod h1:A4DesiyEHGqJ2QQR83mtTU9qFO0m+IRIAZ9jtOBxsrI=
+github.com/goreleaser/nfpm/v2 v2.46.3/go.mod h1:wYKICOnvMALZcoGM20TcP9QuIV+Fb9fmLH364HyTvDQ=
 github.com/huandu/xstrings v1.5.0 h1:2ag3IFq9ZDANvthTwTiqSSZLjDc+BedvHPAp5tJy2TI=
 github.com/huandu/xstrings v1.5.0/go.mod h1:y5/lhBue+AyNmUVz9RLU9xbLR0o4KIIExikq4ovT0aE=
 github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=
