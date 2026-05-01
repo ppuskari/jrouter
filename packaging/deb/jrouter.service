@@ -1,6 +1,7 @@
 [Unit]
 Description=AURP to AppleTalk router
-After=network.target
+Wants=network-online.target
+After=network.target network-online.target
 
 [Service]
 ExecStart=/usr/bin/jrouter -config /etc/jrouter/jrouter.yaml
