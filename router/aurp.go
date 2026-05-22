@@ -33,10 +33,10 @@ import (
 )
 
 // AURPInput is a packet listening loop on a UDP connection for AURP.
-func (r *Router) AURPInput(ctx context.Context, logger *slog.Logger, wg *sync.WaitGroup, cfg *Config, udpConn *net.UDPConn, localDI aurp.DomainIdentifier) {
+func (r *Router) AURPInput(ctx context.Context, logger *slog.Logger, wg *sync.WaitGroup, udpConn *net.UDPConn, localDI aurp.DomainIdentifier) {
 	ctx, setStatus, _ := status.AddSimpleItem(ctx, "AURP inbound")
 	defer setStatus("Not running!")
-	setStatus(fmt.Sprintf("Listening on UDP port %d", cfg.ListenPort))
+	setStatus(fmt.Sprintf("Listening on UDP port %d", r.Config.ListenPort))
 
 	for {
 		if ctx.Err() != nil {
@@ -71,7 +71,7 @@ func (r *Router) AURPInput(ctx context.Context, logger *slog.Logger, wg *sync.Wa
 		logger.Debug("AURP: Read packet from peer", "pkt-type", reflect.TypeOf(pkt), "raddr", raddr, "sourceDI", dh.SourceDI)
 
 		var peer *AURPPeer
-		if cfg.OpenPeering {
+		if r.Config.OpenPeering {
 			p, err := r.AURPPeers.LookupOrCreate(ctx, logger, r.RouteTable, udpConn, "", raddr.IP, localDI, dh.SourceDI)
 			if err != nil {
 				logger.Warn("AURP: peer LookupOrCreate", "error", err)
