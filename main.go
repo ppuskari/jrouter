@@ -84,17 +84,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	localIP := net.ParseIP(cfg.LocalIP).To4()
-	if localIP == nil {
-		localIP = defaultLocalIP(logger)
+	localDI := aurp.IPDomainIdentifier(net.ParseIP(cfg.LocalIP).To4())
+	if localDI == nil {
+		localDI = defaultDomainIdentifier(logger)
 	}
-	if localIP == nil {
+	if localDI == nil {
 		logger.Error("No global unicast IPv4 addresses on any network interfaces, and no valid local_ip address in configuration")
 		os.Exit(1)
 	}
-	localDI := aurp.IPDomainIdentifier(localIP)
 
-	logger.Debug("Starting up", "localIP", localIP, "ethertalk-config", cfg.EtherTalk)
+	logger.Debug("Starting up", "local_domain_identifier", localDI, "ethertalk-config", cfg.EtherTalk)
 
 	// ----------------------------- UDP listener -----------------------------
 	//
@@ -123,6 +122,7 @@ func main() {
 		Config:     cfg,
 		RouteTable: router.NewRouteTable(ctx),
 		AURPPeers:  router.NewAURPPeerTable(ctx, logger),
+		Identity:   localDI,
 	}
 
 	// --------------------------------- HTTP ---------------------------------
@@ -153,7 +153,7 @@ func main() {
 	// Fetch the peer list from the URL (if configured), then resolve them all
 	// to IPv4 addresses.
 	fetchPeerListURL(logger, rooter)
-	resolvePeerHostnames(ctx, logger, rooter, localIP, localDI, udpConn)
+	resolvePeerHostnames(ctx, logger, rooter, udpConn)
 
 	// -------------------------- Run all the things! -------------------------
 	// main blocks on this waitgroup before exiting the program
@@ -177,7 +177,7 @@ func main() {
 	// ------------------------------- Run AURP -------------------------------
 	// This happens after adding local networks to the routing table, so that
 	// we have networks to advertise to peers before connecting to them.
-	wg.Go(func() { rooter.AURPInput(ctx, logger, wg, udpConn, localDI) })
+	wg.Go(func() { rooter.AURPInput(ctx, logger, wg, udpConn) })
 	wg.Go(func() { rooter.AURPPeers.PeriodicallyAttemptConnections(ctx, logger, wg) })
 
 	// Among other things, peer handlers send outbound Open-Reqs, initiating
@@ -188,7 +188,7 @@ func main() {
 	wg.Wait()
 }
 
-func defaultLocalIP(logger *slog.Logger) net.IP {
+func defaultDomainIdentifier(logger *slog.Logger) aurp.IPDomainIdentifier {
 	iaddrs, err := net.InterfaceAddrs()
 	if err != nil {
 		logger.Error("Couldn't read network interface addresses", "error", err)
@@ -203,11 +203,11 @@ func defaultLocalIP(logger *slog.Logger) net.IP {
 			continue
 		}
 
-		localIP := inet.IP.To4()
-		if localIP == nil {
+		ip := inet.IP.To4()
+		if ip == nil {
 			continue
 		}
-		return localIP
+		return aurp.IPDomainIdentifier(ip)
 	}
 	return nil
 }
@@ -292,7 +292,7 @@ func fetchPeerListURL(logger *slog.Logger, rooter *router.Router) {
 
 // resolvePeerHostnames resolves all the configured peer hostnames to IP
 // addresses.
-func resolvePeerHostnames(ctx context.Context, logger *slog.Logger, rooter *router.Router, localIP net.IP, localDI aurp.IPDomainIdentifier, udpConn *net.UDPConn) {
+func resolvePeerHostnames(ctx context.Context, logger *slog.Logger, rooter *router.Router, udpConn *net.UDPConn) {
 	// Resolve peers concurrently, to speed things up.
 	var resolverWG sync.WaitGroup
 	peerCh := make(chan string)
@@ -327,12 +327,12 @@ func resolvePeerHostnames(ctx context.Context, logger *slog.Logger, rooter *rout
 					continue
 				}
 
-				if raddr4.Equal(localIP) {
+				if raddr4.Equal(net.IP(rooter.Identity)) {
 					logger.Debug("Not adding self as peer", "configured-addr", peerStr, "raddr", raddr)
 					continue
 				}
 
-				if _, err := rooter.AURPPeers.LookupOrCreate(ctx, logger, rooter.RouteTable, udpConn, peerStr, raddr4, localDI, nil); err != nil {
+				if _, err := rooter.AURPPeers.LookupOrCreate(ctx, logger, rooter.RouteTable, udpConn, peerStr, raddr4, rooter.Identity, nil); err != nil {
 					logger.Warn("AURP: peer create", "error", err)
 					continue
 				}

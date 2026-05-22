@@ -21,13 +21,21 @@ import (
 	"fmt"
 	"log/slog"
 
+	"drjosh.dev/jrouter/aurp"
+
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
 // Router implements the core routing logic.
 type Router struct {
-	Logger     *slog.Logger
-	Config     *Config
+	// Utility
+	Logger *slog.Logger
+
+	// (Mostly) static configuration
+	Config   *Config
+	Identity aurp.IPDomainIdentifier // resolved from configuration or default
+
+	// Dynamic information
 	RouteTable *RouteTable
 	Ports      []*EtherTalkPort
 	AURPPeers  *AURPPeerTable
