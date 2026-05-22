@@ -63,9 +63,8 @@ func NewAURPPeerTable(ctx context.Context, logger *slog.Logger) *AURPPeerTable {
 func (t *AURPPeerTable) RunAll(ctx context.Context, wg *sync.WaitGroup) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	wg.Add(len(t.peersByIP))
 	for _, peer := range t.peersByIP {
-		go peer.Handle(ctx, wg)
+		wg.Go(func() { peer.Handle(ctx) })
 	}
 }
 
@@ -185,8 +184,6 @@ func bool2Int(b bool) int {
 // PeriodicallyAttemptConnections scans the peer table every 10 seconds looking
 // for configured peers that are disconnected, and attempts to connect them.
 func (t *AURPPeerTable) PeriodicallyAttemptConnections(ctx context.Context, logger *slog.Logger, wg *sync.WaitGroup) {
-	defer wg.Done()
-
 	ctx, setStatus, _ := status.AddSimpleItem(ctx, "Periodically Attempt Connections")
 	setStatus("Running")
 	defer setStatus("Stopped!")
@@ -267,8 +264,7 @@ func (t *AURPPeerTable) reconnectPeer(ctx context.Context, logger *slog.Logger, 
 	}
 
 	// Not running. The handle loop sends an Open-Req on startup.
-	wg.Add(1)
-	go newPeer.Handle(ctx, wg)
+	wg.Go(func() { newPeer.Handle(ctx) })
 	return nil
 }
 

@@ -302,7 +302,6 @@ func main() {
 	// main blocks on this waitgroup before exiting the program
 	//
 	wg := new(sync.WaitGroup)
-	defer wg.Wait()
 
 	// -------------------------- Run EtherTalk ports -------------------------
 	//
@@ -314,23 +313,20 @@ func main() {
 		go etPort.RunRTMP(ctx)
 
 		// Start handling packets.
-		wg.Add(2)
-		go etPort.Serve(ctx, wg)
-		go etPort.Outbox(ctx, wg)
+		wg.Go(func() { etPort.Serve(ctx) })
+		wg.Go(func() { etPort.Outbox(ctx) })
 	}
 
 	// ------------------------------- Run AURP -------------------------------
 	// This happens after adding local networks to the routing table, so that
 	// we have networks to advertise to peers before connecting to them.
-	wg.Add(1)
-	go rooter.AURPInput(ctx, logger, wg, cfg, udpConn, localDI)
-
-	wg.Add(1)
-	go rooter.AURPPeers.PeriodicallyAttemptConnections(ctx, logger, wg)
+	wg.Go(func() { rooter.AURPInput(ctx, logger, wg, cfg, udpConn, localDI) })
+	wg.Go(func() { rooter.AURPPeers.PeriodicallyAttemptConnections(ctx, logger, wg) })
 
 	// Among other things, peer handlers send outbound Open-Reqs, initiating
 	// outbound connections.
 	rooter.AURPPeers.RunAll(ctx, wg)
 
-	// Note: main now blocks on wg.Wait() deferred above.
+	// Block until the various goroutines have all returned.
+	wg.Wait()
 }

@@ -136,9 +136,7 @@ func (router *Router) NewEtherTalkPort(
 
 // Outbox runs a loop that waits for AARP resolutions to complete, and once they
 // are, transmit packets that were buffered.
-func (port *EtherTalkPort) Outbox(ctx context.Context, wg *sync.WaitGroup) {
-	defer wg.Done()
-
+func (port *EtherTalkPort) Outbox(ctx context.Context) {
 	var statusStr atomic.Value
 	statusStr.Store("Initialising")
 	ctx, _ = status.AddItem(ctx,
@@ -222,9 +220,7 @@ func (port *EtherTalkPort) Outbox(ctx context.Context, wg *sync.WaitGroup) {
 
 // Serve runs a loop that reads AARP or AppleTalk packets from the network
 // device, and handles them.
-func (port *EtherTalkPort) Serve(ctx context.Context, wg *sync.WaitGroup) {
-	defer wg.Done()
-
+func (port *EtherTalkPort) Serve(ctx context.Context) {
 	ctx, setStatus, _ := status.AddSimpleItem(ctx, "Inbound")
 	defer setStatus("EtherTalk Serve goroutine exited!")
 	setStatus(fmt.Sprintf("Listening on %s", port.device))

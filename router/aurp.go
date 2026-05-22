@@ -34,8 +34,6 @@ import (
 
 // AURPInput is a packet listening loop on a UDP connection for AURP.
 func (r *Router) AURPInput(ctx context.Context, logger *slog.Logger, wg *sync.WaitGroup, cfg *Config, udpConn *net.UDPConn, localDI aurp.DomainIdentifier) {
-	defer wg.Done()
-
 	ctx, setStatus, _ := status.AddSimpleItem(ctx, "AURP inbound")
 	defer setStatus("Not running!")
 	setStatus(fmt.Sprintf("Listening on UDP port %d", cfg.ListenPort))
@@ -99,8 +97,7 @@ func (r *Router) AURPInput(ctx context.Context, logger *slog.Logger, wg *sync.Wa
 		if !peer.Running() {
 			// Run the peer handler. It doesn't matter if it starts running
 			// concurrently.
-			wg.Add(1)
-			go peer.Handle(ctx, wg)
+			wg.Go(func() { peer.Handle(ctx) })
 		}
 
 		switch tpkt := pkt.(type) {

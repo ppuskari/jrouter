@@ -247,8 +247,7 @@ func (p *AURPPeer) DumpChatLog() []ChatLogEntry {
 // Handle handles incoming packets, maintains the connections, and runs periodic
 // tasks for this peer. It is safe to call multiple times concurrently - only
 // one will run.
-func (p *AURPPeer) Handle(ctx context.Context, wg *sync.WaitGroup) {
-	defer wg.Done()
+func (p *AURPPeer) Handle(ctx context.Context) {
 	if !p.running.CompareAndSwap(false, true) {
 		p.logger.Debug("AURP: handle loop for peer already running", "raddr", p.RemoteAddr)
 		return
