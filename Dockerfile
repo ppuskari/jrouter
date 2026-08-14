@@ -1,7 +1,7 @@
 # This Dockerfile builds the jrouter binary for itself. It's provided as a
 # simple way to build a Docker container directly without having to deal with
 # mage.
-FROM golang:1.26.5-alpine AS builder
+FROM golang:1.26.6-alpine AS builder
 WORKDIR /go/src/jrouter
 COPY . .
 RUN --mount=type=cache,target=/var/cache/apk \
