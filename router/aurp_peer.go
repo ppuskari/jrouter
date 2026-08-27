@@ -71,9 +71,16 @@ type AURPPeer struct {
 	// Used to signal that the peer handler loop should attempt to reconnect.
 	reconnectCh chan struct{}
 
-	// Event tuples yet to be sent to this peer in an RI-Upd.
+	// Best-route changes waiting to be advertised in an RI-Upd.
+	// They are coalesced by network so a peer sees at most one event for a
+	// network in each update interval.
 	pendingEventsMu sync.Mutex
-	pendingEvents   aurp.EventTuples
+	pendingEvents   map[ddp.Network]pendingAURPChange
+
+	// Remaining chunks in an ACK-gated routing-information sequence.
+	// These fields are owned by the Handle goroutine.
+	pendingRIRsp []aurp.NetworkTuples
+	pendingRIUpd []aurp.EventTuples
 
 	// The logger.
 	logger *slog.Logger
@@ -105,53 +112,65 @@ type ChatLogEntry struct {
 	Timestamp time.Time
 }
 
-func (p *AURPPeer) addPendingEvent(ec aurp.EventCode, route *Route) {
-	// Don't save up route updates happening while sender is unconnected
+func (p *AURPPeer) queueBestNetworkTransition(oldBest, newBest Route) {
+	// A fresh RI-Rsp will reconstruct the peer's view after reconnect, so
+	// updates accumulated while the sender is disconnected are unnecessary.
 	if p.SenderState() == SenderUnconnected {
 		return
 	}
-	// Don't advertise routes to AURP peers to other AURP peers
-	// NRC is effectively an ND where the route is now available by a different
-	// AURP peer
-	if _, isAURP := route.Target.(*AURPPeer); isAURP && ec != aurp.EventCodeNRC {
+
+	var netStart ddp.Network
+	switch {
+	case !oldBest.Zero():
+		netStart = oldBest.NetStart
+	case !newBest.Zero():
+		netStart = newBest.NetStart
+	default:
 		return
 	}
-	et := aurp.EventTuple{
-		EventCode:  ec,
-		Extended:   route.Extended,
-		RangeStart: route.NetStart,
-		Distance:   route.Distance,
-		RangeEnd:   route.NetEnd,
-	}
-	switch ec {
-	case aurp.EventCodeND, aurp.EventCodeNRC:
-		et.Distance = 0 // "The distance field does not apply to ND or NRC event tuples and should be set to 0."
-	}
+
 	p.pendingEventsMu.Lock()
 	defer p.pendingEventsMu.Unlock()
-	p.pendingEvents = append(p.pendingEvents, et)
+
+	if p.pendingEvents == nil {
+		p.pendingEvents = make(map[ddp.Network]pendingAURPChange)
+	}
+	change, exists := p.pendingEvents[netStart]
+	if !exists {
+		change.before = oldBest
+	}
+	change.after = newBest
+
+	// If the accumulated transition leaves the remote peer with exactly the
+	// same exported view it started with, discard it entirely.
+	if _, advertise := aurpEventForBestTransition(change.before, change.after); !advertise {
+		delete(p.pendingEvents, netStart)
+		return
+	}
+	p.pendingEvents[netStart] = change
+}
+
+func (p *AURPPeer) takePendingEvents() aurp.EventTuples {
+	p.pendingEventsMu.Lock()
+	changes := p.pendingEvents
+	p.pendingEvents = nil
+	p.pendingEventsMu.Unlock()
+	return aurpEventsForPendingChanges(changes)
 }
 
 // NetworkAdded implements RouteTableObserver.
 func (p *AURPPeer) NetworkAdded(newBest Route) {
-	p.addPendingEvent(aurp.EventCodeNA, &newBest)
+	p.queueBestNetworkTransition(Route{}, newBest)
 }
 
 // NetworkDeleted implements RouteTableObserver.
 func (p *AURPPeer) NetworkDeleted(oldBest Route) {
-	p.addPendingEvent(aurp.EventCodeND, &oldBest)
+	p.queueBestNetworkTransition(oldBest, Route{})
 }
 
 // BestNetworkChanged implements RouteTableObserver.
 func (p *AURPPeer) BestNetworkChanged(oldBest, newBest Route) {
-	switch {
-	case oldBest.Target.Class() != TargetClassAURPPeer && newBest.Target.Class() == TargetClassAURPPeer:
-		// NRC is a fancy variation on ND.
-		p.addPendingEvent(aurp.EventCodeNRC, &newBest)
-
-	case oldBest.Distance != newBest.Distance:
-		p.addPendingEvent(aurp.EventCodeNDC, &newBest)
-	}
+	p.queueBestNetworkTransition(oldBest, newBest)
 }
 
 // Forward encapsulates the DDP packet in an AURP AppleTalkPacket and sends it
@@ -419,6 +438,63 @@ func (p *AURPPeer) rtickerTasks() error {
 	return nil
 }
 
+func (p *AURPPeer) nextRIRspPacket(advanceSequence bool) (*aurp.RIRspPacket, error) {
+	if len(p.pendingRIRsp) == 0 {
+		return nil, errors.New("no RI-Rsp chunks pending")
+	}
+	if advanceSequence {
+		p.Transport.IncLocalSeq()
+	}
+
+	chunk := p.pendingRIRsp[0]
+	p.pendingRIRsp = p.pendingRIRsp[1:]
+
+	var flags aurp.RoutingFlag
+	if len(p.pendingRIRsp) == 0 {
+		flags = aurp.RoutingFlagLast
+	}
+	return p.Transport.NewRIRspPacket(flags, chunk), nil
+}
+
+func (p *AURPPeer) sendNextRIRsp(advanceSequence bool) error {
+	pkt, err := p.nextRIRspPacket(advanceSequence)
+	if err != nil {
+		return err
+	}
+	p.lastRISent = pkt
+	if _, err := p.send(pkt); err != nil {
+		return err
+	}
+	p.setSState(SenderWaitForRIRspAck)
+	return nil
+}
+
+func (p *AURPPeer) nextRIUpdPacket(advanceSequence bool) (*aurp.RIUpdPacket, error) {
+	if len(p.pendingRIUpd) == 0 {
+		return nil, errors.New("no RI-Upd chunks pending")
+	}
+	if advanceSequence {
+		p.Transport.IncLocalSeq()
+	}
+
+	chunk := p.pendingRIUpd[0]
+	p.pendingRIUpd = p.pendingRIUpd[1:]
+	return p.Transport.NewRIUpdPacket(chunk), nil
+}
+
+func (p *AURPPeer) sendNextRIUpd(advanceSequence bool) error {
+	pkt, err := p.nextRIUpdPacket(advanceSequence)
+	if err != nil {
+		return err
+	}
+	p.lastRISent = pkt
+	if _, err := p.send(pkt); err != nil {
+		return err
+	}
+	p.setSState(SenderWaitForRIUpdAck)
+	return nil
+}
+
 func (p *AURPPeer) stickerTasks() error {
 	switch p.SenderState() {
 	case SenderUnconnected:
@@ -429,28 +505,28 @@ func (p *AURPPeer) stickerTasks() error {
 			break
 		}
 
-		// Are there routing updates to send?
-		p.pendingEventsMu.Lock()
-		if len(p.pendingEvents) == 0 {
-			p.pendingEventsMu.Unlock()
+		events := p.takePendingEvents()
+		if len(events) == 0 {
 			break
 		}
-		// Yes - swap the slices, release the mutex, then send them
-		pending := p.pendingEvents
-		p.pendingEvents = make(aurp.EventTuples, 0, cap(pending))
-		p.pendingEventsMu.Unlock()
 
-		// TODO: eliminate events that cancel out (e.g. NA then ND)
-		// TODO: split pending events to fit within a packet
+		payloadBudget, err := aurpRoutingPayloadBudget(
+			p.Transport.NewRIUpdPacket(nil),
+		)
+		if err != nil {
+			return err
+		}
+		chunks, err := chunkAURPEventTuples(events, payloadBudget)
+		if err != nil {
+			return err
+		}
 
+		p.pendingRIUpd = chunks
 		p.lastUpdate.Store(time.Now())
-		p.Transport.IncLocalSeq()
-		p.lastRISent = p.Transport.NewRIUpdPacket(pending)
-		if _, err := p.send(p.lastRISent); err != nil {
+		if err := p.sendNextRIUpd(true); err != nil {
 			p.logger.Error("AURP Peer: Couldn't send RI-Upd packet", "error", err)
 			return err
 		}
-		p.setSState(SenderWaitForRIUpdAck)
 
 	case SenderWaitForRIRspAck, SenderWaitForRIUpdAck:
 		if time.Since(p.LastSend()) <= sendRetryTimer {
@@ -669,15 +745,12 @@ func (p *AURPPeer) handleRIReq(logger *slog.Logger, pkt *aurp.RIReqPacket) error
 		logger.Warn("AURP Peer: Received RI-Req but was not expecting one")
 	}
 
-	// TODO: Load ExtraAdvertisedZones and HiddenZones
-
-	// Build up the slice of network tuples
-	var nets aurp.NetworkTuples
-
-	// TODO: filter these by HiddenZones
-	for r := range p.RouteTable.ValidRoutesForClass(TargetClassDirect) {
-		// Being direct, the best route should be the direct, and
-		// the best distance should always be 0.
+	// TODO: Load ExtraAdvertisedZones and HiddenZones. The base exported route
+	// set is deliberately built in one place so initial RI-Rsp and incremental
+	// RI-Upd split-horizon policy cannot drift apart.
+	routes := p.RouteTable.aurpExportedRoutes()
+	nets := make(aurp.NetworkTuples, 0, len(routes))
+	for _, r := range routes {
 		nets = append(nets, aurp.NetworkTuple{
 			Extended:   r.Extended,
 			RangeStart: r.NetStart,
@@ -685,38 +758,39 @@ func (p *AURPPeer) handleRIReq(logger *slog.Logger, pkt *aurp.RIReqPacket) error
 			Distance:   r.Distance,
 		})
 	}
-	// TODO: filter these by ExtraAdvertisedZones and HiddenZones
-	for r := range p.RouteTable.ValidRoutesForClass(TargetClassAppleTalkPeer) {
-		// Check this route is the best route for the network.
-		// If not, per split-horizon it should be hidden.
-		best := p.RouteTable.Lookup(r.NetStart)
-		if best.Zero() || best.Target.Class() != TargetClassAppleTalkPeer {
-			continue
-		}
 
-		// Filter routes where the metric is so high that the peer
-		// won't be able to use it
-		if best.Distance >= maxRouteDistance {
-			continue
-		}
-
-		nets = append(nets, aurp.NetworkTuple{
-			Extended:   best.Extended,
-			RangeStart: best.NetStart,
-			RangeEnd:   best.NetEnd,
-			Distance:   best.Distance,
-		})
-	}
 	p.Transport.ResetLocalSeq()
-	// TODO: Split tuples across multiple packets as required
-	p.lastRISent = p.Transport.NewRIRspPacket(aurp.RoutingFlagLast, nets)
-	if _, err := p.send(p.lastRISent); err != nil {
+	payloadBudget, err := aurpRoutingPayloadBudget(
+		p.Transport.NewRIRspPacket(0, nil),
+	)
+	if err != nil {
+		return err
+	}
+	chunks, err := chunkAURPNetworkTuples(nets, payloadBudget)
+	if err != nil {
+		return err
+	}
+	p.pendingRIRsp = chunks
+
+	if err := p.sendNextRIRsp(false); err != nil {
 		logger.Error("AURP Peer: Couldn't send RI-Rsp packet", "error", err)
 		return err
 	}
-	p.setSState(SenderWaitForRIRspAck)
-
 	return nil
+}
+
+func (p *AURPPeer) applyRIRspNetworkTuple(nt aurp.NetworkTuple) (bool, error) {
+	if nt.Distance >= maxRouteDistance {
+		return false, nil
+	}
+	_, err := p.RouteTable.UpsertRoute(
+		p,
+		nt.Extended,
+		nt.RangeStart,
+		nt.RangeEnd,
+		nt.Distance+1,
+	)
+	return err == nil, err
 }
 
 func (p *AURPPeer) handleRIRsp(logger *slog.Logger, pkt *aurp.RIRspPacket) error {
@@ -751,19 +825,14 @@ func (p *AURPPeer) handleRIRsp(logger *slog.Logger, pkt *aurp.RIRspPacket) error
 			"distance", nt.Distance,
 		)
 
-		if nt.Distance >= maxRouteDistance {
-			logger.Info("AURP Peer: RI-Rsp: skipping adding route because distance is too high")
-			break
-		}
-		_, err := p.RouteTable.UpsertRoute(
-			p,
-			nt.Extended,
-			nt.RangeStart,
-			nt.RangeEnd,
-			nt.Distance+1,
-		)
+		accepted, err := p.applyRIRspNetworkTuple(nt)
 		if err != nil {
 			logger.Error("AURP Peer: RI-Rsp: couldn't upsert a route", "error", err)
+			continue
+		}
+		if !accepted {
+			logger.Info("AURP Peer: RI-Rsp: skipping route because distance is too high")
+			continue
 		}
 	}
 
@@ -792,71 +861,73 @@ func (p *AURPPeer) handleRIAck(logger *slog.Logger, pkt *aurp.RIAckPacket) error
 		return err
 	}
 
-	// "When the data sender receives an RI-Ack, it verifies that the RI-Ack
-	// corresponds to the outstanding RI-Rsp—that is, both packets have the same
-	// connection ID and sequence number. Once the data sender has verified the
-	// information in the RI-Ack, it responds by sending the next RI-Rsp in the
-	// sequence, if any."
-	// So I think this is the most reasonable behaviour.
 	if got, want := pkt.Sequence, p.Transport.LocalSeq(); got != want {
 		logger.Warn("AURP Peer: RI-Ack out of sequence, discarding packet", "want-seq", want)
 		return nil
 	}
 
-	switch sstate := p.SenderState(); sstate {
+	sstate := p.SenderState()
+	switch sstate {
 	case SenderWaitForRIRspAck:
 		// We sent an RI-Rsp, this is the RI-Ack we expected.
-
 	case SenderWaitForRIUpdAck:
 		// We sent an RI-Upd, this is the RI-Ack we expected.
-
 	case SenderWaitForRDAck:
-		// We sent an RD, this is the RI-Ack we... wait, why are we here?
 		return nil
-
 	default:
 		logger.Warn("AURP Peer: Received RI-Ack but was not waiting for one")
 	}
 
-	p.setSState(SenderConnected)
-	p.sendRetries.Store(0)
-	p.RouteTable.AddObserver(p)
-
-	// If SZI flag is set, send ZI-Rsp (transaction)
+	// If SZI is set, return zone information for the networks in the packet
+	// that was just acknowledged, before advancing a multi-packet sequence.
 	if pkt.Flags&aurp.RoutingFlagSendZoneInfo != 0 {
-		// Inspect last routing info packet sent to determine
-		// networks to gather names for
 		var nets []ddp.Network
 		switch last := p.lastRISent.(type) {
 		case *aurp.RIRspPacket:
 			for _, nt := range last.Networks {
 				nets = append(nets, nt.RangeStart)
 			}
-
 		case *aurp.RIUpdPacket:
 			for _, et := range last.Events {
-				// Only networks that were added
-				if et.EventCode != aurp.EventCodeNA {
-					continue
+				if et.EventCode == aurp.EventCodeNA {
+					nets = append(nets, et.RangeStart)
 				}
-				nets = append(nets, et.RangeStart)
 			}
-
 		}
 		zones := p.RouteTable.ZonesForNetworks(nets)
-		// TODO: split ZI-Rsp packets similarly to ZIP Replies
 		if _, err := p.send(p.Transport.NewZIRspPacket(zones)); err != nil {
 			logger.Error("AURP Peer: Couldn't send ZI-Rsp packet", "error", err)
 		}
 	}
 
-	// TODO: Continue sending next RI-Rsp (streamed)?
+	p.sendRetries.Store(0)
+
+	// AURP-Tr permits one outstanding routing-information packet. Only advance
+	// to the next chunk after the current chunk has been acknowledged.
+	switch sstate {
+	case SenderWaitForRIRspAck:
+		if len(p.pendingRIRsp) > 0 {
+			if err := p.sendNextRIRsp(true); err != nil {
+				logger.Error("AURP Peer: Couldn't send next RI-Rsp packet", "error", err)
+				return err
+			}
+			return nil
+		}
+	case SenderWaitForRIUpdAck:
+		if len(p.pendingRIUpd) > 0 {
+			if err := p.sendNextRIUpd(true); err != nil {
+				logger.Error("AURP Peer: Couldn't send next RI-Upd packet", "error", err)
+				return err
+			}
+			return nil
+		}
+	}
+
+	p.setSState(SenderConnected)
+	p.RouteTable.AddObserver(p)
 
 	if p.ReceiverState() == ReceiverUnconnected {
-		// Receiver is unconnected, but their receiver sent us an RI-Ack for
-		// something. Try to reconnect?
 		p.sendRetries.Store(0)
-		p.lastSend.Store(time.Now())
 		if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
 			logger.Error("AURP Peer: Couldn't send Open-Req packet", "error", err)
 			return err
@@ -864,6 +935,53 @@ func (p *AURPPeer) handleRIAck(logger *slog.Logger, pkt *aurp.RIAckPacket) error
 		p.setRState(ReceiverWaitForOpenRsp)
 	}
 	return nil
+}
+
+func (p *AURPPeer) applyRIUpdEvent(et aurp.EventTuple) (bool, error) {
+	switch et.EventCode {
+	case aurp.EventCodeNull, aurp.EventCodeZC:
+		return false, nil
+
+	case aurp.EventCodeNA:
+		if et.Distance >= maxRouteDistance {
+			return false, nil
+		}
+		_, err := p.RouteTable.UpsertRoute(
+			p, et.Extended, et.RangeStart, et.RangeEnd, et.Distance+1,
+		)
+		return err == nil, err
+
+	case aurp.EventCodeND, aurp.EventCodeNRC:
+		// RFC 1504 says an ND or NRC for an unknown network is ignored.
+		if p.RouteTable.find(p, et.RangeStart).Zero() {
+			return false, nil
+		}
+		return false, p.RouteTable.DeleteRoute(p, et.RangeStart)
+
+	case aurp.EventCodeNDC:
+		existing := p.RouteTable.find(p, et.RangeStart)
+
+		// A distance of 15 is processed as a deletion.
+		if et.Distance >= maxRouteDistance {
+			if existing.Zero() {
+				return false, nil
+			}
+			return false, p.RouteTable.DeleteRoute(p, et.RangeStart)
+		}
+
+		// RFC 1504 says an NDC for an unknown network is processed as an NA.
+		if existing.Zero() {
+			_, err := p.RouteTable.UpsertRoute(
+				p, et.Extended, et.RangeStart, et.RangeEnd, et.Distance+1,
+			)
+			return err == nil, err
+		}
+
+		return false, p.RouteTable.UpdateDistance(
+			p, et.RangeStart, et.Distance+1,
+		)
+	}
+	return false, nil
 }
 
 func (p *AURPPeer) handleRIUpd(logger *slog.Logger, pkt *aurp.RIUpdPacket) error {
@@ -918,62 +1036,13 @@ func (p *AURPPeer) handleRIUpd(logger *slog.Logger, pkt *aurp.RIUpdPacket) error
 		)
 		logger.Debug("AURP Peer: RI-Upd event")
 
-		switch et.EventCode {
-		case aurp.EventCodeNull:
-			// This is a liveness test.
-			// Do nothing except respond with RI-Ack
-
-		case aurp.EventCodeNA:
-			if et.Distance >= maxRouteDistance {
-				logger.Info("AURP Peer: RI-Upd NA event: skipping adding because distance is too high")
-				break
-			}
-
-			if _, err := p.RouteTable.UpsertRoute(
-				p,
-				et.Extended,
-				et.RangeStart,
-				et.RangeEnd,
-				et.Distance+1,
-			); err != nil {
-				logger.Error("AURP Peer: RI-Upd NA event: couldn't upsert route", "error", err)
-				break
-			}
-			// Always set SZI even if we already have zones for
-			// the network, in case zones have been added since
-			// first learning about the network.
+		needZoneInfo, err := p.applyRIUpdEvent(et)
+		if err != nil {
+			logger.Error("AURP Peer: RI-Upd event couldn't be applied", "error", err)
+			continue
+		}
+		if needZoneInfo {
 			ackFlag = aurp.RoutingFlagSendZoneInfo
-
-		case aurp.EventCodeND:
-			if err := p.RouteTable.DeleteRoute(p, et.RangeStart); err != nil {
-				logger.Error("AURP Peer: ND event: couldn't delete route", "error", err)
-			}
-
-		case aurp.EventCodeNDC:
-			// "The exterior router that receives an NDC event with
-			// a hop count of 15 should process that event just as
-			// it would an ND event."
-			if et.Distance >= maxRouteDistance {
-				if err := p.RouteTable.DeleteRoute(p, et.RangeStart); err != nil {
-					logger.Error("AURP Peer: NDC event: couldn't delete route", "error", err)
-				}
-				break
-			}
-			if err := p.RouteTable.UpdateDistance(p, et.RangeStart, et.Distance+1); err != nil {
-				logger.Error("AURP Peer: NDC event: couldn't update route", "error", err)
-			}
-
-		case aurp.EventCodeNRC:
-			// "An exterior router sends a Network Route Change
-			// (NRC) event if the path to an exported network
-			// through its local internet changes to a path through
-			// a tunneling port, causing split-horizoned processing
-			// to eliminate that network's routing information."
-			if err := p.RouteTable.DeleteRoute(p, et.RangeStart); err != nil {
-				logger.Error("AURP Peer: NRC event: couldn't delete route", "error", err)
-			}
-		case aurp.EventCodeZC:
-			// "This event is reserved for future use."
 		}
 	}
 
@@ -1267,6 +1336,11 @@ func (p *AURPPeer) disconnectReceiver() {
 func (p *AURPPeer) disconnectSender() {
 	p.Transport.ResetLocalSeq()
 	p.Transport.SetRemoteConnID(0)
+	p.pendingRIRsp = nil
+	p.pendingRIUpd = nil
+	p.pendingEventsMu.Lock()
+	p.pendingEvents = nil
+	p.pendingEventsMu.Unlock()
 	p.setSState(SenderUnconnected)
 }
 
@@ -1292,6 +1366,7 @@ func (p *AURPPeer) send(pkt aurp.Packet) (int, error) {
 	aurpBytesOutCounter.With(promLabels).Add(float64(b.Len()))
 
 	p.logger.Debug("AURP Peer: Sending", "pkt-type", reflect.TypeOf(pkt), "length", b.Len())
+	p.lastSend.Store(time.Now())
 	return p.UDPConn.WriteToUDP(b.Bytes(), &net.UDPAddr{IP: p.RemoteAddr, Port: 387})
 }
 
