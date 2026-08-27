@@ -27,3 +27,13 @@ jobs:
         run: go test -race ./router ./aurp
       - name: Build all packages
         run: go build ./...
+      - name: Build Linux amd64 test binary
+        run: |
+          mkdir -p dist
+          go build -o dist/jrouter-fix5-linux-amd64 .
+      - name: Upload Linux amd64 test binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: jrouter-fix5-linux-amd64
+          path: dist/jrouter-fix5-linux-amd64
+          if-no-files-found: error
