@@ -1,0 +1,29 @@
+name: AURP Fix-5 Test Build
+
+on:
+  push:
+    branches:
+      - petar/aurp-fix5-testbuild-20260826
+  pull_request:
+    branches:
+      - petar/aurp-routing-baseline
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install libpcap headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpcap-dev
+      - name: Unit tests
+        run: go test ./...
+      - name: Race tests for routing packages
+        run: go test -race ./router ./aurp
+      - name: Build all packages
+        run: go build ./...
