@@ -243,8 +243,10 @@ func createEtherTalkPorts(logger *slog.Logger, rooter *router.Router) {
 			logger.Error("Couldn't set BPF filter on packet capture", "error", err)
 			os.Exit(1)
 		}
-		defer handle.Close()
-
+		// Do not close the pcap handle here. The EtherTalkPort owns it for
+		// the lifetime of the router; closing it when this helper returns leaves
+		// AARP/RTMP/Serve with a dead native handle and can crash in
+		// pcap_sendpacket on the first AARP probe.
 		zones := router.MakeSet(etcfg.DefaultZoneName)
 		zones.Insert(etcfg.ExtraZones...)
 
