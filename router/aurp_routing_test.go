@@ -135,8 +135,12 @@ func TestAURPExportedRoutesUseBestLocalView(t *testing.T) {
 	}
 
 	got := rt.aurpExportedRoutes()
-	if len(got) != 2 || got[0].NetStart != 100 || got[1].NetStart != 400 {
-		t.Fatalf("exported starts = %v, want [100 400]", []ddp.Network{got[0].NetStart, got[1].NetStart})
+	if len(got) != 2 {
+		t.Fatalf("exported route count = %d, want 2; routes=%v", len(got), got)
+	}
+	if got[0].NetStart != 100 || got[1].NetStart != 400 {
+		t.Fatalf("exported starts = %v, want [100 400]",
+			[]ddp.Network{got[0].NetStart, got[1].NetStart})
 	}
 }
 

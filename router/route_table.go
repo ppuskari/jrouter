@@ -200,13 +200,13 @@ func (rt *RouteTable) DeleteRoute(target RouteTarget, netStart ddp.Network) erro
 		NetStart:  netStart,
 	}
 
-	// Lookup the old best route for the network for comparisons.
+	// Capture the old best route for observer comparisons. It may be zero
+	// even though the specific stored route exists (for example, an AURP
+	// route learned before its zone information arrives).
 	oldBest := rt.Lookup(netStart)
-	if oldBest.Zero() {
-		return fmt.Errorf("network %d not found", netStart)
-	}
 
-	// Find and delete the route from byClass
+	// Find and delete the route from byClass. Existence of the requested route,
+	// not current routability, determines whether DeleteRoute may proceed.
 	route, exists := func() (Route, bool) {
 		rt.byClassMu[class].Lock()
 		defer rt.byClassMu[class].Unlock()
@@ -255,10 +255,10 @@ func (rt *RouteTable) UpdateDistance(target RouteTarget, netStart ddp.Network, d
 		return fmt.Errorf("route distance too high (%d > %d)", distance, maxRouteDistance)
 	}
 
+	// The route can legitimately exist before it is valid for Lookup (notably
+	// while AURP zone information is still pending), so find the stored route
+	// independently from the old best route.
 	oldBest := rt.Lookup(netStart)
-	if oldBest.Zero() {
-		return fmt.Errorf("network %d not found", netStart)
-	}
 
 	oldRoute := rt.find(target, netStart)
 	if oldRoute.Zero() {
