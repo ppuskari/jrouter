@@ -12,10 +12,10 @@ import (
 
 func newTestAURPPeerTable() *AURPPeerTable {
 	return &AURPPeerTable{
-		logger:             slog.New(slog.NewTextHandler(io.Discard, nil)),
-		peersByIP:          make(map[[4]byte]*AURPPeer),
-		peersByConfigured:  make(map[string]*AURPPeer),
-		nextConnID:         1,
+		logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+		peersByIP:         make(map[[4]byte]*AURPPeer),
+		peersByConfigured: make(map[string]*AURPPeer),
+		nextConnID:        1,
 	}
 }
 
