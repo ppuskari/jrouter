@@ -101,7 +101,8 @@ type AURPPeer struct {
 	chatLog   []ChatLogEntry
 
 	// Other bits of internal state
-	lastRISent aurp.RoutingPacket
+	lastRISent   aurp.RoutingPacket
+	restartProbe bool
 }
 
 // ChatLogEntry is a record of a packet either sent or received and a timestamp.
@@ -537,6 +538,16 @@ func (p *AURPPeer) stickerTasks() error {
 			break
 		}
 		if p.SendRetries() >= sendRetryLimit {
+			if p.restartProbe {
+				p.logger.Warn(
+					"AURP Peer: restarted-peer probe failed; closing old sender connection",
+					"remote-conn-id", p.Transport.RemoteConnID(),
+				)
+				p.RouteTable.RemoveObserver(p)
+				p.disconnectSender()
+				break
+			}
+
 			p.logger.Warn("AURP Peer: Send retry limit reached, closing connection")
 			p.setSState(SenderUnconnected)
 			p.RouteTable.RemoveObserver(p)
@@ -632,25 +643,84 @@ func (p *AURPPeer) handleOpenReq(logger *slog.Logger, pkt *aurp.OpenReqPacket) e
 	// We are: sender
 	// They are: receiver
 
-	if sstate := p.SenderState(); sstate != SenderUnconnected {
-		logger.Warn("AURP Peer: Open-Req received but sender state is not unconnected")
-	}
+	sstate := p.SenderState()
+	currentConnID := p.Transport.RemoteConnID()
 
-	// TODO: implement the following
-	//
-	// "If a data sender receives an Open-Req from an exterior router with which
-	// it already has a connection and the connection ID does not match that for
-	// the connection already established, it should not discard the packet
-	// without verifying whether the connection is still active. The receipt of
-	// such a packet may indicate that the data receiver on the connection has
-	// been restarted and has opened a new one-way connection, without first
-	// terminating its original connection. The exterior router acting as the
-	// data sender should send a null RI-Upd over the connection to determine
-	// whether it is still active. If the data sender receives an RI-Ack in
-	// response to the null RI-Upd, it discards the Open-Req and the original
-	// connection remains active. If the data sender receives no RI-Ack after
-	// retransmitting the null RI-Upd, it closes the original connection, then
-	// sends an Open-Rsp to the next Open-Req received."
+	if sstate != SenderUnconnected {
+		if currentConnID == 0 {
+			logger.Warn(
+				"AURP Peer: active sender has no remote connection ID; dropping Open-Req",
+				"sender-state", sstate,
+				"new-conn-id", pkt.ConnectionID,
+			)
+			return nil
+		}
+
+		if pkt.ConnectionID == currentConnID {
+			// A repeated Open-Req with the established connection ID
+			// can mean our earlier Open-Rsp was lost. Re-send it only
+			// when no routing-information transaction is outstanding.
+			if sstate != SenderConnected {
+				logger.Warn(
+					"AURP Peer: duplicate Open-Req while sender transaction is outstanding; dropping",
+					"sender-state", sstate,
+					"conn-id", pkt.ConnectionID,
+				)
+				return nil
+			}
+
+			logger.Info(
+				"AURP Peer: duplicate Open-Req for existing sender connection; re-sending Open-Rsp",
+				"conn-id", pkt.ConnectionID,
+			)
+		} else {
+			// RFC 1504 restarted-peer reconciliation.
+			//
+			// A different connection ID may mean the remote data
+			// receiver restarted without closing its old one-way
+			// connection. Before accepting the replacement, send a
+			// Null RI-Upd over the OLD connection.
+			if sstate != SenderConnected {
+				logger.Warn(
+					"AURP Peer: replacement Open-Req deferred while routing transaction is outstanding",
+					"sender-state", sstate,
+					"current-conn-id", currentConnID,
+					"new-conn-id", pkt.ConnectionID,
+				)
+				return nil
+			}
+
+			p.sendRetries.Store(0)
+			p.Transport.IncLocalSeq()
+			p.restartProbe = true
+			p.lastRISent = p.Transport.NewRIUpdPacket(
+				aurp.EventTuples{{
+					EventCode: aurp.EventCodeNull,
+				}},
+			)
+			p.lastSend.Store(time.Now())
+
+			if _, err := p.send(p.lastRISent); err != nil {
+				p.restartProbe = false
+				p.lastRISent = nil
+				logger.Error(
+					"AURP Peer: couldn't send restarted-peer probe",
+					"error", err,
+				)
+				return err
+			}
+
+			p.setSState(SenderWaitForRIUpdAck)
+
+			logger.Info(
+				"AURP Peer: probing existing sender connection before accepting replacement Open-Req",
+				"current-conn-id", currentConnID,
+				"new-conn-id", pkt.ConnectionID,
+			)
+
+			return nil
+		}
+	}
 
 	// The peer tells us their connection ID in Open-Req.
 	p.Transport.SetRemoteConnID(pkt.ConnectionID)
@@ -872,6 +942,18 @@ func (p *AURPPeer) handleRIAck(logger *slog.Logger, pkt *aurp.RIAckPacket) error
 		// We sent an RI-Rsp, this is the RI-Ack we expected.
 	case SenderWaitForRIUpdAck:
 		// We sent an RI-Upd, this is the RI-Ack we expected.
+		if p.restartProbe {
+			p.sendRetries.Store(0)
+			p.restartProbe = false
+			p.lastRISent = nil
+			p.setSState(SenderConnected)
+
+			logger.Info(
+				"AURP Peer: restarted-peer probe acknowledged; keeping existing sender connection",
+				"remote-conn-id", p.Transport.RemoteConnID(),
+			)
+			return nil
+		}
 	case SenderWaitForRDAck:
 		return nil
 	default:
@@ -1240,11 +1322,11 @@ func (p *AURPPeer) checkRemoteSeq(logger *slog.Logger, trheader *aurp.TrHeader) 
 	switch got, want := trheader.Sequence, p.Transport.RemoteSeq(); got {
 	case aurp.Pred(want):
 		// "If the data receiver expects sequence number n and
-		// receives a packet with the sequence number n–1, that
+		// receives a packet with the sequence number nΓÇô1, that
 		// packet was delayed and is a duplicate of another packet
 		// already received. The data receiver must retransmit an
 		// RI-Ack packet, because the data sender may not have
-		// received the RI-Ack packet previously sent—that is, the
+		// received the RI-Ack packet previously sentΓÇöthat is, the
 		// RI-Ack may have been lost."
 		logger.Warn("AURP Peer: repeated routing information packet", "want-seq", want)
 		if _, err := p.send(p.Transport.NewRIAckPacket(trheader.ConnectionID, trheader.Sequence, aurp.RoutingFlagSendZoneInfo)); err != nil {
@@ -1275,12 +1357,12 @@ func (p *AURPPeer) checkRemoteSeq(logger *slog.Logger, trheader *aurp.TrHeader) 
 
 	default:
 		// "If the data receiver expects sequence number n and
-		// receives a packet with a sequence number other than n–1,
+		// receives a packet with a sequence number other than nΓÇô1,
 		// n, or n+1, the packet was delayed and is a duplicate of
 		// another packet already received. The data receiver need
 		// not send an RI-Ack, because the data sender must have
 		// received an RI-Ack for that sequence number prior to
-		// sending a packet with the sequence number n–1. The data
+		// sending a packet with the sequence number nΓÇô1. The data
 		// receiver should discard the packet."
 		logger.Warn("AURP Peer: routing information packet out of sequence, discarding packet", "want-seq", want)
 		return errDropPacket
@@ -1338,6 +1420,8 @@ func (p *AURPPeer) disconnectSender() {
 	p.Transport.SetRemoteConnID(0)
 	p.pendingRIRsp = nil
 	p.pendingRIUpd = nil
+	p.lastRISent = nil
+	p.restartProbe = false
 	p.pendingEventsMu.Lock()
 	p.pendingEvents = nil
 	p.pendingEventsMu.Unlock()
