@@ -64,7 +64,9 @@ func aurpEventForBestTransition(before, after Route) (aurp.EventTuple, bool) {
 		return aurpEventTupleFromRoute(aurp.EventCodeNA, after), true
 
 	case beforeAdvertised && afterAdvertised:
-		if before.Distance != after.Distance {
+		if before.Distance != after.Distance ||
+			before.Extended != after.Extended ||
+			before.NetEnd != after.NetEnd {
 			return aurpEventTupleFromRoute(aurp.EventCodeNDC, after), true
 		}
 		return aurp.EventTuple{}, false
