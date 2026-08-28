@@ -256,9 +256,9 @@ func TestAURPRoutingPacketSequences(t *testing.T) {
 func TestAURPInconsistentUpdateHandling(t *testing.T) {
 	rt := NewRouteTable(t.Context())
 	p := &AURPPeer{
-		RemoteAddr: net.IPv4(10, 1, 2, 3),
 		RouteTable: rt,
 	}
+	p.setRemoteAddr(net.IPv4(10, 1, 2, 3))
 
 	needZI, err := p.applyRIUpdEvent(aurp.EventTuple{
 		EventCode:  aurp.EventCodeNDC,
