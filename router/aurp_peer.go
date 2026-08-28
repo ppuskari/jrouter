@@ -287,7 +287,6 @@ func (p *AURPPeer) SendRetries() int {
 	return int(p.sendRetries.Load())
 }
 
-
 // LastSuccess returns the time of the last complete RI-Rsp exchange.
 func (p *AURPPeer) LastSuccess() time.Time {
 	return nilToZero[time.Time](p.lastSuccess.Load())
