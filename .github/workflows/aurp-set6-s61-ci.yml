@@ -1,4 +1,4 @@
-name: AURP Set-6 S6.1 Test Build
+name: AURP Set-6 Test Build
 
 on:
   push:
@@ -9,16 +9,20 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
+
       - name: Install libpcap headers
         run: |
           sudo apt-get update
           sudo apt-get install -y libpcap-dev
+
       - name: Go format check
         run: |
           files="$(gofmt -l .)"
@@ -30,22 +34,30 @@ jobs:
             gofmt -d $files
             exit 1
           fi
+
       - name: Unit tests
         run: go test ./...
+
       - name: Race tests for routing packages
         run: go test -race ./router ./aurp
+
+      - name: Set-6 routing stress
+        run: go test ./router ./aurp -count=25
+
       - name: Build all packages
         run: go build ./...
-      - name: Build Linux amd64 S6.1 binary
+
+      - name: Build Linux amd64 Set-6 binary
         run: |
           mkdir -p dist
-          GOOS=linux GOARCH=amd64 go build -o dist/jrouter-set6-s61-linux-amd64 .
-          sha256sum dist/jrouter-set6-s61-linux-amd64 | tee dist/jrouter-set6-s61-linux-amd64.sha256
-      - name: Upload Linux amd64 S6.1 binary
+          GOOS=linux GOARCH=amd64 go build -o dist/jrouter-set6-linux-amd64 .
+          sha256sum dist/jrouter-set6-linux-amd64 | tee dist/jrouter-set6-linux-amd64.sha256
+
+      - name: Upload Linux amd64 Set-6 binary
         uses: actions/upload-artifact@v4
         with:
-          name: jrouter-set6-s61-linux-amd64
+          name: jrouter-set6-linux-amd64
           path: |
-            dist/jrouter-set6-s61-linux-amd64
-            dist/jrouter-set6-s61-linux-amd64.sha256
+            dist/jrouter-set6-linux-amd64
+            dist/jrouter-set6-linux-amd64.sha256
           if-no-files-found: error
