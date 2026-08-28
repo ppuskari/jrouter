@@ -52,20 +52,21 @@ func (r Route) Zero() bool {
 	return r.Target == nil || r.network == nil
 }
 
+func (r Route) validIgnoringAge() bool {
+	return !r.Zero() && len(r.network.ZoneNames) != 0
+}
+
+func (r Route) expiredAt(now time.Time) bool {
+	return r.Target != nil &&
+		r.Target.Class() == TargetClassAppleTalkPeer &&
+		now.Sub(r.LastSeen) > maxRouteAge
+}
+
 // Valid reports whether the route is valid.
 // A valid route has a target, one or more zone names, and if it is learned from
 // an AppleTalk router, the last data update is not too old.
 func (r Route) Valid() bool {
-	if r.Zero() {
-		return false
-	}
-	if len(r.network.ZoneNames) == 0 {
-		return false
-	}
-	if r.Target.Class() == TargetClassAppleTalkPeer {
-		return time.Since(r.LastSeen) <= maxRouteAge
-	}
-	return true
+	return r.validIgnoringAge() && !r.expiredAt(time.Now())
 }
 
 // ZoneNames returns the zone names for the network associated with this route.
