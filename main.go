@@ -174,6 +174,9 @@ func main() {
 		wg.Go(func() { etPort.Outbox(ctx) })
 	}
 
+	// -------------------------- Route maintenance ----------------------------
+	wg.Go(func() { rooter.RouteTable.RunMaintenance(ctx) })
+
 	// ------------------------------- Run AURP -------------------------------
 	// This happens after adding local networks to the routing table, so that
 	// we have networks to advertise to peers before connecting to them.
