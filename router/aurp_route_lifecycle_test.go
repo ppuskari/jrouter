@@ -519,3 +519,78 @@ func TestSet7MetricTransitionsPromoteAndRestoreBestPath(t *testing.T) {
 		t.Fatalf("restore metric events = %v, want one NDC/2", events)
 	}
 }
+
+func TestSet7RangeShrinkPublishesAndAppliesNDC(t *testing.T) {
+	// Sender side: a best local route whose extended range shrinks must produce
+	// one NDC carrying the final range, even though its metric is unchanged.
+	rt := NewRouteTable(t.Context())
+	local := fakeTarget{key: "range-local", class: TargetClassAppleTalkPeer}
+	peerObserver := &AURPPeer{}
+	peerObserver.setSState(SenderConnected)
+	rt.AddObserver(peerObserver)
+
+	if _, err := rt.UpsertRoute(local, true, 800, 810, 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.AddZonesToNetwork(800, "Range Change"); err != nil {
+		t.Fatal(err)
+	}
+	_ = peerObserver.takePendingEvents()
+
+	if _, err := rt.UpsertRoute(local, true, 800, 805, 2); err != nil {
+		t.Fatal(err)
+	}
+	for n := ddp.Network(806); n <= 810; n++ {
+		if got := rt.Lookup(n); !got.Zero() {
+			t.Fatalf("sender stale range remains at %d: %v", n, got)
+		}
+	}
+	events := peerObserver.takePendingEvents()
+	if len(events) != 1 ||
+		events[0].EventCode != aurp.EventCodeNDC ||
+		!events[0].Extended ||
+		events[0].RangeStart != 800 ||
+		events[0].RangeEnd != 805 ||
+		events[0].Distance != 2 {
+		t.Fatalf("range-shrink events = %v", events)
+	}
+
+	// Receiver side: applying that NDC must update the stored range itself,
+	// not merely the metric.
+	receiverRT := NewRouteTable(t.Context())
+	localDI := aurp.IPDomainIdentifier(net.IPv4(192, 0, 2, 30))
+	remoteDI := aurp.IPDomainIdentifier(net.IPv4(198, 51, 100, 30))
+	receiver := &AURPPeer{
+		RouteTable: receiverRT,
+		Transport:  aurp.NewTransport(localDI, remoteDI, 300, 400),
+	}
+	receiver.setRemoteAddr(net.IPv4(198, 51, 100, 30))
+
+	if _, err := receiverRT.UpsertRoute(
+		receiver, true, 900, 910, 3,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := receiverRT.AddZonesToNetwork(900, "Remote Range"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := receiver.applyRIUpdEvent(aurp.EventTuple{
+		EventCode:  aurp.EventCodeNDC,
+		Extended:   true,
+		RangeStart: 900,
+		RangeEnd:   905,
+		Distance:   2,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	stored := receiverRT.find(receiver, 900)
+	if stored.Zero() || stored.NetEnd != 905 || stored.Distance != 3 {
+		t.Fatalf("receiver NDC stored route = %v, want end 905 distance 3", stored)
+	}
+	for n := ddp.Network(906); n <= 910; n++ {
+		if got := receiverRT.Lookup(n); !got.Zero() {
+			t.Fatalf("receiver stale range remains at %d: %v", n, got)
+		}
+	}
+}
