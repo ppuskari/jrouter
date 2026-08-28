@@ -257,6 +257,7 @@ func (rt *RouteTable) UpdateDistance(target RouteTarget, netStart ddp.Network, d
 	if distance > maxRouteDistance {
 		return fmt.Errorf("route distance too high (%d > %d)", distance, maxRouteDistance)
 	}
+	class := target.Class()
 
 	// The route can legitimately exist before it is valid for Lookup (notably
 	// while AURP zone information is still pending), so find the stored route
