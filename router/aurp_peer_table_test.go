@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"drjosh.dev/jrouter/aurp"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 func newTestAURPPeerTable() *AURPPeerTable {
@@ -441,5 +442,136 @@ func TestAURPTracksUnresolvedConfiguredPeer(t *testing.T) {
 	table.mu.RUnlock()
 	if state.failures != 0 || state.kind != "" || !state.next.IsZero() {
 		t.Fatalf("DNS state after reset = %+v, want zero state", state)
+	}
+}
+
+func TestAURPStatusIncludesConfiguredDNSAndPeerState(t *testing.T) {
+	table := newTestAURPPeerTable()
+	localDI := aurp.IPDomainIdentifier(net.IPv4(192, 0, 2, 1))
+	ip1, ip2, _ := testPeerIPs()
+
+	peer, err := table.LookupOrCreate(
+		context.Background(), table.logger, nil, nil,
+		"peer.example", ip1, localDI, nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := table.LookupOrCreate(
+		context.Background(), table.logger, nil, nil,
+		"peer.example", ip2, localDI, nil,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	peer.Transport.SetRemoteConnID(77)
+	peer.Transport.IncLocalSeq()
+	peer.Transport.IncRemoteSeq()
+	peer.lastSuccess.Store(time.Unix(1_800_000_000, 0))
+	peer.reconnectFailures.Store(2)
+	peer.duplicateRoutingPackets.Store(3)
+	peer.reacksSent.Store(3)
+	peer.staleRoutingPackets.Store(4)
+	peer.futureRoutingPackets.Store(5)
+	peer.connectionIDMismatches.Store(6)
+
+	table.TrackConfiguredAddress("missing.example")
+	table.noteDNSFailure(
+		"missing.example",
+		time.Unix(1_800_000_000, 0),
+		&net.DNSError{Err: "no such host", IsNotFound: true},
+	)
+
+	got, err := table.status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, ok := got.([]aurpPeerStatusRow)
+	if !ok {
+		t.Fatalf("status type = %T, want []aurpPeerStatusRow", got)
+	}
+
+	var peerRow, missingRow *aurpPeerStatusRow
+	for i := range rows {
+		switch rows[i].ConfiguredAddr {
+		case "peer.example":
+			peerRow = &rows[i]
+		case "missing.example":
+			missingRow = &rows[i]
+		}
+	}
+	if peerRow == nil {
+		t.Fatal("peer.example missing from status")
+	}
+	if missingRow == nil {
+		t.Fatal("unresolved missing.example missing from status")
+	}
+
+	if peerRow.CandidateAddrs != "104.21.23.127, 172.67.211.24" {
+		t.Fatalf("candidates = %q", peerRow.CandidateAddrs)
+	}
+	if peerRow.RemoteAddr != "104.21.23.127" {
+		t.Fatalf("active endpoint = %q", peerRow.RemoteAddr)
+	}
+	if peerRow.LocalConnID == 0 || peerRow.RemoteConnID != 77 {
+		t.Fatalf(
+			"conn IDs = %d/%d, want nonzero/77",
+			peerRow.LocalConnID, peerRow.RemoteConnID,
+		)
+	}
+	if peerRow.TxSeq != 2 || peerRow.RxSeq != 2 {
+		t.Fatalf("seq tx/rx = %d/%d, want 2/2", peerRow.TxSeq, peerRow.RxSeq)
+	}
+	if peerRow.ReconnectFailures != 2 {
+		t.Fatalf("reconnect failures = %d, want 2", peerRow.ReconnectFailures)
+	}
+	if peerRow.DuplicateRoutingPackets != 3 ||
+		peerRow.ReacksSent != 3 ||
+		peerRow.StaleRoutingPackets != 4 ||
+		peerRow.FutureRoutingPackets != 5 ||
+		peerRow.ConnectionIDMismatches != 6 {
+		t.Fatalf("unexpected status counters: %+v", *peerRow)
+	}
+
+	if missingRow.HasPeer {
+		t.Fatal("unresolved configured peer unexpectedly has an active peer")
+	}
+	if missingRow.ReceiverState != "unresolved" ||
+		missingRow.SenderState != "unresolved" {
+		t.Fatalf(
+			"unresolved states = %q/%q",
+			missingRow.ReceiverState, missingRow.SenderState,
+		)
+	}
+	if missingRow.DNSFailures != 1 || missingRow.DNSErrorKind != "not-found" {
+		t.Fatalf(
+			"DNS state = failures %d kind %q",
+			missingRow.DNSFailures, missingRow.DNSErrorKind,
+		)
+	}
+}
+
+func TestAURPMetricsDoNotDuplicateMultiACandidatePeer(t *testing.T) {
+	table := newTestAURPPeerTable()
+	localDI := aurp.IPDomainIdentifier(net.IPv4(192, 0, 2, 1))
+	ip1, ip2, _ := testPeerIPs()
+
+	if _, err := table.LookupOrCreate(
+		context.Background(), table.logger, nil, nil,
+		"peer.example", ip1, localDI, nil,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := table.LookupOrCreate(
+		context.Background(), table.logger, nil, nil,
+		"peer.example", ip2, localDI, nil,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(table)
+	if _, err := registry.Gather(); err != nil {
+		t.Fatalf("gathering multi-A peer metrics: %v", err)
 	}
 }
