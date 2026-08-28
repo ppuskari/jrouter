@@ -212,9 +212,9 @@ func TestAURPReconnectBackoffProgression(t *testing.T) {
 		failures := i + 1
 		if got := reconnectBackoff(failures); got != wantDelay {
 			t.Fatalf(
-			"reconnectBackoff(%d) = %v, want %v",
-			failures, got, wantDelay,
-		)
+				"reconnectBackoff(%d) = %v, want %v",
+				failures, got, wantDelay,
+			)
 		}
 	}
 	if got := reconnectBackoff(0); got != 0 {
@@ -230,9 +230,9 @@ func TestAURPReconnectBackoffJitterBounds(t *testing.T) {
 		got := jitterReconnectBackoff(base)
 		if got < lower || got > upper {
 			t.Fatalf(
-			"jittered delay %v outside [%v,%v]",
-			got, lower, upper,
-		)
+				"jittered delay %v outside [%v,%v]",
+				got, lower, upper,
+			)
 		}
 	}
 }
