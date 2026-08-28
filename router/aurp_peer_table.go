@@ -487,9 +487,14 @@ func (t *AURPPeerTable) ResolveConfiguredPeer(
 	}
 	t.resetDNSBackoff(peerAddr)
 
+	var localIP net.IP
+	if ipDI, ok := localDI.(aurp.IPDomainIdentifier); ok {
+		localIP = net.IP(ipDI)
+	}
+
 	var peer *AURPPeer
 	for _, raddr4 := range candidates {
-		if net.IP(localDI).Equal(raddr4) {
+		if localIP != nil && localIP.Equal(raddr4) {
 			continue
 		}
 		p, err := t.LookupOrCreate(
