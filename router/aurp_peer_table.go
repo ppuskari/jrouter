@@ -336,6 +336,10 @@ func (t *AURPPeerTable) setConfiguredCandidates(
 		peer.RouteTable.DeleteTarget(peer)
 	}
 	peer.setRemoteAddr(candidates[0])
+	// A newly selected DNS endpoint deserves an immediate attempt even if
+	// the previous endpoint was in reconnect backoff. Preserve the failure
+	// count so another failure continues the progressive schedule.
+	peer.nextReconnect.Store(time.Time{})
 	return true, nil
 }
 
@@ -373,10 +377,6 @@ func (t *AURPPeerTable) reconnectPeer(ctx context.Context, logger *slog.Logger, 
 			"configured-addr", peer.ConfiguredAddr,
 			"raddr", peer.RemoteAddr(),
 		)
-		// A newly selected DNS endpoint deserves an immediate attempt even if
-		// the previous endpoint was in reconnect backoff. Preserve the failure
-		// count so another failure continues the progressive schedule.
-		peer.nextReconnect.Store(time.Time{})
 	}
 
 	if peer.Running() {
