@@ -16,7 +16,11 @@
 
 package router
 
-import "github.com/prometheus/client_golang/prometheus"
+import (
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+)
 
 var (
 	aurpPeerReceiverConnectedDesc = prometheus.NewDesc(
@@ -61,6 +65,66 @@ var (
 		[]string{"peer"},
 		nil,
 	)
+	aurpPeerLastSuccessDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_last_success_timestamp_seconds",
+		"timestamp of last completed RI-Rsp exchange",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerReconnectFailuresDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_reconnect_failures",
+		"consecutive failed receiver connection attempts",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerNextReconnectDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_next_reconnect_timestamp_seconds",
+		"earliest scheduled reconnect time, or 0 when immediately eligible",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerDuplicateRoutingDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_duplicate_routing_packets_total",
+		"routing packets received with sequence n-1",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerReacksSentDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_reacks_sent_total",
+		"RI-Acks retransmitted for duplicate routing packets",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerStaleRoutingDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_stale_routing_packets_total",
+		"stale routing packets dropped outside n-1/n/n+1",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerFutureRoutingDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_future_routing_packets_total",
+		"routing packets received with sequence n+1",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerConnIDMismatchDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_connection_id_mismatches_total",
+		"routing packets dropped for connection ID mismatch",
+		[]string{"peer"},
+		nil,
+	)
+	aurpConfiguredPeerDNSFailuresDesc = prometheus.NewDesc(
+		"jrouter_aurp_configured_peer_dns_failures",
+		"consecutive DNS resolution failures for a configured peer",
+		[]string{"configured_peer"},
+		nil,
+	)
+	aurpConfiguredPeerNextDNSDesc = prometheus.NewDesc(
+		"jrouter_aurp_configured_peer_next_dns_retry_timestamp_seconds",
+		"next DNS retry time for a configured peer, or 0 when immediately eligible",
+		[]string{"configured_peer"},
+		nil,
+	)
 )
 
 func (t *AURPPeerTable) Describe(ch chan<- *prometheus.Desc) {
@@ -71,12 +135,30 @@ func (t *AURPPeerTable) Describe(ch chan<- *prometheus.Desc) {
 	ch <- aurpPeerLastReconnectDesc
 	ch <- aurpPeerLastSendDesc
 	ch <- aurpPeerLastUpdateDesc
+	ch <- aurpPeerLastSuccessDesc
+	ch <- aurpPeerReconnectFailuresDesc
+	ch <- aurpPeerNextReconnectDesc
+	ch <- aurpPeerDuplicateRoutingDesc
+	ch <- aurpPeerReacksSentDesc
+	ch <- aurpPeerStaleRoutingDesc
+	ch <- aurpPeerFutureRoutingDesc
+	ch <- aurpPeerConnIDMismatchDesc
+	ch <- aurpConfiguredPeerDNSFailuresDesc
+	ch <- aurpConfiguredPeerNextDNSDesc
+}
+
+func metricTimestamp(t time.Time) float64 {
+	if t.IsZero() {
+		return 0
+	}
+	return float64(t.Unix())
 }
 
 func (t *AURPPeerTable) Collect(ch chan<- prometheus.Metric) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	for _, p := range t.peersByIP {
+
+	for _, p := range t.uniquePeersLocked() {
 		rconn, sconn := 0, 0
 		if p.ReceiverConnected() {
 			rconn = 1
@@ -106,26 +188,89 @@ func (t *AURPPeerTable) Collect(ch chan<- prometheus.Metric) {
 		ch <- prometheus.MustNewConstMetric(
 			aurpPeerLastHeardFromDesc,
 			prometheus.GaugeValue,
-			float64(p.LastHeardFrom().Unix()),
+			metricTimestamp(p.LastHeardFrom()),
 			raddr,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			aurpPeerLastReconnectDesc,
 			prometheus.GaugeValue,
-			float64(p.LastReconnect().Unix()),
+			metricTimestamp(p.LastReconnect()),
 			raddr,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			aurpPeerLastSendDesc,
 			prometheus.GaugeValue,
-			float64(p.LastSend().Unix()),
+			metricTimestamp(p.LastSend()),
 			raddr,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			aurpPeerLastUpdateDesc,
 			prometheus.GaugeValue,
-			float64(p.LastUpdate().Unix()),
+			metricTimestamp(p.LastUpdate()),
 			raddr,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerLastSuccessDesc,
+			prometheus.GaugeValue,
+			metricTimestamp(p.LastSuccess()),
+			raddr,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerReconnectFailuresDesc,
+			prometheus.GaugeValue,
+			float64(p.ReconnectFailures()),
+			raddr,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerNextReconnectDesc,
+			prometheus.GaugeValue,
+			metricTimestamp(p.NextReconnect()),
+			raddr,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerDuplicateRoutingDesc,
+			prometheus.CounterValue,
+			float64(p.DuplicateRoutingPackets()),
+			raddr,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerReacksSentDesc,
+			prometheus.CounterValue,
+			float64(p.ReacksSent()),
+			raddr,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerStaleRoutingDesc,
+			prometheus.CounterValue,
+			float64(p.StaleRoutingPackets()),
+			raddr,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerFutureRoutingDesc,
+			prometheus.CounterValue,
+			float64(p.FutureRoutingPackets()),
+			raddr,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerConnIDMismatchDesc,
+			prometheus.CounterValue,
+			float64(p.ConnectionIDMismatches()),
+			raddr,
+		)
+	}
+
+	for configuredPeer, dns := range t.dnsByConfigured {
+		ch <- prometheus.MustNewConstMetric(
+			aurpConfiguredPeerDNSFailuresDesc,
+			prometheus.GaugeValue,
+			float64(dns.failures),
+			configuredPeer,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpConfiguredPeerNextDNSDesc,
+			prometheus.GaugeValue,
+			metricTimestamp(dns.next),
+			configuredPeer,
 		)
 	}
 }
