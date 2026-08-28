@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math/rand/v2"
 	"net"
 	"reflect"
 	"sync"
@@ -37,7 +38,9 @@ const (
 	tickleRetryLimit   = 10
 	sendRetryTimer     = 10 * time.Second
 	sendRetryLimit     = 5
-	reconnectTimer     = 10 * time.Minute
+	reconnectBackoffBase = 10 * time.Minute
+	reconnectBackoffCap  = 2 * time.Hour
+	reconnectJitterPct   = 10
 	updateTimer        = 10 * time.Second
 
 	chatLogLimit = 200
@@ -95,7 +98,9 @@ type AURPPeer struct {
 	lastHeardFrom atomic.Value // time.Time
 	lastSend      atomic.Value // time.Time // TODO: clarify use of lastSend / sendRetries
 	lastUpdate    atomic.Value // time.Time
-	sendRetries   atomic.Int32
+	sendRetries      atomic.Int32
+	reconnectFailures atomic.Int32
+	nextReconnect     atomic.Value // time.Time
 
 	// Used for debugging AURP conversations.
 	chatLogMu sync.RWMutex
@@ -275,6 +280,66 @@ func (p *AURPPeer) SendRetries() int {
 	return int(p.sendRetries.Load())
 }
 
+
+// ReconnectFailures returns the number of consecutive failed receiver
+// connection attempts since the last fully established routing connection.
+func (p *AURPPeer) ReconnectFailures() int {
+	return int(p.reconnectFailures.Load())
+}
+
+// NextReconnect returns the earliest time the configured peer should be
+// retried after a failed connection attempt.
+func (p *AURPPeer) NextReconnect() time.Time {
+	return nilToZero[time.Time](p.nextReconnect.Load())
+}
+
+func reconnectBackoff(failures int) time.Duration {
+	if failures <= 0 {
+		return 0
+	}
+	d := reconnectBackoffBase
+	for i := 1; i < failures && d < reconnectBackoffCap; i++ {
+		d *= 2
+		if d >= reconnectBackoffCap {
+			return reconnectBackoffCap
+		}
+	}
+	return min(d, reconnectBackoffCap)
+}
+
+func jitterReconnectBackoff(d time.Duration) time.Duration {
+	if d <= 0 {
+		return 0
+	}
+	span := int64(d) * reconnectJitterPct / 100
+	if span <= 0 {
+		return d
+	}
+	return d + time.Duration(rand.Int64N(2*span+1)-span)
+}
+
+func (p *AURPPeer) noteReconnectFailure(now time.Time) {
+	failures := int(p.reconnectFailures.Add(1))
+	delay := jitterReconnectBackoff(reconnectBackoff(failures))
+	p.nextReconnect.Store(now.Add(delay))
+	p.logger.Info(
+		"AURP Peer: reconnect backoff scheduled",
+		"failures", failures,
+		"delay", delay,
+		"next-reconnect", now.Add(delay),
+	)
+}
+
+func (p *AURPPeer) resetReconnectBackoff() {
+	p.reconnectFailures.Store(0)
+	p.nextReconnect.Store(time.Time{})
+}
+
+func (p *AURPPeer) reconnectReady(now time.Time) bool {
+	next := p.NextReconnect()
+	return next.IsZero() || !now.Before(next)
+}
+
 // ReceiveChLen returns len(p.ReceiveCh).
 func (p *AURPPeer) ReceiveChLen() int {
 	return len(p.ReceiveCh)
@@ -335,10 +400,10 @@ func (p *AURPPeer) Handle(ctx context.Context) {
 			return
 
 		case <-p.reconnectCh:
-			if p.ReceiverState() != ReceiverUnconnected || time.Since(p.LastReconnect()) <= reconnectTimer {
+			now := time.Now()
+			if p.ReceiverState() != ReceiverUnconnected || !p.reconnectReady(now) {
 				continue
 			}
-			now := time.Now()
 			p.lastReconnect.Store(now)
 			p.lastSend.Store(now)
 			p.sendRetries.Store(0)
@@ -375,6 +440,7 @@ func (p *AURPPeer) rtickerTasks() error {
 		if p.SendRetries() >= sendRetryLimit {
 			p.logger.Warn("AURP Peer: Send retry limit reached while waiting for Open-Rsp, closing connection")
 			p.disconnectReceiver()
+			p.noteReconnectFailure(time.Now())
 			break
 		}
 
@@ -407,6 +473,7 @@ func (p *AURPPeer) rtickerTasks() error {
 			p.logger.Warn("AURP Peer: Send retry limit reached while waiting for Tickle-Ack, closing connection")
 			p.disconnectReceiver()
 			p.RouteTable.DeleteTarget(p)
+			p.noteReconnectFailure(time.Now())
 			break
 		}
 
@@ -426,6 +493,7 @@ func (p *AURPPeer) rtickerTasks() error {
 			p.logger.Warn("AURP Peer: Send retry limit reached while waiting for RI-Rsp, closing connection")
 			p.disconnectReceiver()
 			p.RouteTable.DeleteTarget(p)
+			p.noteReconnectFailure(time.Now())
 			break
 		}
 
@@ -807,6 +875,7 @@ func (p *AURPPeer) handleOpenRsp(logger *slog.Logger, pkt *aurp.OpenRspPacket) e
 		// It's an error code.
 		logger.Warn("AURP Peer: Open-Rsp error code from peer", "code", pkt.RateOrErrCode, "error", aurp.ErrorCode(pkt.RateOrErrCode))
 		p.disconnectReceiver()
+		p.noteReconnectFailure(time.Now())
 		return nil
 	}
 	//logger.Debug("AURP Peer: Data receiver is connected!")
@@ -937,8 +1006,11 @@ func (p *AURPPeer) handleRIRsp(logger *slog.Logger, pkt *aurp.RIRspPacket) error
 		return err
 	}
 	if pkt.Flags&aurp.RoutingFlagLast != 0 {
-		// No longer waiting for an RI-Rsp
+		// No longer waiting for an RI-Rsp. A complete routing-information
+		// exchange proves the receiver connection is healthy, so reconnect
+		// pacing returns to its initial state.
 		p.setRState(ReceiverConnected)
+		p.resetReconnectBackoff()
 	}
 	p.Transport.IncRemoteSeq()
 	return nil
