@@ -137,7 +137,6 @@ func (rt *RouteTable) Lookup(network ddp.Network) Route {
 	return Route{}
 }
 
-
 func (rt *RouteTable) lookupIgnoringAge(network ddp.Network) Route {
 	rt.byNetwork[network].RLock()
 	defer rt.byNetwork[network].RUnlock()
