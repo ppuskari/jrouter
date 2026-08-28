@@ -98,9 +98,16 @@ type AURPPeer struct {
 	lastHeardFrom     atomic.Value // time.Time
 	lastSend          atomic.Value // time.Time // TODO: clarify use of lastSend / sendRetries
 	lastUpdate        atomic.Value // time.Time
+	lastSuccess       atomic.Value // time.Time
 	sendRetries       atomic.Int32
 	reconnectFailures atomic.Int32
 	nextReconnect     atomic.Value // time.Time
+
+	duplicateRoutingPackets atomic.Uint64
+	reacksSent              atomic.Uint64
+	staleRoutingPackets     atomic.Uint64
+	futureRoutingPackets    atomic.Uint64
+	connectionIDMismatches  atomic.Uint64
 
 	// Used for debugging AURP conversations.
 	chatLogMu sync.RWMutex
@@ -278,6 +285,39 @@ func (p *AURPPeer) LastUpdate() time.Time {
 // send to this peer.
 func (p *AURPPeer) SendRetries() int {
 	return int(p.sendRetries.Load())
+}
+
+
+// LastSuccess returns the time of the last complete RI-Rsp exchange.
+func (p *AURPPeer) LastSuccess() time.Time {
+	return nilToZero[time.Time](p.lastSuccess.Load())
+}
+
+// DuplicateRoutingPackets returns the number of n-1 routing packets seen.
+func (p *AURPPeer) DuplicateRoutingPackets() uint64 {
+	return p.duplicateRoutingPackets.Load()
+}
+
+// ReacksSent returns the number of duplicate-packet RI-Acks re-sent.
+func (p *AURPPeer) ReacksSent() uint64 {
+	return p.reacksSent.Load()
+}
+
+// StaleRoutingPackets returns the number of stale routing packets dropped.
+func (p *AURPPeer) StaleRoutingPackets() uint64 {
+	return p.staleRoutingPackets.Load()
+}
+
+// FutureRoutingPackets returns the number of n+1 routing packets that forced
+// the receiver connection to reset.
+func (p *AURPPeer) FutureRoutingPackets() uint64 {
+	return p.futureRoutingPackets.Load()
+}
+
+// ConnectionIDMismatches returns the number of routing packets dropped because
+// the connection ID did not match the active one-way connection.
+func (p *AURPPeer) ConnectionIDMismatches() uint64 {
+	return p.connectionIDMismatches.Load()
 }
 
 // ReconnectFailures returns the number of consecutive failed receiver
@@ -1009,6 +1049,7 @@ func (p *AURPPeer) handleRIRsp(logger *slog.Logger, pkt *aurp.RIRspPacket) error
 		// exchange proves the receiver connection is healthy, so reconnect
 		// pacing returns to its initial state.
 		p.setRState(ReceiverConnected)
+		p.lastSuccess.Store(time.Now())
 		p.resetReconnectBackoff()
 	}
 	p.Transport.IncRemoteSeq()
@@ -1416,18 +1457,20 @@ func (p *AURPPeer) handleTickleAck(logger *slog.Logger, pkt *aurp.TickleAckPacke
 func (p *AURPPeer) checkRemoteSeq(logger *slog.Logger, trheader *aurp.TrHeader) error {
 	switch got, want := trheader.Sequence, p.Transport.RemoteSeq(); got {
 	case aurp.Pred(want):
+		p.duplicateRoutingPackets.Add(1)
 		// "If the data receiver expects sequence number n and
-		// receives a packet with the sequence number nΓÇô1, that
+		// receives a packet with the sequence number n-1, that
 		// packet was delayed and is a duplicate of another packet
 		// already received. The data receiver must retransmit an
 		// RI-Ack packet, because the data sender may not have
-		// received the RI-Ack packet previously sentΓÇöthat is, the
+		// received the RI-Ack packet previously sent; that is, the
 		// RI-Ack may have been lost."
 		logger.Warn("AURP Peer: repeated routing information packet", "want-seq", want)
 		if _, err := p.send(p.Transport.NewRIAckPacket(trheader.ConnectionID, trheader.Sequence, aurp.RoutingFlagSendZoneInfo)); err != nil {
 			logger.Error("AURP Peer: Couldn't send RI-Ack packet", "error", err)
 			return err
 		}
+		p.reacksSent.Add(1)
 		return errDropPacket
 
 	case want:
@@ -1438,6 +1481,7 @@ func (p *AURPPeer) checkRemoteSeq(logger *slog.Logger, trheader *aurp.TrHeader) 
 		return nil
 
 	case aurp.Succ(want):
+		p.futureRoutingPackets.Add(1)
 		// "If the data receiver expects sequence number n and
 		// receives a packet with the sequence number n+1, it should
 		// discard the packet and terminate the one-way connection
@@ -1451,13 +1495,14 @@ func (p *AURPPeer) checkRemoteSeq(logger *slog.Logger, trheader *aurp.TrHeader) 
 		return errDropPacket
 
 	default:
+		p.staleRoutingPackets.Add(1)
 		// "If the data receiver expects sequence number n and
-		// receives a packet with a sequence number other than nΓÇô1,
+		// receives a packet with a sequence number other than n-1,
 		// n, or n+1, the packet was delayed and is a duplicate of
 		// another packet already received. The data receiver need
 		// not send an RI-Ack, because the data sender must have
 		// received an RI-Ack for that sequence number prior to
-		// sending a packet with the sequence number nΓÇô1. The data
+		// sending a packet with the sequence number n-1. The data
 		// receiver should discard the packet."
 		logger.Warn("AURP Peer: routing information packet out of sequence, discarding packet", "want-seq", want)
 		return errDropPacket
@@ -1470,6 +1515,7 @@ func (p *AURPPeer) checkLocalConnID(logger *slog.Logger, trheader *aurp.TrHeader
 	got, want := trheader.ConnectionID, p.Transport.LocalConnID()
 	// LocalConnID should always be set to something
 	if got != want {
+		p.connectionIDMismatches.Add(1)
 		// "If the packet contains a connection ID that does not
 		// match that expected for the connection, the exterior
 		// outer discards the packet."
@@ -1488,6 +1534,7 @@ func (p *AURPPeer) checkRemoteConnID(logger *slog.Logger, trheader *aurp.TrHeade
 		return nil
 	}
 	if got != want {
+		p.connectionIDMismatches.Add(1)
 		// "If the packet contains a connection ID that does not
 		// match that expected for the connection, the exterior
 		// outer discards the packet."
