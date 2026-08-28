@@ -465,3 +465,57 @@ func TestSet7PruneLocalRouteToAURPFallbackQueuesNRC(t *testing.T) {
 		t.Fatalf("expiry events = %v, want one NRC", events)
 	}
 }
+
+func TestSet7MetricTransitionsPromoteAndRestoreBestPath(t *testing.T) {
+	rt := NewRouteTable(t.Context())
+	primary := fakeTarget{key: "metric-primary", class: TargetClassAppleTalkPeer}
+	fallback := fakeTarget{key: "metric-fallback", class: TargetClassAppleTalkPeer}
+	peerObserver := &AURPPeer{}
+	peerObserver.setSState(SenderConnected)
+	rt.AddObserver(peerObserver)
+
+	if _, err := rt.UpsertRoute(primary, true, 740, 740, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.UpsertRoute(fallback, true, 740, 740, 3); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.AddZonesToNetwork(740, "Metric Failover"); err != nil {
+		t.Fatal(err)
+	}
+	_ = peerObserver.takePendingEvents()
+
+	// Worsening the primary beyond the fallback must promote the fallback and
+	// advertise the final best metric, not the metric of the route we changed.
+	if err := rt.UpdateDistance(primary, 740, 4); err != nil {
+		t.Fatal(err)
+	}
+	got := rt.Lookup(740)
+	if got.Zero() || got.TargetKey != fallback.RouteTargetKey() ||
+		got.Distance != 3 {
+		t.Fatalf("metric fallback = %v, want fallback distance 3", got)
+	}
+	events := peerObserver.takePendingEvents()
+	if len(events) != 1 ||
+		events[0].EventCode != aurp.EventCodeNDC ||
+		events[0].Distance != 3 {
+		t.Fatalf("fallback metric events = %v, want one NDC/3", events)
+	}
+
+	// Recovering the primary to a better metric must restore it and advertise
+	// that metric in one NDC.
+	if err := rt.UpdateDistance(primary, 740, 2); err != nil {
+		t.Fatal(err)
+	}
+	got = rt.Lookup(740)
+	if got.Zero() || got.TargetKey != primary.RouteTargetKey() ||
+		got.Distance != 2 {
+		t.Fatalf("restored primary = %v, want primary distance 2", got)
+	}
+	events = peerObserver.takePendingEvents()
+	if len(events) != 1 ||
+		events[0].EventCode != aurp.EventCodeNDC ||
+		events[0].Distance != 2 {
+		t.Fatalf("restore metric events = %v, want one NDC/2", events)
+	}
+}
