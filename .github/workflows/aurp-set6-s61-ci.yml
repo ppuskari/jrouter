@@ -21,7 +21,15 @@ jobs:
           sudo apt-get install -y libpcap-dev
       - name: Go format check
         run: |
-          test -z "$(gofmt -l .)"
+          files="$(gofmt -l .)"
+          if [ -n "$files" ]; then
+            echo "Files requiring gofmt:"
+            echo "$files"
+            echo
+            echo "=== gofmt diff ==="
+            gofmt -d $files
+            exit 1
+          fi
       - name: Unit tests
         run: go test ./...
       - name: Race tests for routing packages
