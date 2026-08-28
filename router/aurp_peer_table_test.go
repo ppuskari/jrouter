@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -16,6 +17,7 @@ func newTestAURPPeerTable() *AURPPeerTable {
 		logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
 		peersByIP:         make(map[[4]byte]*AURPPeer),
 		peersByConfigured: make(map[string]*AURPPeer),
+		dnsByConfigured:   make(map[string]configuredDNSState),
 		nextConnID:        1,
 	}
 }
@@ -314,5 +316,130 @@ func TestAURPNewDNSCandidateBypassesCurrentBackoff(t *testing.T) {
 	}
 	if got := peer.ReconnectFailures(); got != 3 {
 		t.Fatalf("DNS endpoint switch reset failures = %d, want 3", got)
+	}
+}
+
+func TestAURPDNSBackoffProgression(t *testing.T) {
+	want := []time.Duration{
+		30 * time.Second,
+		1 * time.Minute,
+		2 * time.Minute,
+		5 * time.Minute,
+		10 * time.Minute,
+		30 * time.Minute,
+		30 * time.Minute,
+	}
+	for i, wantDelay := range want {
+		failures := i + 1
+		if got := dnsBackoff(failures); got != wantDelay {
+			t.Fatalf(
+				"dnsBackoff(%d) = %v, want %v",
+				failures, got, wantDelay,
+			)
+		}
+	}
+	if got := dnsBackoff(0); got != 0 {
+		t.Fatalf("dnsBackoff(0) = %v, want 0", got)
+	}
+}
+
+func TestAURPDNSBackoffJitterBounds(t *testing.T) {
+	base := 5 * time.Minute
+	lower := base - base/10
+	upper := base + base/10
+	for i := 0; i < 200; i++ {
+		got := jitterDNSBackoff(base)
+		if got < lower || got > upper {
+			t.Fatalf(
+				"jittered DNS delay %v outside [%v,%v]",
+				got, lower, upper,
+			)
+		}
+	}
+}
+
+func TestAURPDNSErrorKinds(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "not found",
+			err:  &net.DNSError{Err: "no such host", IsNotFound: true},
+			want: "not-found",
+		},
+		{
+			name: "timeout",
+			err:  &net.DNSError{Err: "timeout", IsTimeout: true},
+			want: "timeout",
+		},
+		{
+			name: "temporary",
+			err:  &net.DNSError{Err: "temporary", IsTemporary: true},
+			want: "temporary",
+		},
+		{
+			name: "generic dns",
+			err:  &net.DNSError{Err: "resolver error"},
+			want: "dns-error",
+		},
+		{
+			name: "generic error",
+			err:  errors.New("boom"),
+			want: "error",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := dnsErrorKind(tc.err); got != tc.want {
+				t.Fatalf("dnsErrorKind(%v) = %q, want %q", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAURPTracksUnresolvedConfiguredPeer(t *testing.T) {
+	table := newTestAURPPeerTable()
+	table.TrackConfiguredAddress("missing.example")
+
+	if !table.dnsReady("missing.example", time.Now()) {
+		t.Fatal("new configured peer should be immediately DNS-ready")
+	}
+	if got := table.configuredPeer("missing.example"); got != nil {
+		t.Fatalf("unresolved configured peer unexpectedly has peer object %p", got)
+	}
+
+	now := time.Unix(1_800_000_000, 0)
+	err := &net.DNSError{Err: "no such host", IsNotFound: true}
+	table.noteDNSFailure("missing.example", now, err)
+
+	if table.dnsReady("missing.example", now.Add(20*time.Second)) {
+		t.Fatal("DNS retry became ready before first backoff expired")
+	}
+
+	table.mu.RLock()
+	state := table.dnsByConfigured["missing.example"]
+	table.mu.RUnlock()
+	if state.failures != 1 {
+		t.Fatalf("DNS failures = %d, want 1", state.failures)
+	}
+	if state.kind != "not-found" {
+		t.Fatalf("DNS error kind = %q, want not-found", state.kind)
+	}
+	firstDelay := state.next.Sub(now)
+	if firstDelay < 27*time.Second || firstDelay > 33*time.Second {
+		t.Fatalf("first DNS retry delay = %v, want 30s +/-10%%", firstDelay)
+	}
+
+	table.resetDNSBackoff("missing.example")
+	if !table.dnsReady("missing.example", now) {
+		t.Fatal("DNS success reset did not make peer immediately ready")
+	}
+	table.mu.RLock()
+	state = table.dnsByConfigured["missing.example"]
+	table.mu.RUnlock()
+	if state.failures != 0 || state.kind != "" || !state.next.IsZero() {
+		t.Fatalf("DNS state after reset = %+v, want zero state", state)
 	}
 }
