@@ -20,7 +20,6 @@ import (
 	"cmp"
 	"context"
 	_ "embed"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -28,6 +27,7 @@ import (
 	"net"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"text/template"
 	"time"
@@ -317,31 +317,140 @@ func (t *AURPPeerTable) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type aurpPeerStatusRow struct {
+	ConfiguredAddr string
+	CandidateAddrs string
+	RemoteAddr     string
+	HasPeer        bool
+	Running        bool
+
+	ReceiverConnected bool
+	SenderConnected   bool
+	ReceiverState     string
+	SenderState       string
+	ReceiveChLen      int
+
+	LocalConnID  uint16
+	RemoteConnID uint16
+	TxSeq        uint16
+	RxSeq        uint16
+
+	LastHeardFrom time.Time
+	LastReconnect time.Time
+	LastUpdate    time.Time
+	LastSend      time.Time
+	LastSuccess   time.Time
+
+	SendRetries       int
+	ReconnectFailures int
+	NextReconnect     time.Time
+
+	DNSFailures int
+	DNSErrorKind string
+	NextDNS      time.Time
+
+	DuplicateRoutingPackets uint64
+	ReacksSent              uint64
+	StaleRoutingPackets     uint64
+	FutureRoutingPackets    uint64
+	ConnectionIDMismatches  uint64
+}
+
+func (t *AURPPeerTable) candidateAddrsLocked(peer *AURPPeer) []string {
+	var addrs []string
+	for key, mapped := range t.peersByIP {
+		if mapped == peer {
+			addrs = append(addrs, net.IP(key[:]).String())
+		}
+	}
+	slices.Sort(addrs)
+	return addrs
+}
+
+func newAURPPeerStatusRow(
+	peer *AURPPeer,
+	configuredAddr string,
+	candidates []string,
+	dns configuredDNSState,
+) aurpPeerStatusRow {
+	row := aurpPeerStatusRow{
+		ConfiguredAddr: configuredAddr,
+		CandidateAddrs: strings.Join(candidates, ", "),
+		DNSFailures:    dns.failures,
+		DNSErrorKind:   dns.kind,
+		NextDNS:        dns.next,
+	}
+	if peer == nil {
+		row.ReceiverState = "unresolved"
+		row.SenderState = "unresolved"
+		return row
+	}
+
+	row.HasPeer = true
+	row.RemoteAddr = peer.RemoteAddrString()
+	row.Running = peer.Running()
+	row.ReceiverConnected = peer.ReceiverState() == ReceiverConnected
+	row.SenderConnected = peer.SenderState() == SenderConnected
+	row.ReceiverState = peer.ReceiverState().String()
+	row.SenderState = peer.SenderState().String()
+	row.ReceiveChLen = peer.ReceiveChLen()
+	row.LocalConnID = peer.Transport.LocalConnID()
+	row.RemoteConnID = peer.Transport.RemoteConnID()
+	row.TxSeq = peer.Transport.LocalSeq()
+	row.RxSeq = peer.Transport.RemoteSeq()
+	row.LastHeardFrom = peer.LastHeardFrom()
+	row.LastReconnect = peer.LastReconnect()
+	row.LastUpdate = peer.LastUpdate()
+	row.LastSend = peer.LastSend()
+	row.LastSuccess = peer.LastSuccess()
+	row.SendRetries = peer.SendRetries()
+	row.ReconnectFailures = peer.ReconnectFailures()
+	row.NextReconnect = peer.NextReconnect()
+	row.DuplicateRoutingPackets = peer.DuplicateRoutingPackets()
+	row.ReacksSent = peer.ReacksSent()
+	row.StaleRoutingPackets = peer.StaleRoutingPackets()
+	row.FutureRoutingPackets = peer.FutureRoutingPackets()
+	row.ConnectionIDMismatches = peer.ConnectionIDMismatches()
+	return row
+}
+
 func (t *AURPPeerTable) status(ctx context.Context) (any, error) {
-	var peerInfo []*AURPPeer
-	func() {
-		t.mu.RLock()
-		defer t.mu.RUnlock()
-		peerInfo = t.uniquePeersLocked()
-	}()
-	slices.SortFunc(peerInfo, func(pa, pb *AURPPeer) int {
+	t.mu.RLock()
+	rows := make([]aurpPeerStatusRow, 0, len(t.dnsByConfigured)+len(t.peersByIP))
+	seen := make(map[*AURPPeer]struct{})
+
+	for configuredAddr, dns := range t.dnsByConfigured {
+		peer := t.peersByConfigured[configuredAddr]
+		var candidates []string
+		if peer != nil {
+			candidates = t.candidateAddrsLocked(peer)
+			seen[peer] = struct{}{}
+		}
+		rows = append(rows, newAURPPeerStatusRow(peer, configuredAddr, candidates, dns))
+	}
+
+	for _, peer := range t.uniquePeersLocked() {
+		if _, ok := seen[peer]; ok {
+			continue
+		}
+		rows = append(rows, newAURPPeerStatusRow(
+			peer,
+			peer.ConfiguredAddr,
+			t.candidateAddrsLocked(peer),
+			configuredDNSState{},
+		))
+	}
+	t.mu.RUnlock()
+
+	slices.SortFunc(rows, func(a, b aurpPeerStatusRow) int {
 		return cmp.Or(
-			-cmp.Compare(
-				bool2Int(pa.ReceiverState() == ReceiverConnected),
-				bool2Int(pb.ReceiverState() == ReceiverConnected),
-			),
-			-cmp.Compare(
-				bool2Int(pa.SenderState() == SenderConnected),
-				bool2Int(pb.SenderState() == SenderConnected),
-			),
-			cmp.Compare(pa.ConfiguredAddr, pb.ConfiguredAddr),
-			cmp.Compare(
-				binary.BigEndian.Uint32(pa.RemoteAddr()),
-				binary.BigEndian.Uint32(pb.RemoteAddr()),
-			),
+			-cmp.Compare(bool2Int(a.ReceiverConnected), bool2Int(b.ReceiverConnected)),
+			-cmp.Compare(bool2Int(a.SenderConnected), bool2Int(b.SenderConnected)),
+			cmp.Compare(a.ConfiguredAddr, b.ConfiguredAddr),
+			cmp.Compare(a.RemoteAddr, b.RemoteAddr),
 		)
 	})
-	return peerInfo, nil
+	return rows, nil
 }
 
 func bool2Int(b bool) int {
@@ -591,32 +700,54 @@ var chatLogTmpl = template.Must(template.New("chatlog").Funcs(status.FuncMap()).
 const peerTableTemplate = `
 <table>
 	<thead><tr>
-		<th>Configured addr</th>
-		<th>Remote addr</th>
-		<th>Running?</th>
-		<th>Receiver state</th>
-		<th>Sender state</th>
-		<th>RecvCh len</th>
-		<th>Last heard from</th>
+		<th>Configured</th>
+		<th>Candidates</th>
+		<th>Active</th>
+		<th>Running</th>
+		<th>Receiver</th>
+		<th>Sender</th>
+		<th>Conn local/remote</th>
+		<th>Seq tx/rx</th>
+		<th>RecvQ</th>
+		<th>Last success</th>
+		<th>Last heard</th>
 		<th>Last reconnect</th>
-		<th>Last update</th>
-		<th>Last send</th>
-		<th>Send retries</th>
+		<th>Reconnect failures</th>
+		<th>Next reconnect</th>
+		<th>DNS failures</th>
+		<th>DNS kind</th>
+		<th>Next DNS</th>
+		<th>Dup</th>
+		<th>ReACK</th>
+		<th>Stale</th>
+		<th>Future</th>
+		<th>Conn-ID mismatch</th>
 	</tr></thead>
 	<tbody>
 {{range $peer := . }}
 	<tr>
 		<td>{{$peer.ConfiguredAddr}}</td>
-		<td><a href="/chatlog/{{$peer.RemoteAddrString}}">{{$peer.RemoteAddrString}}</a></td>
+		<td>{{$peer.CandidateAddrs}}</td>
+		<td>{{if $peer.HasPeer}}<a href="/chatlog/{{$peer.RemoteAddr}}">{{$peer.RemoteAddr}}</a>{{else}}unresolved{{end}}</td>
 		<td class="{{if $peer.Running}}green{{else}}red{{end}}">{{if $peer.Running}}running{{else}}stopped{{end}}</td>
 		<td class="{{if $peer.ReceiverConnected}}green{{else}}red{{end}}">{{$peer.ReceiverState}}</td>
 		<td class="{{if $peer.SenderConnected}}green{{else}}red{{end}}">{{$peer.SenderState}}</td>
+		<td>{{$peer.LocalConnID}} / {{$peer.RemoteConnID}}</td>
+		<td>{{$peer.TxSeq}} / {{$peer.RxSeq}}</td>
 		<td>{{$peer.ReceiveChLen}}</td>
-		<td>{{$peer.LastHeardFrom | ago}}</td>
-		<td>{{$peer.LastReconnect | ago}}</td>
-		<td>{{$peer.LastUpdate | ago}}</td>
-		<td>{{$peer.LastSend | ago}}</td>
-		<td>{{$peer.SendRetries}}</td>
+		<td>{{if $peer.LastSuccess.IsZero}}-{{else}}{{$peer.LastSuccess | ago}}{{end}}</td>
+		<td>{{if $peer.LastHeardFrom.IsZero}}-{{else}}{{$peer.LastHeardFrom | ago}}{{end}}</td>
+		<td>{{if $peer.LastReconnect.IsZero}}-{{else}}{{$peer.LastReconnect | ago}}{{end}}</td>
+		<td>{{$peer.ReconnectFailures}}</td>
+		<td>{{if $peer.NextReconnect.IsZero}}-{{else}}{{$peer.NextReconnect}}{{end}}</td>
+		<td>{{$peer.DNSFailures}}</td>
+		<td>{{$peer.DNSErrorKind}}</td>
+		<td>{{if $peer.NextDNS.IsZero}}-{{else}}{{$peer.NextDNS}}{{end}}</td>
+		<td>{{$peer.DuplicateRoutingPackets}}</td>
+		<td>{{$peer.ReacksSent}}</td>
+		<td>{{$peer.StaleRoutingPackets}}</td>
+		<td>{{$peer.FutureRoutingPackets}}</td>
+		<td>{{$peer.ConnectionIDMismatches}}</td>
 	</tr>
 {{end}}
 	</tbody>
