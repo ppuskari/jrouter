@@ -21,6 +21,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -36,6 +37,64 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+const (
+	dnsBackoffBase = 30 * time.Second
+	dnsBackoffCap  = 30 * time.Minute
+	dnsJitterPct   = 10
+)
+
+var errDNSBackoff = errors.New("DNS lookup is in backoff")
+
+type configuredDNSState struct {
+	failures int
+	next     time.Time
+	kind     string
+}
+
+func dnsBackoff(failures int) time.Duration {
+	if failures <= 0 {
+		return 0
+	}
+	steps := []time.Duration{
+		30 * time.Second,
+		1 * time.Minute,
+		2 * time.Minute,
+		5 * time.Minute,
+		10 * time.Minute,
+		30 * time.Minute,
+	}
+	idx := min(failures-1, len(steps)-1)
+	return min(steps[idx], dnsBackoffCap)
+}
+
+func jitterDNSBackoff(d time.Duration) time.Duration {
+	if d <= 0 {
+		return 0
+	}
+	span := int64(d) * dnsJitterPct / 100
+	if span <= 0 {
+		return d
+	}
+	return d + time.Duration(rand.Int64N(2*span+1)-span)
+}
+
+func dnsErrorKind(err error) string {
+	var dnsErr *net.DNSError
+	if !errors.As(err, &dnsErr) {
+		return "error"
+	}
+	switch {
+	case dnsErr.IsNotFound:
+		return "not-found"
+	case dnsErr.IsTimeout:
+		return "timeout"
+	case dnsErr.IsTemporary:
+		return "temporary"
+	default:
+		return "dns-error"
+	}
+}
+
 // AURPPeerTable tracks connections to AURP peers.
 type AURPPeerTable struct {
 	logger *slog.Logger
@@ -43,6 +102,7 @@ type AURPPeerTable struct {
 	mu                sync.RWMutex
 	peersByIP         map[[4]byte]*AURPPeer // candidate IP -> logical peer
 	peersByConfigured map[string]*AURPPeer  // configured name -> logical peer
+	dnsByConfigured   map[string]configuredDNSState
 	nextConnID        uint16
 }
 
@@ -52,6 +112,7 @@ func NewAURPPeerTable(ctx context.Context, logger *slog.Logger) *AURPPeerTable {
 		logger:            logger,
 		peersByIP:         make(map[[4]byte]*AURPPeer),
 		peersByConfigured: make(map[string]*AURPPeer),
+		dnsByConfigured:   make(map[string]configuredDNSState),
 	}
 	for t.nextConnID == 0 {
 		t.nextConnID = uint16(rand.UintN(0x10000))
@@ -59,6 +120,71 @@ func NewAURPPeerTable(ctx context.Context, logger *slog.Logger) *AURPPeerTable {
 	status.AddItem(ctx, "AURP Peers", peerTableTemplate, t.status)
 	prometheus.MustRegister(t)
 	return t
+}
+
+// TrackConfiguredAddress records a configured peer even if its DNS lookup
+// has not succeeded yet, so startup DNS failures remain eligible for retry.
+func (t *AURPPeerTable) TrackConfiguredAddress(peerAddr string) {
+	if peerAddr == "" {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if _, ok := t.dnsByConfigured[peerAddr]; !ok {
+		t.dnsByConfigured[peerAddr] = configuredDNSState{}
+	}
+}
+
+func (t *AURPPeerTable) dnsReady(peerAddr string, now time.Time) bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	state := t.dnsByConfigured[peerAddr]
+	return state.next.IsZero() || !now.Before(state.next)
+}
+
+func (t *AURPPeerTable) noteDNSFailure(peerAddr string, now time.Time, err error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	state := t.dnsByConfigured[peerAddr]
+	state.failures++
+	state.kind = dnsErrorKind(err)
+	delay := jitterDNSBackoff(dnsBackoff(state.failures))
+	state.next = now.Add(delay)
+	t.dnsByConfigured[peerAddr] = state
+	t.logger.Info(
+		"AURP Peer: DNS retry backoff scheduled",
+		"configured-addr", peerAddr,
+		"kind", state.kind,
+		"failures", state.failures,
+		"delay", delay,
+		"next-dns", state.next,
+	)
+}
+
+func (t *AURPPeerTable) resetDNSBackoff(peerAddr string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	state := t.dnsByConfigured[peerAddr]
+	state.failures = 0
+	state.next = time.Time{}
+	state.kind = ""
+	t.dnsByConfigured[peerAddr] = state
+}
+
+func (t *AURPPeerTable) configuredAddresses() []string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	out := make([]string, 0, len(t.dnsByConfigured))
+	for peerAddr := range t.dnsByConfigured {
+		out = append(out, peerAddr)
+	}
+	return out
+}
+
+func (t *AURPPeerTable) configuredPeer(peerAddr string) *AURPPeer {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.peersByConfigured[peerAddr]
 }
 
 // RunAll runs all peer handlers in goroutines.
@@ -106,6 +232,9 @@ func (t *AURPPeerTable) LookupOrCreate(
 	defer t.mu.Unlock()
 
 	if peerAddr != "" {
+		if _, ok := t.dnsByConfigured[peerAddr]; !ok {
+			t.dnsByConfigured[peerAddr] = configuredDNSState{}
+		}
 		if peer := t.peersByConfigured[peerAddr]; peer != nil {
 			if other := t.peersByIP[key]; other != nil && other != peer {
 				return nil, fmt.Errorf(
@@ -222,9 +351,55 @@ func bool2Int(b bool) int {
 	return 0
 }
 
+func (t *AURPPeerTable) resolveConfiguredPeer(
+	ctx context.Context,
+	logger *slog.Logger,
+	routes *RouteTable,
+	udpConn *net.UDPConn,
+	peerAddr string,
+	localDI aurp.DomainIdentifier,
+) (*AURPPeer, error) {
+	if !t.dnsReady(peerAddr, time.Now()) {
+		return nil, errDNSBackoff
+	}
+
+	resolved, err := net.LookupIP(peerAddr)
+	if err != nil {
+		t.noteDNSFailure(peerAddr, time.Now(), err)
+		return nil, err
+	}
+	candidates := normalizeIPv4Candidates(resolved)
+	if len(candidates) == 0 {
+		err := fmt.Errorf("configured peer %q has no IPv4 candidates", peerAddr)
+		t.noteDNSFailure(peerAddr, time.Now(), err)
+		return nil, err
+	}
+	t.resetDNSBackoff(peerAddr)
+
+	var peer *AURPPeer
+	for _, raddr4 := range candidates {
+		if net.IP(localDI).Equal(raddr4) {
+			continue
+		}
+		p, err := t.LookupOrCreate(
+			ctx, logger, routes, udpConn, peerAddr, raddr4, localDI, nil,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if peer == nil {
+			peer = p
+		}
+	}
+	if peer == nil {
+		return nil, fmt.Errorf("configured peer %q resolved only to local address", peerAddr)
+	}
+	return peer, nil
+}
+
 // PeriodicallyAttemptConnections scans the peer table every 10 seconds looking
 // for configured peers that are disconnected, and attempts to connect them.
-func (t *AURPPeerTable) PeriodicallyAttemptConnections(ctx context.Context, logger *slog.Logger, wg *sync.WaitGroup) {
+func (t *AURPPeerTable) PeriodicallyAttemptConnections(ctx context.Context, logger *slog.Logger, wg *sync.WaitGroup, routes *RouteTable, udpConn *net.UDPConn, localDI aurp.DomainIdentifier) {
 	ctx, setStatus, _ := status.AddSimpleItem(ctx, "Periodically Attempt Connections")
 	setStatus("Running")
 	defer setStatus("Stopped!")
@@ -240,20 +415,30 @@ func (t *AURPPeerTable) PeriodicallyAttemptConnections(ctx context.Context, logg
 			// continue below
 		}
 
-		peers := func() []*AURPPeer {
-			t.mu.RLock()
-			defer t.mu.RUnlock()
-			peers := make([]*AURPPeer, 0, len(t.peersByConfigured))
-			for _, peer := range t.peersByConfigured {
-				if peer.ReceiverState() == ReceiverUnconnected {
-					peers = append(peers, peer)
+		for _, peerAddr := range t.configuredAddresses() {
+			peer := t.configuredPeer(peerAddr)
+			if peer == nil {
+				if !t.dnsReady(peerAddr, time.Now()) {
+					continue
 				}
+				resolvedPeer, err := t.resolveConfiguredPeer(
+					ctx, logger, routes, udpConn, peerAddr, localDI,
+				)
+				if err != nil {
+					if !errors.Is(err, errDNSBackoff) {
+						logger.Warn("AURP Peer: DNS resolution retry failed", "configured-addr", peerAddr, "error", err)
+					}
+					continue
+				}
+				if resolvedPeer != nil && !resolvedPeer.Running() {
+					wg.Go(func() { resolvedPeer.Handle(ctx) })
+				}
+				continue
 			}
-			return peers
-		}()
 
-		for _, peer := range peers {
-			t.reconnectPeer(ctx, logger, wg, peer)
+			if peer.ReceiverState() == ReceiverUnconnected {
+				t.reconnectPeer(ctx, logger, wg, peer)
+			}
 		}
 	}
 }
@@ -355,16 +540,23 @@ func (t *AURPPeerTable) reconnectPeer(ctx context.Context, logger *slog.Logger, 
 		return nil
 	}
 
+	if !t.dnsReady(peer.ConfiguredAddr, time.Now()) {
+		return nil
+	}
 	resolved, err := net.LookupIP(peer.ConfiguredAddr)
 	if err != nil {
+		t.noteDNSFailure(peer.ConfiguredAddr, time.Now(), err)
 		logger.Warn("Couldn't resolve UDP address, skipping", "configured-addr", peer.ConfiguredAddr, "error", err)
 		return nil
 	}
 	candidates := normalizeIPv4Candidates(resolved)
 	if len(candidates) == 0 {
+		err := fmt.Errorf("resolved peer has no IPv4 addresses")
+		t.noteDNSFailure(peer.ConfiguredAddr, time.Now(), err)
 		logger.Warn("Resolved peer has no IPv4 addresses, skipping", "configured-addr", peer.ConfiguredAddr)
 		return nil
 	}
+	t.resetDNSBackoff(peer.ConfiguredAddr)
 
 	switched, err := t.setConfiguredCandidates(peer, candidates)
 	if err != nil {
