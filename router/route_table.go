@@ -142,53 +142,55 @@ func (rt *RouteTable) DeleteTarget(target RouteTarget) {
 	class := target.Class()
 	targetKey := target.RouteTargetKey()
 
-	type routeChange struct{ from, to Route }
-	var routeChanges []*routeChange
-	networks := make(map[ddp.Network]*routeChange)
-
-	// Scan routesByTargetClass to find and delete routes for the target.
+	// Remove the target's stored route records first, but retain copies so we
+	// can remove the same RouteKeys from the per-network forwarding indexes.
+	var deleted []Route
 	func() {
 		rt.byClassMu[class].Lock()
 		defer rt.byClassMu[class].Unlock()
-		for _, r := range rt.byClass[class] {
+
+		for key, r := range rt.byClass[class] {
 			if r.TargetKey != targetKey {
 				continue
 			}
-			rc := new(routeChange)
-			routeChanges = append(routeChanges, rc)
-			for n := r.NetStart; n <= r.NetEnd; n++ {
-				networks[n] = rc
-			}
-			delete(rt.byClass[class], r.RouteKey)
+			deleted = append(deleted, r)
+			delete(rt.byClass[class], key)
 		}
 	}()
+	if len(deleted) == 0 {
+		return
+	}
 
-	// Delete target routes from each network number.
-	for n, rc := range networks {
+	// Capture the best route at each deleted range start before mutating the
+	// forwarding indexes. One observer transition per stored route range is
+	// enough; the Route itself carries the extended range end.
+	oldBest := make(map[ddp.Network]Route, len(deleted))
+	affectedNetworks := make(Set[ddp.Network])
+	for _, r := range deleted {
+		oldBest[r.NetStart] = rt.Lookup(r.NetStart)
+		for n := r.NetStart; n <= r.NetEnd; n++ {
+			affectedNetworks.Insert(n)
+		}
+	}
+
+	for n := range affectedNetworks {
 		func() {
 			rt.byNetwork[n].Lock()
 			defer rt.byNetwork[n].Unlock()
 
-			oldRoutes := rt.byNetwork[n].Routes
-			newRoutes := make([]Route, 0, len(oldRoutes))
-			for _, r := range oldRoutes {
-				if rc.from.Zero() && r.Valid() {
-					rc.from = r
-				}
-				if r.Target.RouteTargetKey() == targetKey {
-					continue
-				}
-				newRoutes = append(newRoutes, r)
-				if rc.to.Zero() && r.Valid() {
-					rc.to = r
-				}
-			}
-			rt.byNetwork[n].Routes = newRoutes
+			rt.byNetwork[n].Routes = slices.DeleteFunc(
+				rt.byNetwork[n].Routes,
+				func(r Route) bool {
+					return r.TargetKey == targetKey
+				},
+			)
 		}()
+		rt.clearZonesForNetworkIfNoRoutes(n)
 	}
 
-	for _, rc := range routeChanges {
-		rt.informObservers(rc.from, rc.to)
+	starts := slices.Sorted(maps.Keys(oldBest))
+	for _, n := range starts {
+		rt.informObservers(oldBest[n], rt.Lookup(n))
 	}
 }
 
@@ -226,9 +228,10 @@ func (rt *RouteTable) DeleteRoute(target RouteTarget, netStart ddp.Network) erro
 			defer rt.byNetwork[n].Unlock()
 
 			rt.byNetwork[n].Routes = slices.DeleteFunc(rt.byNetwork[n].Routes, func(r Route) bool {
-				return r.TargetKey == routeKey.TargetKey
+				return r.RouteKey == routeKey
 			})
 		}()
+		rt.clearZonesForNetworkIfNoRoutes(n)
 	}
 
 	newBest := rt.Lookup(route.NetStart)
@@ -271,6 +274,12 @@ func (rt *RouteTable) UpdateDistance(target RouteTarget, netStart ddp.Network, d
 	if distance != oldRoute.Distance {
 		newRoute.Distance = distance
 	}
+
+	func() {
+		rt.byClassMu[class].Lock()
+		defer rt.byClassMu[class].Unlock()
+		rt.byClass[class][oldRoute.RouteKey] = newRoute
+	}()
 
 	for n := oldRoute.NetStart; n <= oldRoute.NetEnd; n++ {
 		func() {
@@ -325,33 +334,45 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 		network: &rt.byNetwork[netStart],
 	}
 
-	update := false
+	oldRoute := rt.find(target, netStart)
+	update := !oldRoute.Zero()
 	func() {
 		rt.byClassMu[class].Lock()
 		defer rt.byClassMu[class].Unlock()
-		_, update = rt.byClass[class][key]
 		rt.byClass[class][key] = newRoute
 	}()
+
+	if update {
+		for n := oldRoute.NetStart; n <= oldRoute.NetEnd; n++ {
+			func() {
+				rt.byNetwork[n].Lock()
+				defer rt.byNetwork[n].Unlock()
+				rt.byNetwork[n].Routes = slices.DeleteFunc(
+					rt.byNetwork[n].Routes,
+					func(r Route) bool { return r.RouteKey == key },
+				)
+			}()
+		}
+	}
 
 	for n := netStart; n <= netEnd; n++ {
 		func() {
 			rt.byNetwork[n].Lock()
 			defer rt.byNetwork[n].Unlock()
 
-			if update {
-				for i, r := range rt.byNetwork[n].Routes {
-					if r.RouteKey == key {
-						rt.byNetwork[n].Routes[i] = newRoute
-					}
-				}
-			} else {
-				rt.byNetwork[n].Routes = append(rt.byNetwork[n].Routes, newRoute)
-			}
-
+			rt.byNetwork[n].Routes = append(rt.byNetwork[n].Routes, newRoute)
 			slices.SortFunc(rt.byNetwork[n].Routes, func(a, b Route) int {
 				return cmp.Compare(a.Distance, b.Distance)
 			})
 		}()
+	}
+
+	if update {
+		for n := oldRoute.NetStart; n <= oldRoute.NetEnd; n++ {
+			if n < netStart || n > netEnd {
+				rt.clearZonesForNetworkIfNoRoutes(n)
+			}
+		}
 	}
 
 	newBest := rt.Lookup(netStart)
