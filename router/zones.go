@@ -27,28 +27,67 @@ import (
 func (rt *RouteTable) AddZonesToNetwork(n ddp.Network, zs ...string) error {
 	oldBest := rt.Lookup(n)
 
-	func() {
-		rt.byNetwork[n].Lock()
-		defer rt.byNetwork[n].Unlock()
-
-		if rt.byNetwork[n].ZoneNames == nil {
-			rt.byNetwork[n].ZoneNames = make(Set[string])
+	// Keep the forward and reverse zone indexes in sync under one lock order:
+	// network first, reverse index second. Only newly learned names are added
+	// to networksByZone, preventing duplicate network entries on repeated ZIP
+	// or AURP zone responses.
+	rt.byNetwork[n].Lock()
+	if rt.byNetwork[n].ZoneNames == nil {
+		rt.byNetwork[n].ZoneNames = make(Set[string])
+	}
+	var added []string
+	for _, zn := range zs {
+		if rt.byNetwork[n].ZoneNames.Contains(zn) {
+			continue
 		}
-		rt.byNetwork[n].ZoneNames.Insert(zs...)
-	}()
-
-	func() {
+		rt.byNetwork[n].ZoneNames.Insert(zn)
+		added = append(added, zn)
+	}
+	if len(added) > 0 {
 		rt.networksByZoneMu.Lock()
-		defer rt.networksByZoneMu.Unlock()
-		for _, zn := range zs {
+		for _, zn := range added {
 			rt.networksByZone[zn] = append(rt.networksByZone[zn], n)
 		}
-	}()
+		rt.networksByZoneMu.Unlock()
+	}
+	rt.byNetwork[n].Unlock()
 
 	newBest := rt.Lookup(n)
 	rt.informObservers(oldBest, newBest)
 
 	return nil
+}
+
+// clearZonesForNetworkIfNoRoutes removes zone metadata once a network has no
+// stored route candidates at all. This prevents a disconnected AURP peer from
+// leaving zone names behind that would make a later route immediately appear
+// valid before fresh zone information is received.
+func (rt *RouteTable) clearZonesForNetworkIfNoRoutes(n ddp.Network) {
+	rt.byNetwork[n].Lock()
+	defer rt.byNetwork[n].Unlock()
+
+	if len(rt.byNetwork[n].Routes) != 0 ||
+		len(rt.byNetwork[n].ZoneNames) == 0 {
+		return
+	}
+
+	zones := rt.byNetwork[n].ZoneNames.ToSlice()
+	rt.byNetwork[n].ZoneNames = nil
+
+	rt.networksByZoneMu.Lock()
+	defer rt.networksByZoneMu.Unlock()
+
+	for _, zn := range zones {
+		networks := slices.DeleteFunc(
+			rt.networksByZone[zn],
+			func(network ddp.Network) bool { return network == n },
+		)
+		if len(networks) == 0 {
+			delete(rt.networksByZone, zn)
+			continue
+		}
+		rt.networksByZone[zn] = networks
+	}
 }
 
 // ZonesForNetworks returns a map of network numbers to zone names in each.
