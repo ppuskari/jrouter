@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Chat log for {{.RemoteAddr}}</title>
+    <title>Chat log for {{.RemoteAddrString}}</title>
     <style>
     :root {
         color-scheme: light dark;
@@ -96,10 +96,10 @@
     </style>
 </head>
 <body>
-    <h1>Chat log for {{.RemoteAddr}}</h1>
+    <h1>Chat log for {{.RemoteAddrString}}</h1>
     <div class="summary"><p>
         Configured address: {{.ConfiguredAddr}}<br>
-   	    Resolved address: {{.RemoteAddr}}<br>
+   	    Resolved address: {{.RemoteAddrString}}<br>
    	    Goroutine <span class="{{if .Running}}green{{else}}red{{end}}">{{if .Running}}running{{else}}stopped{{end}}</span><br>
    	    Receiver state: <span class="{{if eq .ReceiverState 0}}red{{else}}green{{end}}">{{.ReceiverState}}</span><br>
    	    Sender state: <span class="{{if eq .SenderState 0}}red{{else}}green{{end}}">{{.SenderState}}</span><br>
