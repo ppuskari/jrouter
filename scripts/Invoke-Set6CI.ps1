@@ -70,11 +70,11 @@ $run = $null
 for ($i = 0; $i -lt 45; $i++) {
     Start-Sleep -Seconds 2
 
-    $runs = gh run list --branch $branch --limit 20 --json databaseId,status,conclusion,headSha,displayTitle,workflowName | ConvertFrom-Json
+    $api = gh api --method GET repos/ppuskari/jrouter/actions/runs -f branch=$branch -f per_page=20 | ConvertFrom-Json
 
-    $run = $runs | Where-Object {
-        $_.headSha -eq $head -and
-        $_.workflowName -eq "AURP Set-6 Test Build"
+    $run = $api.workflow_runs | Where-Object {
+        $_.head_sha -eq $head -and
+        $_.name -eq "AURP Set-6 Test Build"
     } | Select-Object -First 1
 
     if ($run) {
@@ -86,7 +86,7 @@ if (-not $run) {
     throw "No GitHub Actions Set-6 run appeared for $head"
 }
 
-$runId = $run.databaseId
+$runId = $run.id
 
 Write-Host ""
 Write-Host "Run ID: $runId"
