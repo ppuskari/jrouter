@@ -137,6 +137,103 @@ func (rt *RouteTable) Lookup(network ddp.Network) Route {
 	return Route{}
 }
 
+
+func (rt *RouteTable) lookupIgnoringAge(network ddp.Network) Route {
+	rt.byNetwork[network].RLock()
+	defer rt.byNetwork[network].RUnlock()
+
+	for _, r := range rt.byNetwork[network].Routes {
+		if r.validIgnoringAge() {
+			return r
+		}
+	}
+	return Route{}
+}
+
+// PruneExpiredRoutes removes AppleTalk-peer routes whose RTMP refresh age has
+// exceeded maxRouteAge. Observer transitions are based on the route that was
+// best immediately before expiry, so AURP peers receive the corresponding
+// ND/NRC/NDC lifecycle update instead of silently retaining a route that
+// Lookup has stopped using.
+func (rt *RouteTable) PruneExpiredRoutes(now time.Time) int {
+	class := TargetClassAppleTalkPeer
+
+	var expired []Route
+	func() {
+		rt.byClassMu[class].Lock()
+		defer rt.byClassMu[class].Unlock()
+
+		for key, r := range rt.byClass[class] {
+			if !r.expiredAt(now) {
+				continue
+			}
+			expired = append(expired, r)
+			delete(rt.byClass[class], key)
+		}
+	}()
+	if len(expired) == 0 {
+		return 0
+	}
+
+	oldBest := make(map[ddp.Network]Route, len(expired))
+	affectedNetworks := make(Set[ddp.Network])
+	for _, r := range expired {
+		if _, seen := oldBest[r.NetStart]; !seen {
+			oldBest[r.NetStart] = rt.lookupIgnoringAge(r.NetStart)
+		}
+		for n := r.NetStart; n <= r.NetEnd; n++ {
+			affectedNetworks.Insert(n)
+		}
+	}
+
+	// A route may have been refreshed after the class-index snapshot but
+	// before this forwarding-index pass. Preserve any copy with a newer
+	// LastSeen so maintenance never deletes a fresh RTMP update.
+	for n := range affectedNetworks {
+		func() {
+			rt.byNetwork[n].Lock()
+			defer rt.byNetwork[n].Unlock()
+
+			rt.byNetwork[n].Routes = slices.DeleteFunc(
+				rt.byNetwork[n].Routes,
+				func(candidate Route) bool {
+					for _, stale := range expired {
+						if candidate.RouteKey == stale.RouteKey &&
+							!candidate.LastSeen.After(stale.LastSeen) {
+							return true
+						}
+					}
+					return false
+				},
+			)
+		}()
+		rt.clearZonesForNetworkIfNoRoutes(n)
+	}
+
+	starts := slices.Sorted(maps.Keys(oldBest))
+	for _, n := range starts {
+		rt.informObservers(oldBest[n], rt.Lookup(n))
+	}
+	return len(expired)
+}
+
+// RunMaintenance periodically retires stale RTMP-learned routes. AURP routes
+// are connection-owned and are removed synchronously when their receiver-side
+// connection is lost, so only AppleTalk-peer ageing is handled here.
+func (rt *RouteTable) RunMaintenance(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			rt.PruneExpiredRoutes(now)
+		}
+	}
+}
+
 // DeleteTarget deletes the route target and all its routes.
 func (rt *RouteTable) DeleteTarget(target RouteTarget) {
 	class := target.Class()
