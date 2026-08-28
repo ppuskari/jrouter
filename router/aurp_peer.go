@@ -510,7 +510,6 @@ func (p *AURPPeer) rtickerTasks() error {
 		if p.SendRetries() >= tickleRetryLimit {
 			p.logger.Warn("AURP Peer: Send retry limit reached while waiting for Tickle-Ack, closing connection")
 			p.disconnectReceiver()
-			p.RouteTable.DeleteTarget(p)
 			p.noteReconnectFailure(time.Now())
 			break
 		}
@@ -1292,7 +1291,6 @@ func (p *AURPPeer) handleRD(logger *slog.Logger, pkt *aurp.RDPacket) error {
 	// that has the expected sequence number and connection ID..."
 
 	logger.Info("AURP Peer: Router Down", "code", int(pkt.ErrorCode), "code-str", pkt.ErrorCode)
-	p.RouteTable.DeleteTarget(p)
 
 	// Respond with RI-Ack
 	if _, err := p.send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, 0)); err != nil {
@@ -1547,6 +1545,14 @@ func (p *AURPPeer) setRState(rstate ReceiverState) { p.rstate.Store(int32(rstate
 func (p *AURPPeer) setSState(sstate SenderState)   { p.sstate.Store(int32(sstate)) }
 
 func (p *AURPPeer) disconnectReceiver() {
+	// Routes learned on the receiver-side one-way connection are candidates
+	// owned by that connection. Once the receiver connection is lost, none of
+	// them may remain eligible for forwarding; a later RI-Rsp rebuilds the
+	// peer's route set from scratch.
+	if p.RouteTable != nil {
+		p.RouteTable.DeleteTarget(p)
+	}
+
 	// "When establishing a one-way connection with a given data sender, a
 	// data receiver using AURP-Tr must send an Open-Req that has a
 	// different connection ID from that used in its last connection with
