@@ -1,9 +1,9 @@
-name: AURP Set-6 Test Build
+name: AURP Set-7 Route Lifecycle
 
 on:
   push:
     branches:
-      - petar/aurp-set6-field-20260828
+      - petar/aurp-set7-route-lifecycle-20260828
   workflow_dispatch:
 
 jobs:
@@ -41,26 +41,26 @@ jobs:
       - name: Race tests for routing packages
         run: go test -race ./router ./aurp
 
-      - name: Set-6 routing stress x100
+      - name: Set-7 routing stress x100
         run: go test ./router ./aurp -count=100
 
-      - name: Set-6 race soak x20
+      - name: Set-7 race soak x20
         run: go test -race ./router ./aurp -count=20
 
       - name: Build all packages
         run: go build ./...
 
-      - name: Build Linux amd64 Set-6 binary
+      - name: Build Linux amd64 Set-7 binary
         run: |
           mkdir -p dist
-          GOOS=linux GOARCH=amd64 go build -o dist/jrouter-set6-linux-amd64 .
-          sha256sum dist/jrouter-set6-linux-amd64 | tee dist/jrouter-set6-linux-amd64.sha256
+          GOOS=linux GOARCH=amd64 go build -o dist/jrouter-set7-linux-amd64 .
+          sha256sum dist/jrouter-set7-linux-amd64 | tee dist/jrouter-set7-linux-amd64.sha256
 
-      - name: Upload Linux amd64 Set-6 binary
+      - name: Upload Linux amd64 Set-7 binary
         uses: actions/upload-artifact@v4
         with:
-          name: jrouter-set6-linux-amd64
+          name: jrouter-set7-linux-amd64
           path: |
-            dist/jrouter-set6-linux-amd64
-            dist/jrouter-set6-linux-amd64.sha256
+            dist/jrouter-set7-linux-amd64
+            dist/jrouter-set7-linux-amd64.sha256
           if-no-files-found: error
