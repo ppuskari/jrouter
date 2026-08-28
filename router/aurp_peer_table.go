@@ -49,9 +49,9 @@ type AURPPeerTable struct {
 // NewAURPPeerTable creates a new AURP peer table.
 func NewAURPPeerTable(ctx context.Context, logger *slog.Logger) *AURPPeerTable {
 	t := &AURPPeerTable{
-		logger:             logger,
-		peersByIP:          make(map[[4]byte]*AURPPeer),
-		peersByConfigured:  make(map[string]*AURPPeer),
+		logger:            logger,
+		peersByIP:         make(map[[4]byte]*AURPPeer),
+		peersByConfigured: make(map[string]*AURPPeer),
 	}
 	for t.nextConnID == 0 {
 		t.nextConnID = uint16(rand.UintN(0x10000))
