@@ -351,7 +351,9 @@ func bool2Int(b bool) int {
 	return 0
 }
 
-func (t *AURPPeerTable) resolveConfiguredPeer(
+// ResolveConfiguredPeer resolves one configured hostname using DNS backoff and
+// creates or refreshes its logical AURP peer.
+func (t *AURPPeerTable) ResolveConfiguredPeer(
 	ctx context.Context,
 	logger *slog.Logger,
 	routes *RouteTable,
@@ -421,7 +423,7 @@ func (t *AURPPeerTable) PeriodicallyAttemptConnections(ctx context.Context, logg
 				if !t.dnsReady(peerAddr, time.Now()) {
 					continue
 				}
-				resolvedPeer, err := t.resolveConfiguredPeer(
+				resolvedPeer, err := t.ResolveConfiguredPeer(
 					ctx, logger, routes, udpConn, peerAddr, localDI,
 				)
 				if err != nil {
