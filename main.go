@@ -178,7 +178,7 @@ func main() {
 	// This happens after adding local networks to the routing table, so that
 	// we have networks to advertise to peers before connecting to them.
 	wg.Go(func() { rooter.AURPInput(ctx, logger, wg, udpConn) })
-	wg.Go(func() { rooter.AURPPeers.PeriodicallyAttemptConnections(ctx, logger, wg) })
+	wg.Go(func() { rooter.AURPPeers.PeriodicallyAttemptConnections(ctx, logger, wg, rooter.RouteTable, udpConn, rooter.Identity) })
 
 	// Among other things, peer handlers send outbound Open-Reqs, initiating
 	// outbound connections.
@@ -292,9 +292,9 @@ func fetchPeerListURL(logger *slog.Logger, rooter *router.Router) {
 	logger.Info("Fetched list", "length", len(rooter.Config.Peers)-existing)
 }
 
-// resolvePeerHostnames resolves all configured peer hostnames to all current
-// IPv4 candidates. A configured hostname remains one logical AURP peer even
-// when DNS returns multiple A records.
+// resolvePeerHostnames resolves all configured peer hostnames. Each name is
+// tracked before lookup so startup DNS failures remain eligible for later
+// negative-result backoff and retry.
 func resolvePeerHostnames(ctx context.Context, logger *slog.Logger, rooter *router.Router, udpConn *net.UDPConn) {
 	var resolverWG sync.WaitGroup
 	peerCh := make(chan string)
@@ -312,41 +312,21 @@ func resolvePeerHostnames(ctx context.Context, logger *slog.Logger, rooter *rout
 					return
 				}
 
-				addrs, err := net.LookupIP(peerStr)
+				rooter.AURPPeers.TrackConfiguredAddress(peerStr)
+				peer, err := rooter.AURPPeers.ResolveConfiguredPeer(
+					ctx,
+					logger,
+					rooter.RouteTable,
+					udpConn,
+					peerStr,
+					rooter.Identity,
+				)
 				if err != nil {
-					logger.Warn("Couldn't resolve address, skipping", "configured-addr", peerStr, "error", err)
+					logger.Warn("Couldn't resolve address, retaining for retry", "configured-addr", peerStr, "error", err)
 					continue
 				}
-
-				added := 0
-				for _, raddr := range addrs {
-					raddr4 := raddr.To4()
-					if raddr4 == nil {
-						continue
-					}
-					if raddr4.Equal(net.IP(rooter.Identity)) {
-						logger.Debug("Not adding self as peer", "configured-addr", peerStr, "raddr", raddr4)
-						continue
-					}
-
-					logger.Debug("Resolved address", "configured-addr", peerStr, "raddr", raddr4)
-					if _, err := rooter.AURPPeers.LookupOrCreate(
-						ctx,
-						logger,
-						rooter.RouteTable,
-						udpConn,
-						peerStr,
-						raddr4,
-						rooter.Identity,
-						nil,
-					); err != nil {
-						logger.Warn("AURP: peer create", "configured-addr", peerStr, "raddr", raddr4, "error", err)
-						continue
-					}
-					added++
-				}
-				if added == 0 {
-					logger.Warn("Resolved peer has no usable IPv4 addresses, skipping", "configured-addr", peerStr)
+				if peer != nil {
+					logger.Debug("Resolved configured AURP peer", "configured-addr", peerStr, "raddr", peer.RemoteAddr())
 				}
 			}
 		})
