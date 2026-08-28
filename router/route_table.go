@@ -177,7 +177,9 @@ func (rt *RouteTable) PruneExpiredRoutes(now time.Time) int {
 
 	oldBest := make(map[ddp.Network]Route, len(expired))
 	affectedNetworks := make(Set[ddp.Network])
+	expiredAt := make(map[RouteKey]time.Time, len(expired))
 	for _, r := range expired {
+		expiredAt[r.RouteKey] = r.LastSeen
 		if _, seen := oldBest[r.NetStart]; !seen {
 			oldBest[r.NetStart] = rt.lookupIgnoringAge(r.NetStart)
 		}
@@ -197,13 +199,8 @@ func (rt *RouteTable) PruneExpiredRoutes(now time.Time) int {
 			rt.byNetwork[n].Routes = slices.DeleteFunc(
 				rt.byNetwork[n].Routes,
 				func(candidate Route) bool {
-					for _, stale := range expired {
-						if candidate.RouteKey == stale.RouteKey &&
-							!candidate.LastSeen.After(stale.LastSeen) {
-							return true
-						}
-					}
-					return false
+					lastSeen, stale := expiredAt[candidate.RouteKey]
+					return stale && !candidate.LastSeen.After(lastSeen)
 				},
 			)
 		}()
