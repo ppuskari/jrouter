@@ -494,7 +494,10 @@ func (rt *RouteTable) informObservers(oldBest, newBest Route) {
 			o.NetworkDeleted(oldBest)
 		}
 
-	case oldBest.TargetKey != newBest.TargetKey || oldBest.Distance != newBest.Distance:
+	case oldBest.TargetKey != newBest.TargetKey ||
+		oldBest.Distance != newBest.Distance ||
+		oldBest.Extended != newBest.Extended ||
+		oldBest.NetEnd != newBest.NetEnd:
 		for o := range rt.observers {
 			o.BestNetworkChanged(oldBest, newBest)
 		}
