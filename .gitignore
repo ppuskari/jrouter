@@ -26,4 +26,5 @@ go.work
 
 dist/
 tmp/
+build/
 mage_output_file.go

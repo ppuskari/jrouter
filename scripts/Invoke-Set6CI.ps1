@@ -6,7 +6,6 @@ param(
 $ErrorActionPreference = "Stop"
 
 $branch = "petar/aurp-set6-field-20260828"
-$workflow = "AURP Set-6 Test Build"
 $artifact = "jrouter-set6-linux-amd64"
 $dest = ".\\build\\set6-ci"
 
@@ -18,9 +17,14 @@ if ($current -ne $branch) {
     throw "Wrong branch: $current"
 }
 
-$dirty = @(git status --short | Where-Object {
-    $_ -notmatch '^\\?\\? build/'
-})
+$trackedBuild = @(git ls-files build)
+if ($trackedBuild.Count -gt 0) {
+    Write-Host "Tracked build artifacts detected:"
+    $trackedBuild | ForEach-Object { Write-Host "  $_" }
+    throw "build/ must not contain tracked files."
+}
+
+$dirty = @(git status --short --untracked-files=all)
 
 if (-not $dirty) {
     Write-Host "No source changes to commit."
@@ -29,7 +33,7 @@ if (-not $dirty) {
 } else {
     Write-Host ""
     Write-Host "=== CHANGES ==="
-    git status --short
+    git status --short --untracked-files=all
 
     git diff --check
     if ($LASTEXITCODE -ne 0) {
@@ -66,9 +70,12 @@ $run = $null
 for ($i = 0; $i -lt 45; $i++) {
     Start-Sleep -Seconds 2
 
-    $runs = gh run list --workflow $workflow --branch $branch --limit 10 --json databaseId,status,conclusion,headSha,displayTitle | ConvertFrom-Json
+    $runs = gh run list --branch $branch --limit 20 --json databaseId,status,conclusion,headSha,displayTitle,workflowName | ConvertFrom-Json
 
-    $run = $runs | Where-Object { $_.headSha -eq $head } | Select-Object -First 1
+    $run = $runs | Where-Object {
+        $_.headSha -eq $head -and
+        $_.workflowName -eq "AURP Set-6 Test Build"
+    } | Select-Object -First 1
 
     if ($run) {
         break
@@ -76,7 +83,7 @@ for ($i = 0; $i -lt 45; $i++) {
 }
 
 if (-not $run) {
-    throw "No GitHub Actions run appeared for $head"
+    throw "No GitHub Actions Set-6 run appeared for $head"
 }
 
 $runId = $run.databaseId
