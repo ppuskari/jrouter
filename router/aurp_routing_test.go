@@ -30,12 +30,12 @@ func TestAURPEventForBestTransition(t *testing.T) {
 	tunnelB := fakeTarget{key: "aurp-b", class: TargetClassAURPPeer}
 
 	tests := []struct {
-		name       string
-		before     Route
-		after      Route
-		want       aurp.EventCode
-		wantDist   uint8
-		wantEvent  bool
+		name      string
+		before    Route
+		after     Route
+		want      aurp.EventCode
+		wantDist  uint8
+		wantEvent bool
 	}{
 		{"new local", Route{}, testAURPRoute(localA, 100, 2), aurp.EventCodeNA, 2, true},
 		{"new tunnel hidden", Route{}, testAURPRoute(tunnelA, 100, 2), 0, 0, false},
@@ -160,7 +160,7 @@ func TestAURPRoutingChunksFitBudget(t *testing.T) {
 		})
 		events = append(events, aurp.EventTuple{
 			EventCode: aurp.EventCodeNDC,
-			Extended: true, RangeStart: n, RangeEnd: n, Distance: 3,
+			Extended:  true, RangeStart: n, RangeEnd: n, Distance: 3,
 		})
 	}
 
@@ -261,11 +261,11 @@ func TestAURPInconsistentUpdateHandling(t *testing.T) {
 	}
 
 	needZI, err := p.applyRIUpdEvent(aurp.EventTuple{
-		EventCode: aurp.EventCodeNDC,
-		Extended: true,
+		EventCode:  aurp.EventCodeNDC,
+		Extended:   true,
 		RangeStart: 500,
-		RangeEnd: 500,
-		Distance: 3,
+		RangeEnd:   500,
+		Distance:   3,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -289,11 +289,11 @@ func TestAURPInconsistentUpdateHandling(t *testing.T) {
 
 	// Distance 15 behaves as deletion.
 	if _, err := p.applyRIUpdEvent(aurp.EventTuple{
-		EventCode: aurp.EventCodeNDC,
-		Extended: true,
+		EventCode:  aurp.EventCodeNDC,
+		Extended:   true,
 		RangeStart: 500,
-		RangeEnd: 500,
-		Distance: 15,
+		RangeEnd:   500,
+		Distance:   15,
 	}); err != nil {
 		t.Fatal(err)
 	}
