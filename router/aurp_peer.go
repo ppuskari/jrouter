@@ -34,14 +34,14 @@ import (
 )
 
 const (
-	lastHeardFromTimer = 90 * time.Second
-	tickleRetryLimit   = 10
-	sendRetryTimer     = 10 * time.Second
-	sendRetryLimit     = 5
+	lastHeardFromTimer   = 90 * time.Second
+	tickleRetryLimit     = 10
+	sendRetryTimer       = 10 * time.Second
+	sendRetryLimit       = 5
 	reconnectBackoffBase = 10 * time.Minute
 	reconnectBackoffCap  = 2 * time.Hour
 	reconnectJitterPct   = 10
-	updateTimer        = 10 * time.Second
+	updateTimer          = 10 * time.Second
 
 	chatLogLimit = 200
 )
@@ -91,14 +91,14 @@ type AURPPeer struct {
 
 	// The internal states below are only set within the Handle loop, but can
 	// be read concurrently from outside (e.g. status, metrics).
-	running       atomic.Bool
-	rstate        atomic.Int32 // ReceiverState
-	sstate        atomic.Int32 // SenderState
-	lastReconnect atomic.Value // time.Time
-	lastHeardFrom atomic.Value // time.Time
-	lastSend      atomic.Value // time.Time // TODO: clarify use of lastSend / sendRetries
-	lastUpdate    atomic.Value // time.Time
-	sendRetries      atomic.Int32
+	running           atomic.Bool
+	rstate            atomic.Int32 // ReceiverState
+	sstate            atomic.Int32 // SenderState
+	lastReconnect     atomic.Value // time.Time
+	lastHeardFrom     atomic.Value // time.Time
+	lastSend          atomic.Value // time.Time // TODO: clarify use of lastSend / sendRetries
+	lastUpdate        atomic.Value // time.Time
+	sendRetries       atomic.Int32
 	reconnectFailures atomic.Int32
 	nextReconnect     atomic.Value // time.Time
 
@@ -279,7 +279,6 @@ func (p *AURPPeer) LastUpdate() time.Time {
 func (p *AURPPeer) SendRetries() int {
 	return int(p.sendRetries.Load())
 }
-
 
 // ReconnectFailures returns the number of consecutive failed receiver
 // connection attempts since the last fully established routing connection.
