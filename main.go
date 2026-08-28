@@ -178,7 +178,9 @@ func main() {
 	// This happens after adding local networks to the routing table, so that
 	// we have networks to advertise to peers before connecting to them.
 	wg.Go(func() { rooter.AURPInput(ctx, logger, wg, udpConn) })
-	wg.Go(func() { rooter.AURPPeers.PeriodicallyAttemptConnections(ctx, logger, wg, rooter.RouteTable, udpConn, rooter.Identity) })
+	wg.Go(func() {
+		rooter.AURPPeers.PeriodicallyAttemptConnections(ctx, logger, wg, rooter.RouteTable, udpConn, rooter.Identity)
+	})
 
 	// Among other things, peer handlers send outbound Open-Reqs, initiating
 	// outbound connections.
