@@ -58,9 +58,10 @@ type AURPPeer struct {
 	// open_peering enabled).
 	ConfiguredAddr string
 
-	// The resolved address of the peer.
+	// The active resolved address of the peer. It can change when a configured
+	// hostname's DNS candidate set changes. Use RemoteAddr() to read it safely.
 	// NOTE: The UDP port is always assumed to be 387.
-	RemoteAddr net.IP
+	remoteAddr atomic.Value // net.IP
 
 	// Incoming packet channel.
 	ReceiveCh chan aurp.RoutingPacket
@@ -187,14 +188,37 @@ func (p *AURPPeer) Forward(_ context.Context, ddpkt *ddp.ExtPacket) error {
 
 // RouteTargetKey returns "AURPPeer|peer's IP address".
 func (p *AURPPeer) RouteTargetKey() string {
-	return "AURPPeer|" + p.RemoteAddr.String()
+	return "AURPPeer|" + p.RemoteAddrString()
 }
 
 // Class returns TargetClassAURPPeer.
 func (p *AURPPeer) Class() TargetClass { return TargetClassAURPPeer }
 
 func (p *AURPPeer) String() string {
-	return p.RemoteAddr.String()
+	return p.RemoteAddrString()
+}
+
+// setRemoteAddr updates the active IPv4 endpoint atomically.
+func (p *AURPPeer) setRemoteAddr(raddr net.IP) {
+	raddr4 := raddr.To4()
+	if raddr4 == nil {
+		return
+	}
+	p.remoteAddr.Store(append(net.IP(nil), raddr4...))
+}
+
+// RemoteAddr returns a copy of the active resolved IPv4 endpoint.
+func (p *AURPPeer) RemoteAddr() net.IP {
+	raddr := nilToZero[net.IP](p.remoteAddr.Load())
+	if raddr == nil {
+		return nil
+	}
+	return append(net.IP(nil), raddr...)
+}
+
+// RemoteAddrString returns the active resolved IPv4 endpoint as text.
+func (p *AURPPeer) RemoteAddrString() string {
+	return p.RemoteAddr().String()
 }
 
 // Running reports whether the handler loop is running.
@@ -269,7 +293,7 @@ func (p *AURPPeer) DumpChatLog() []ChatLogEntry {
 // one will run.
 func (p *AURPPeer) Handle(ctx context.Context) {
 	if !p.running.CompareAndSwap(false, true) {
-		p.logger.Debug("AURP: handle loop for peer already running", "raddr", p.RemoteAddr)
+		p.logger.Debug("AURP: handle loop for peer already running", "raddr", p.RemoteAddr())
 		return
 	}
 	defer p.running.Store(false)
@@ -1445,13 +1469,13 @@ func (p *AURPPeer) send(pkt aurp.Packet) (int, error) {
 		return 0, err
 	}
 
-	promLabels := prometheus.Labels{"peer": p.RemoteAddr.String()}
+	promLabels := prometheus.Labels{"peer": p.RemoteAddrString()}
 	aurpPacketsOutCounter.With(promLabels).Inc()
 	aurpBytesOutCounter.With(promLabels).Add(float64(b.Len()))
 
 	p.logger.Debug("AURP Peer: Sending", "pkt-type", reflect.TypeOf(pkt), "length", b.Len())
 	p.lastSend.Store(time.Now())
-	return p.UDPConn.WriteToUDP(b.Bytes(), &net.UDPAddr{IP: p.RemoteAddr, Port: 387})
+	return p.UDPConn.WriteToUDP(b.Bytes(), &net.UDPAddr{IP: p.RemoteAddr(), Port: 387})
 }
 
 func (p *AURPPeer) addToChatLog(pkt aurp.RoutingPacket, sent bool) {
