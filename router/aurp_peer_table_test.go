@@ -309,9 +309,6 @@ func TestAURPNewDNSCandidateBypassesCurrentBackoff(t *testing.T) {
 		t.Fatal("active endpoint did not switch")
 	}
 
-	// reconnectPeer clears the deadline when it observes a switched endpoint;
-	// exercise the same policy directly here without doing live DNS.
-	peer.nextReconnect.Store(time.Time{})
 	if !peer.reconnectReady(time.Now()) {
 		t.Fatal("new DNS endpoint remained blocked by old reconnect deadline")
 	}
