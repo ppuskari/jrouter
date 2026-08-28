@@ -345,7 +345,7 @@ type aurpPeerStatusRow struct {
 	ReconnectFailures int
 	NextReconnect     time.Time
 
-	DNSFailures int
+	DNSFailures  int
 	DNSErrorKind string
 	NextDNS      time.Time
 
