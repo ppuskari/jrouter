@@ -84,7 +84,7 @@ func (t *AURPPeerTable) Collect(ch chan<- prometheus.Metric) {
 		if p.SenderConnected() {
 			sconn = 1
 		}
-		raddr := p.RemoteAddr.String()
+		raddr := p.RemoteAddrString()
 		ch <- prometheus.MustNewConstMetric(
 			aurpPeerReceiverConnectedDesc,
 			prometheus.GaugeValue,
