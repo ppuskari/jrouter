@@ -9,7 +9,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -41,8 +41,11 @@ jobs:
       - name: Race tests for routing packages
         run: go test -race ./router ./aurp
 
-      - name: Set-6 routing stress
-        run: go test ./router ./aurp -count=25
+      - name: Set-6 routing stress x100
+        run: go test ./router ./aurp -count=100
+
+      - name: Set-6 race soak x20
+        run: go test -race ./router ./aurp -count=20
 
       - name: Build all packages
         run: go build ./...
