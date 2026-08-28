@@ -1193,6 +1193,17 @@ func (p *AURPPeer) applyRIUpdEvent(et aurp.EventTuple) (bool, error) {
 			return err == nil, err
 		}
 
+		// The tuple carries the network-range shape as well as the metric.
+		// Preserve range changes from a peer instead of updating only Distance
+		// and leaving stale forwarding entries beyond the new range.
+		if existing.Extended != et.Extended ||
+			existing.NetEnd != et.RangeEnd {
+			_, err := p.RouteTable.UpsertRoute(
+				p, et.Extended, et.RangeStart, et.RangeEnd, et.Distance+1,
+			)
+			return false, err
+		}
+
 		return false, p.RouteTable.UpdateDistance(
 			p, et.RangeStart, et.Distance+1,
 		)
