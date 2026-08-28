@@ -4,6 +4,7 @@ import (
 	"net"
 	"slices"
 	"testing"
+	"time"
 
 	"drjosh.dev/jrouter/aurp"
 	"github.com/sfiera/multitalk/pkg/ddp"
@@ -271,5 +272,196 @@ func TestSet7AURPReceiverDisconnectFlushesAndRebuilds(t *testing.T) {
 	}
 	if got := rt.Lookup(600); got.Zero() {
 		t.Fatal("rebuilt AURP route did not become valid after fresh zone info")
+	}
+}
+
+func setRouteLastSeenForTest(
+	t *testing.T,
+	rt *RouteTable,
+	target RouteTarget,
+	netStart ddp.Network,
+	lastSeen time.Time,
+) {
+	t.Helper()
+
+	class := target.Class()
+	key := RouteKey{
+		TargetKey: target.RouteTargetKey(),
+		NetStart:  netStart,
+	}
+
+	rt.byClassMu[class].Lock()
+	r := rt.byClass[class][key]
+	if r.Zero() {
+		rt.byClassMu[class].Unlock()
+		t.Fatalf("route %v not found", key)
+	}
+	r.LastSeen = lastSeen
+	rt.byClass[class][key] = r
+	rt.byClassMu[class].Unlock()
+
+	for n := r.NetStart; n <= r.NetEnd; n++ {
+		rt.byNetwork[n].Lock()
+		for i := range rt.byNetwork[n].Routes {
+			if rt.byNetwork[n].Routes[i].RouteKey == key {
+				rt.byNetwork[n].Routes[i].LastSeen = lastSeen
+			}
+		}
+		rt.byNetwork[n].Unlock()
+	}
+}
+
+func TestSet7PruneExpiredBestPromotesFallback(t *testing.T) {
+	rt := NewRouteTable(t.Context())
+	obs := &fakeObserver{}
+	rt.AddObserver(obs)
+
+	best := fakeTarget{key: "expiring-best", class: TargetClassAppleTalkPeer}
+	fallback := fakeTarget{key: "fresh-fallback", class: TargetClassAppleTalkPeer}
+
+	if _, err := rt.UpsertRoute(best, true, 700, 700, 1); err != nil {
+		t.Fatal(err)
+	}
+	fallbackRoute, err := rt.UpsertRoute(fallback, true, 700, 700, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.AddZonesToNetwork(700, "Age Test"); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	setRouteLastSeenForTest(
+		t, rt, best, 700, now.Add(-maxRouteAge-time.Minute),
+	)
+	setRouteLastSeenForTest(t, rt, fallback, 700, now)
+	obs.events = nil
+
+	if got := rt.PruneExpiredRoutes(now); got != 1 {
+		t.Fatalf("pruned %d routes, want 1", got)
+	}
+	got := rt.Lookup(700)
+	if got.Zero() || got.TargetKey != fallbackRoute.TargetKey {
+		t.Fatalf("fallback after expiry = %v, want %v", got, fallbackRoute)
+	}
+	if len(obs.events) != 1 ||
+		obs.events[0].Event != "changed" ||
+		obs.events[0].To.TargetKey != fallbackRoute.TargetKey {
+		t.Fatalf("expiry observer events = %+v", obs.events)
+	}
+	if !slices.Contains(rt.AllZoneNames(), "Age Test") {
+		t.Fatal("zone was removed even though a fallback route remains")
+	}
+}
+
+func TestSet7PruneExpiredInferiorDoesNotChangeBest(t *testing.T) {
+	rt := NewRouteTable(t.Context())
+	obs := &fakeObserver{}
+	rt.AddObserver(obs)
+
+	best := fakeTarget{key: "fresh-best", class: TargetClassAppleTalkPeer}
+	inferior := fakeTarget{key: "expiring-inferior", class: TargetClassAppleTalkPeer}
+
+	bestRoute, err := rt.UpsertRoute(best, true, 710, 710, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.UpsertRoute(inferior, true, 710, 710, 4); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.AddZonesToNetwork(710, "Age Inferior"); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	setRouteLastSeenForTest(t, rt, best, 710, now)
+	setRouteLastSeenForTest(
+		t, rt, inferior, 710, now.Add(-maxRouteAge-time.Minute),
+	)
+	obs.events = nil
+
+	if got := rt.PruneExpiredRoutes(now); got != 1 {
+		t.Fatalf("pruned %d routes, want 1", got)
+	}
+	got := rt.Lookup(710)
+	if got.Zero() || got.TargetKey != bestRoute.TargetKey {
+		t.Fatalf("best route changed after inferior expiry: %v", got)
+	}
+	if len(obs.events) != 0 {
+		t.Fatalf("inferior expiry emitted transition: %+v", obs.events)
+	}
+}
+
+func TestSet7PruneSoleLocalRouteQueuesNDAndClearsZone(t *testing.T) {
+	rt := NewRouteTable(t.Context())
+	local := fakeTarget{key: "sole-local", class: TargetClassAppleTalkPeer}
+	peerObserver := &AURPPeer{}
+	peerObserver.setSState(SenderConnected)
+	rt.AddObserver(peerObserver)
+
+	if _, err := rt.UpsertRoute(local, true, 720, 720, 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.AddZonesToNetwork(720, "Vanishing Zone"); err != nil {
+		t.Fatal(err)
+	}
+	_ = peerObserver.takePendingEvents()
+
+	now := time.Now()
+	setRouteLastSeenForTest(
+		t, rt, local, 720, now.Add(-maxRouteAge-time.Minute),
+	)
+
+	if got := rt.PruneExpiredRoutes(now); got != 1 {
+		t.Fatalf("pruned %d routes, want 1", got)
+	}
+	if got := rt.Lookup(720); !got.Zero() {
+		t.Fatalf("expired sole route still forwards: %v", got)
+	}
+	if slices.Contains(rt.AllZoneNames(), "Vanishing Zone") {
+		t.Fatal("expired sole route left its zone behind")
+	}
+
+	events := peerObserver.takePendingEvents()
+	if len(events) != 1 || events[0].EventCode != aurp.EventCodeND {
+		t.Fatalf("expiry events = %v, want one ND", events)
+	}
+}
+
+func TestSet7PruneLocalRouteToAURPFallbackQueuesNRC(t *testing.T) {
+	rt := NewRouteTable(t.Context())
+	local := fakeTarget{key: "local-to-expire", class: TargetClassAppleTalkPeer}
+	tunnel := fakeTarget{key: "aurp-fallback", class: TargetClassAURPPeer}
+	peerObserver := &AURPPeer{}
+	peerObserver.setSState(SenderConnected)
+	rt.AddObserver(peerObserver)
+
+	if _, err := rt.UpsertRoute(local, true, 730, 730, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.UpsertRoute(tunnel, true, 730, 730, 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.AddZonesToNetwork(730, "Tunnel Fallback"); err != nil {
+		t.Fatal(err)
+	}
+	_ = peerObserver.takePendingEvents()
+
+	now := time.Now()
+	setRouteLastSeenForTest(
+		t, rt, local, 730, now.Add(-maxRouteAge-time.Minute),
+	)
+
+	if got := rt.PruneExpiredRoutes(now); got != 1 {
+		t.Fatalf("pruned %d routes, want 1", got)
+	}
+	got := rt.Lookup(730)
+	if got.Zero() || got.Target.Class() != TargetClassAURPPeer {
+		t.Fatalf("AURP fallback not selected after local expiry: %v", got)
+	}
+
+	events := peerObserver.takePendingEvents()
+	if len(events) != 1 || events[0].EventCode != aurp.EventCodeNRC {
+		t.Fatalf("expiry events = %v, want one NRC", events)
 	}
 }
