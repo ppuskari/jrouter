@@ -373,10 +373,10 @@ func (t *AURPPeerTable) reconnectPeer(ctx context.Context, logger *slog.Logger, 
 			"configured-addr", peer.ConfiguredAddr,
 			"raddr", peer.RemoteAddr(),
 		)
-		// The previous implementation created a fresh peer and therefore tried
-		// the replacement address immediately. Preserve that behavior while
-		// retaining this logical peer and its transport identity.
-		peer.lastReconnect.Store(time.Time{})
+		// A newly selected DNS endpoint deserves an immediate attempt even if
+		// the previous endpoint was in reconnect backoff. Preserve the failure
+		// count so another failure continues the progressive schedule.
+		peer.nextReconnect.Store(time.Time{})
 	}
 
 	if peer.Running() {
