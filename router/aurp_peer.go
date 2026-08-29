@@ -113,6 +113,16 @@ type AURPPeer struct {
 	staleRoutingPackets     atomic.Uint64
 	futureRoutingPackets    atomic.Uint64
 	connectionIDMismatches  atomic.Uint64
+	lateTickleAcks          atomic.Uint64
+	senderRouterDowns       atomic.Uint64
+	receiverRouterDowns     atomic.Uint64
+	routerDownAcks          atomic.Uint64
+	earlyRIUpdates          atomic.Uint64
+	earlyRIUpdateAcks       atomic.Uint64
+	extendedZIFragments     atomic.Uint64
+	extendedZICompleted     atomic.Uint64
+	zoneTuplesAccepted      atomic.Uint64
+	zoneTuplesIgnored       atomic.Uint64
 
 	// SUI flags requested by the remote data receiver. These control which
 	// incremental routing events we send after the initial RI-Rsp exchange.
@@ -360,6 +370,46 @@ func (p *AURPPeer) FutureRoutingPackets() uint64 {
 // the connection ID did not match the active one-way connection.
 func (p *AURPPeer) ConnectionIDMismatches() uint64 {
 	return p.connectionIDMismatches.Load()
+}
+
+func (p *AURPPeer) LateTickleAcks() uint64 {
+	return p.lateTickleAcks.Load()
+}
+
+func (p *AURPPeer) SenderRouterDowns() uint64 {
+	return p.senderRouterDowns.Load()
+}
+
+func (p *AURPPeer) ReceiverRouterDowns() uint64 {
+	return p.receiverRouterDowns.Load()
+}
+
+func (p *AURPPeer) RouterDownAcks() uint64 {
+	return p.routerDownAcks.Load()
+}
+
+func (p *AURPPeer) EarlyRIUpdates() uint64 {
+	return p.earlyRIUpdates.Load()
+}
+
+func (p *AURPPeer) EarlyRIUpdateAcks() uint64 {
+	return p.earlyRIUpdateAcks.Load()
+}
+
+func (p *AURPPeer) ExtendedZIFragments() uint64 {
+	return p.extendedZIFragments.Load()
+}
+
+func (p *AURPPeer) ExtendedZICompleted() uint64 {
+	return p.extendedZICompleted.Load()
+}
+
+func (p *AURPPeer) ZoneTuplesAccepted() uint64 {
+	return p.zoneTuplesAccepted.Load()
+}
+
+func (p *AURPPeer) ZoneTuplesIgnored() uint64 {
+	return p.zoneTuplesIgnored.Load()
 }
 
 // ReconnectFailures returns the number of consecutive failed receiver
@@ -1054,7 +1104,7 @@ func (p *AURPPeer) handleRIRsp(logger *slog.Logger, pkt *aurp.RIRspPacket) error
 		logger.Warn("Received RI-Rsp but was not waiting for one")
 	}
 
-	if err := p.checkRemoteSeq(logger, &pkt.TrHeader); err != nil {
+	if err := p.checkRemoteSeqWithAckFlags(logger, &pkt.TrHeader, 0); err != nil {
 		if err == errDropPacket {
 			return nil
 		}
@@ -1285,6 +1335,7 @@ func (p *AURPPeer) handleRIUpd(logger *slog.Logger, pkt *aurp.RIUpdPacket) error
 		p.setRState(ReceiverConnected)
 
 	case ReceiverUnconnected, ReceiverWaitForOpenRsp:
+		p.earlyRIUpdates.Add(1)
 		logger.Warn("AURP Peer: RI-Upd arrived before receiver connection was ready")
 		// Re-synchronize from a complete routing snapshot. Do not apply this
 		// update because there is no known-good baseline yet.
@@ -1294,9 +1345,11 @@ func (p *AURPPeer) handleRIUpd(logger *slog.Logger, pkt *aurp.RIUpdPacket) error
 		p.setRState(ReceiverWaitForRIRsp)
 		p.Transport.ResetRemoteSeq()
 		p.sendRetries.Store(0)
+		p.lastSend.Store(time.Now())
 		return nil
 
 	case ReceiverWaitForRIRsp:
+		p.earlyRIUpdates.Add(1)
 		// Some deployed peers emit an RI-Upd while an RI-Rsp refresh is in
 		// progress. RFC 1504 still requires valid sequenced data to be
 		// acknowledged. Advance the sequence but do not mutate the partial
@@ -1313,6 +1366,7 @@ func (p *AURPPeer) handleRIUpd(logger *slog.Logger, pkt *aurp.RIUpdPacket) error
 			logger.Error("AURP Peer: Couldn't acknowledge RI-Upd during RI-Rsp sync", "error", err)
 			return err
 		}
+		p.earlyRIUpdateAcks.Add(1)
 		p.Transport.IncRemoteSeq()
 		p.sendRetries.Store(0)
 		if _, err := p.send(p.Transport.NewRIReqPacket()); err != nil {
@@ -1366,6 +1420,7 @@ func (p *AURPPeer) handleRD(logger *slog.Logger, pkt *aurp.RDPacket) error {
 	// RFC 1504 permits RD from either side of a one-way connection:
 	// data-sender RD is sequenced; data-receiver RD uses sequence 0.
 	if pkt.Sequence == 0 {
+		p.receiverRouterDowns.Add(1)
 		// They are the data receiver; we are the data sender.
 		if err := p.checkRemoteConnID(logger, &pkt.TrHeader); err != nil {
 			if err == errDropPacket {
@@ -1384,6 +1439,7 @@ func (p *AURPPeer) handleRD(logger *slog.Logger, pkt *aurp.RDPacket) error {
 	}
 
 	// They are the data sender; we are the data receiver.
+	p.senderRouterDowns.Add(1)
 	if err := p.checkLocalConnID(logger, &pkt.TrHeader); err != nil {
 		if err == errDropPacket {
 			return nil
@@ -1410,6 +1466,7 @@ func (p *AURPPeer) handleRD(logger *slog.Logger, pkt *aurp.RDPacket) error {
 		logger.Error("AURP Peer: Couldn't send RI-Ack", "error", err)
 		return err
 	}
+	p.routerDownAcks.Add(1)
 	p.Transport.IncRemoteSeq()
 	p.disconnectReceiver()
 	return nil
@@ -1456,6 +1513,8 @@ func (p *AURPPeer) handleZIRsp(logger *slog.Logger, pkt *aurp.ZIRspPacket) error
 	switch pkt.Subcode {
 	case aurp.SubcodeZoneInfoNonExt:
 		accepted, ignored := p.applyNonExtendedZIRsp(pkt)
+		p.zoneTuplesAccepted.Add(uint64(accepted))
+		p.zoneTuplesIgnored.Add(uint64(ignored))
 		if ignored > 0 {
 			logger.Warn(
 				"AURP Peer: ignored zone tuples for networks not learned from this peer",
@@ -1465,6 +1524,7 @@ func (p *AURPPeer) handleZIRsp(logger *slog.Logger, pkt *aurp.ZIRspPacket) error
 		}
 
 	case aurp.SubcodeZoneInfoExt:
+		p.extendedZIFragments.Add(1)
 		complete, network, err := p.applyExtendedZIRsp(pkt)
 		if err != nil {
 			logger.Warn(
@@ -1475,6 +1535,7 @@ func (p *AURPPeer) handleZIRsp(logger *slog.Logger, pkt *aurp.ZIRspPacket) error
 			return nil
 		}
 		if complete {
+			p.extendedZICompleted.Add(1)
 			logger.Debug(
 				"AURP Peer: completed extended zone list",
 				"network", network,
@@ -1599,18 +1660,46 @@ func (p *AURPPeer) handleTickleAck(logger *slog.Logger, pkt *aurp.TickleAckPacke
 		}
 		return err
 	}
-	p.markReceiverAlive()
 
-	if rstate := p.ReceiverState(); rstate != ReceiverWaitForTickleAck {
-		logger.Warn("AURP Peer: Received Tickle-Ack but was not waiting for one")
+	switch rstate := p.ReceiverState(); rstate {
+	case ReceiverWaitForTickleAck:
+		p.markReceiverAlive()
+		p.sendRetries.Store(0)
+		p.setRState(ReceiverConnected)
+
+	case ReceiverConnected:
+		// A delayed or duplicated Tickle-Ack on the active connection still
+		// demonstrates receiver-side liveness, but must not change state.
+		p.lateTickleAcks.Add(1)
+		p.markReceiverAlive()
+		logger.Debug("AURP Peer: late or duplicate Tickle-Ack ignored")
+
+	default:
+		// Never let a stray Tickle-Ack bypass Open/RI synchronization.
+		p.lateTickleAcks.Add(1)
+		logger.Debug(
+			"AURP Peer: stray Tickle-Ack ignored without changing receiver state",
+			"receiver-state", rstate,
+		)
 	}
-	p.setRState(ReceiverConnected)
 	return nil
 }
 
 // checkRemoteSeq checks the sequence number in the packet against the expected
 // sequence number from the transport.
 func (p *AURPPeer) checkRemoteSeq(logger *slog.Logger, trheader *aurp.TrHeader) error {
+	return p.checkRemoteSeqWithAckFlags(
+		logger,
+		trheader,
+		aurp.RoutingFlagSendZoneInfo,
+	)
+}
+
+func (p *AURPPeer) checkRemoteSeqWithAckFlags(
+	logger *slog.Logger,
+	trheader *aurp.TrHeader,
+	duplicateAckFlags aurp.RoutingFlag,
+) error {
 	switch got, want := trheader.Sequence, p.Transport.RemoteSeq(); got {
 	case aurp.Pred(want):
 		p.duplicateRoutingPackets.Add(1)
@@ -1622,7 +1711,7 @@ func (p *AURPPeer) checkRemoteSeq(logger *slog.Logger, trheader *aurp.TrHeader) 
 		// received the RI-Ack packet previously sent; that is, the
 		// RI-Ack may have been lost."
 		logger.Warn("AURP Peer: repeated routing information packet", "want-seq", want)
-		if _, err := p.send(p.Transport.NewRIAckPacket(trheader.ConnectionID, trheader.Sequence, aurp.RoutingFlagSendZoneInfo)); err != nil {
+		if _, err := p.send(p.Transport.NewRIAckPacket(trheader.ConnectionID, trheader.Sequence, duplicateAckFlags)); err != nil {
 			logger.Error("AURP Peer: Couldn't send RI-Ack packet", "error", err)
 			return err
 		}
