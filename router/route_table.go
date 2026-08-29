@@ -422,6 +422,7 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 		Extended: extended,
 		NetEnd:   netEnd,
 		Target:   target,
+		Origin:   routeOriginForTarget(target),
 		Distance: distance,
 		LastSeen: time.Now(),
 
