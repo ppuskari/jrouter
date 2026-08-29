@@ -20,7 +20,8 @@ type seedStatus struct {
 	ObservedEnd       ddp.Network
 	ExternalAuthority bool
 	Conflict          bool
-	LastObservation   time.Time
+	LastObservation          time.Time
+	LastAuthorityObservation time.Time
 }
 
 type seedController struct {
@@ -37,7 +38,8 @@ type seedController struct {
 	conflict          bool
 	observedStart     ddp.Network
 	observedEnd       ddp.Network
-	lastObservation   time.Time
+	lastObservation          time.Time
+	lastAuthorityObservation time.Time
 }
 
 func newSeedController(
@@ -70,6 +72,7 @@ func (s *seedController) observeRange(
 	s.lastObservation = now
 	if authority {
 		s.externalAuthority = true
+		s.lastAuthorityObservation = now
 	}
 
 	if start != s.configuredStart || end != s.configuredEnd {
@@ -94,6 +97,19 @@ func (s *seedController) promoteSoft() bool {
 		return false
 	}
 	s.active = true
+	return true
+}
+
+func (s *seedController) expireExternalAuthority(now time.Time, timeout time.Duration) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.externalAuthority || s.lastAuthorityObservation.IsZero() {
+		return false
+	}
+	if now.Sub(s.lastAuthorityObservation) <= timeout {
+		return false
+	}
+	s.externalAuthority = false
 	return true
 }
 
@@ -132,7 +148,8 @@ func (s *seedController) snapshot() seedStatus {
 		ObservedEnd:       s.observedEnd,
 		ExternalAuthority: s.externalAuthority,
 		Conflict:          s.conflict,
-		LastObservation:   s.lastObservation,
+		LastObservation:          s.lastObservation,
+		LastAuthorityObservation: s.lastAuthorityObservation,
 	}
 }
 
@@ -253,26 +270,53 @@ func (port *EtherTalkPort) RunSeedState(ctx context.Context) error {
 		return nil
 	}
 
-	deadline := time.NewTimer(port.seed.delay)
-	defer deadline.Stop()
 	probe := time.NewTicker(5 * time.Second)
 	defer probe.Stop()
+
+	promotionEligibleAt := time.Now().Add(port.seed.delay)
+	authorityTimeout := max(3*port.seed.delay, 90*time.Second)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+
 		case <-probe.C:
-			if port.seed.snapshot().ExternalAuthority ||
-				port.seed.snapshot().Conflict {
-				return nil
-			}
+			now := time.Now()
 			if err := port.sendSeedDiscovery(); err != nil {
 				port.logger.Warn("AppleTalk soft-seed discovery probe failed", "error", err)
 			}
-		case <-deadline.C:
+
+			if port.seed.expireExternalAuthority(now, authorityTimeout) {
+				promotionEligibleAt = now.Add(port.seed.delay)
+				port.logger.Warn(
+					"AppleTalk external seed authority expired; entering soft-seed takeover delay",
+					"authority-timeout", authorityTimeout,
+					"takeover-delay", port.seed.delay,
+				)
+			}
+
+			state := port.seed.snapshot()
+			if state.Conflict {
+				continue
+			}
+			if state.ExternalAuthority {
+				promotionEligibleAt = time.Time{}
+				continue
+			}
+			if state.Effective == "soft-seed-active" {
+				continue
+			}
+			if promotionEligibleAt.IsZero() {
+				promotionEligibleAt = now.Add(port.seed.delay)
+				continue
+			}
+			if now.Before(promotionEligibleAt) {
+				continue
+			}
+
 			if !port.seed.promoteSoft() {
-				return nil
+				continue
 			}
 			if err := port.activateConfiguredZones(); err != nil {
 				return err
@@ -283,7 +327,7 @@ func (port *EtherTalkPort) RunSeedState(ctx context.Context) error {
 				"range", fmt.Sprintf("%d-%d", port.netStart, port.netEnd),
 				"default-zone", port.defaultZoneName,
 			)
-			return nil
+			promotionEligibleAt = time.Time{}
 		}
 	}
 }
