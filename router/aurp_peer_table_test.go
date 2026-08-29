@@ -575,3 +575,102 @@ func TestAURPMetricsDoNotDuplicateMultiACandidatePeer(t *testing.T) {
 		t.Fatalf("gathering multi-A peer metrics: %v", err)
 	}
 }
+
+func TestSet8ConfiguredTunnelIdentitySurvivesEndpointSwitch(t *testing.T) {
+	table := newTestAURPPeerTable()
+	localDI := aurp.IPDomainIdentifier(net.IPv4(192, 0, 2, 1))
+	ip1, ip2, _ := testPeerIPs()
+
+	peer, err := table.LookupOrCreate(
+		context.Background(), table.logger, nil, nil,
+		"Peer.Example", ip1, localDI, nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantTunnelID := "cfg:peer.example"
+	if got := peer.TunnelID(); got != wantTunnelID {
+		t.Fatalf("tunnel ID = %q, want %q", got, wantTunnelID)
+	}
+	wantKey := peer.RouteTargetKey()
+
+	if _, err := table.LookupOrCreate(
+		context.Background(), table.logger, nil, nil,
+		"Peer.Example", ip2, localDI, nil,
+	); err != nil {
+		t.Fatal(err)
+	}
+	switched, err := table.setConfiguredCandidates(peer, []net.IP{ip2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !switched {
+		t.Fatal("active endpoint did not switch")
+	}
+	if got := peer.RouteTargetKey(); got != wantKey {
+		t.Fatalf("route target key changed across DNS failover: %q -> %q", wantKey, got)
+	}
+	if got := peer.TunnelID(); got != wantTunnelID {
+		t.Fatalf("tunnel ID changed across DNS failover: %q", got)
+	}
+}
+
+func TestSet8OpenPeerTunnelIdentityUsesDomainIdentifier(t *testing.T) {
+	table := newTestAURPPeerTable()
+	localDI := aurp.IPDomainIdentifier(net.IPv4(192, 0, 2, 1))
+	remoteDI := aurp.IPDomainIdentifier(net.IPv4(198, 51, 100, 9))
+
+	peer, err := table.LookupOrCreate(
+		context.Background(), table.logger, nil, nil,
+		"", net.IPv4(203, 0, 113, 9), localDI, remoteDI,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := peer.TunnelID(), "di:198.51.100.9"; got != want {
+		t.Fatalf("open peer tunnel ID = %q, want %q", got, want)
+	}
+
+	oldKey := peer.RouteTargetKey()
+	peer.setRemoteAddr(net.IPv4(203, 0, 113, 99))
+	if got := peer.RouteTargetKey(); got != oldKey {
+		t.Fatalf("open peer route target key changed with endpoint: %q -> %q", oldKey, got)
+	}
+}
+
+func TestSet8CandidateConflictGetsBackoffClassification(t *testing.T) {
+	table := newTestAURPPeerTable()
+	localDI := aurp.IPDomainIdentifier(net.IPv4(192, 0, 2, 1))
+	ip1, _, _ := testPeerIPs()
+
+	if _, err := table.LookupOrCreate(
+		context.Background(), table.logger, nil, nil,
+		"one.example", ip1, localDI, nil,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := table.LookupOrCreate(
+		context.Background(), table.logger, nil, nil,
+		"two.example", ip1, localDI, nil,
+	)
+	if err == nil {
+		t.Fatal("expected configured peer identity conflict")
+	}
+	if got := dnsErrorKind(err); got != "identity-conflict" {
+		t.Fatalf("conflict kind = %q, want identity-conflict", got)
+	}
+
+	now := time.Unix(1_800_000_000, 0)
+	table.noteDNSFailure("two.example", now, err)
+	if table.dnsReady("two.example", now.Add(20*time.Second)) {
+		t.Fatal("identity conflict did not enter configured-peer backoff")
+	}
+	table.mu.RLock()
+	state := table.dnsByConfigured["two.example"]
+	table.mu.RUnlock()
+	if state.kind != "identity-conflict" || state.failures != 1 {
+		t.Fatalf("identity conflict state = %+v", state)
+	}
+}
