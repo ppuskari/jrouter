@@ -167,6 +167,11 @@ func main() {
 
 		// Run AARP and RTMP on each port.
 		go etPort.RunAARP(ctx)
+		go func() {
+			if err := etPort.RunSeedState(ctx); err != nil && ctx.Err() == nil {
+				logger.Error("EtherTalk seed state stopped", "device", etPort.String(), "error", err)
+			}
+		}()
 		go etPort.RunRTMP(ctx)
 
 		// Start handling packets.
@@ -262,6 +267,8 @@ func createEtherTalkPorts(logger *slog.Logger, rooter *router.Router) {
 			etcfg.NetEnd,
 			etcfg.DefaultZoneName,
 			zones,
+			etcfg.SeedMode,
+			etcfg.SoftSeedDelay,
 			handle,
 		)
 	}
