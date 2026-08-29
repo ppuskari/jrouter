@@ -16,8 +16,10 @@ type seedStatus struct {
 	Effective         string
 	ConfiguredStart   ddp.Network
 	ConfiguredEnd     ddp.Network
+	ConfiguredZone    string
 	ObservedStart     ddp.Network
 	ObservedEnd       ddp.Network
+	ObservedZone      string
 	ExternalAuthority bool
 	Conflict          bool
 	LastObservation          time.Time
@@ -32,6 +34,7 @@ type seedController struct {
 
 	configuredStart ddp.Network
 	configuredEnd   ddp.Network
+	configuredZone  string
 
 	active            bool
 	externalAuthority bool
@@ -47,12 +50,14 @@ func newSeedController(
 	delay time.Duration,
 	start ddp.Network,
 	end ddp.Network,
+	zone string,
 ) *seedController {
 	s := &seedController{
 		mode:            mode,
 		delay:           delay,
 		configuredStart: start,
 		configuredEnd:   end,
+		configuredZone:  zone,
 	}
 	s.active = mode == SeedModeHard
 	return s
@@ -62,6 +67,7 @@ func (s *seedController) observeRange(
 	start ddp.Network,
 	end ddp.Network,
 	authority bool,
+	zone string,
 	now time.Time,
 ) {
 	s.mu.Lock()
@@ -69,13 +75,18 @@ func (s *seedController) observeRange(
 
 	s.observedStart = start
 	s.observedEnd = end
+	if zone != "" {
+		s.observedZone = zone
+	}
 	s.lastObservation = now
 	if authority {
 		s.externalAuthority = true
 		s.lastAuthorityObservation = now
 	}
 
-	if start != s.configuredStart || end != s.configuredEnd {
+	if start != s.configuredStart ||
+		end != s.configuredEnd ||
+		(zone != "" && zone != s.configuredZone) {
 		s.conflict = true
 		s.active = false
 		return
@@ -144,8 +155,10 @@ func (s *seedController) snapshot() seedStatus {
 		Effective:         effective,
 		ConfiguredStart:   s.configuredStart,
 		ConfiguredEnd:     s.configuredEnd,
+		ConfiguredZone:    s.configuredZone,
 		ObservedStart:     s.observedStart,
 		ObservedEnd:       s.observedEnd,
+		ObservedZone:      s.observedZone,
 		ExternalAuthority: s.externalAuthority,
 		Conflict:          s.conflict,
 		LastObservation:          s.lastObservation,
@@ -170,11 +183,21 @@ func (port *EtherTalkPort) observeCableRange(
 	source string,
 	authority bool,
 ) {
+	port.observeCableConfig(start, end, "", source, authority)
+}
+
+func (port *EtherTalkPort) observeCableConfig(
+	start ddp.Network,
+	end ddp.Network,
+	zone string,
+	source string,
+	authority bool,
+) {
 	if port.seed == nil {
 		return
 	}
 	before := port.seed.snapshot()
-	port.seed.observeRange(start, end, authority, time.Now())
+	port.seed.observeRange(start, end, authority, zone, time.Now())
 	after := port.seed.snapshot()
 
 	if !before.Conflict && after.Conflict {
@@ -183,6 +206,8 @@ func (port *EtherTalkPort) observeCableRange(
 			"source", source,
 			"configured-range", fmt.Sprintf("%d-%d", after.ConfiguredStart, after.ConfiguredEnd),
 			"observed-range", fmt.Sprintf("%d-%d", after.ObservedStart, after.ObservedEnd),
+			"configured-zone", after.ConfiguredZone,
+			"observed-zone", after.ObservedZone,
 			"seed-mode", after.Mode,
 		)
 		return
@@ -192,6 +217,7 @@ func (port *EtherTalkPort) observeCableRange(
 			"AppleTalk cable authority observed",
 			"source", source,
 			"range", fmt.Sprintf("%d-%d", start, end),
+			"zone", zone,
 			"seed-mode", after.Mode,
 			"effective", after.Effective,
 		)
