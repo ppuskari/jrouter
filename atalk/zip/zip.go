@@ -54,7 +54,7 @@ func UnmarshalPacket(data []byte) (any, error) {
 		return UnmarshalGetNetInfoPacket(data)
 
 	case FunctionGetNetInfoReply:
-		return nil, fmt.Errorf("ZIP GetNetInfo Reply unmarshaling unimplemented")
+		return UnmarshalGetNetInfoReplyPacket(data)
 
 	case FunctionNotify:
 		return nil, fmt.Errorf("ZIP Notify unmarshaling unimplemented")
