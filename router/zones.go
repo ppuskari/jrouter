@@ -58,7 +58,6 @@ func (rt *RouteTable) AddZonesToNetwork(n ddp.Network, zs ...string) error {
 	return nil
 }
 
-
 // ReplaceZonesForNetwork atomically replaces the complete zone list for one
 // network and keeps the reverse zone index synchronized. This is used when a
 // complete AURP ZI-Rsp supersedes previously learned zone information.
