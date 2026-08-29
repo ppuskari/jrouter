@@ -74,7 +74,7 @@ func main() {
 		Level:   logLevel,
 	}))
 
-	logger.Info(meta.NameVersion)
+	logger.Info(meta.NameVersion, "build", meta.Build)
 
 	// -------------------------------- Config --------------------------------
 	//
