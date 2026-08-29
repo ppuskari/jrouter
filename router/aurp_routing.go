@@ -29,7 +29,7 @@ type pendingAURPChange struct {
 }
 
 func aurpRouteIsLocal(r Route) bool {
-	return !r.Zero() && r.Target.Class() != TargetClassAURPPeer
+	return !r.Zero() && r.RouteOrigin().Kind != RouteOriginAURP
 }
 
 func aurpRouteIsAdvertisable(r Route) bool {
@@ -76,7 +76,7 @@ func aurpEventForBestTransition(before, after Route) (aurp.EventTuple, bool) {
 		// remove the route.
 		return aurpEventTupleFromRoute(aurp.EventCodeNDC, after), true
 
-	case beforeAdvertised && !after.Zero() && after.Target.Class() == TargetClassAURPPeer:
+	case beforeAdvertised && !after.Zero() && after.RouteOrigin().Kind == RouteOriginAURP:
 		return aurpEventTupleFromRoute(aurp.EventCodeNRC, before), true
 
 	case beforeAdvertised:
