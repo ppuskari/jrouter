@@ -330,6 +330,7 @@ func (t *AURPPeerTable) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 type aurpPeerStatusRow struct {
 	ConfiguredAddr string
+	IngestSource   string
 	TunnelID       string
 	CandidateAddrs string
 	RemoteAddr     string
@@ -385,8 +386,17 @@ func newAURPPeerStatusRow(
 	candidates []string,
 	dns configuredDNSState,
 ) aurpPeerStatusRow {
+	ingestSource := "aurp-open"
+	if configuredAddr != "" {
+		if net.ParseIP(configuredAddr) != nil {
+			ingestSource = "config-ip"
+		} else {
+			ingestSource = "config-dns"
+		}
+	}
 	row := aurpPeerStatusRow{
 		ConfiguredAddr: configuredAddr,
+		IngestSource:   ingestSource,
 		CandidateAddrs: strings.Join(candidates, ", "),
 		DNSFailures:    dns.failures,
 		DNSErrorKind:   dns.kind,
@@ -722,7 +732,8 @@ const peerTableTemplate = `
 <table>
 	<thead><tr>
 		<th>Configured</th>
-		<th>Tunnel ID</th>
+		<th>Ingest</th>
+		<th>Peer ID</th>
 		<th>Candidates</th>
 		<th>Active</th>
 		<th>Running</th>
@@ -749,6 +760,7 @@ const peerTableTemplate = `
 {{range $peer := . }}
 	<tr>
 		<td>{{$peer.ConfiguredAddr}}</td>
+		<td>{{$peer.IngestSource}}</td>
 		<td>{{$peer.TunnelID}}</td>
 		<td>{{$peer.CandidateAddrs}}</td>
 		<td>{{if $peer.HasPeer}}<a href="/chatlog/{{$peer.RemoteAddr}}">{{$peer.RemoteAddr}}</a>{{else}}unresolved{{end}}</td>
