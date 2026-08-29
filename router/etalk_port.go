@@ -114,7 +114,7 @@ func (router *Router) NewEtherTalkPort(
 		netEnd:          netEnd,
 		defaultZoneName: defaultZoneName,
 		availableZones:  availableZones,
-		seed:            newSeedController(seedMode, softSeedDelay, netStart, netEnd),
+		seed:            newSeedController(seedMode, softSeedDelay, netStart, netEnd, defaultZoneName),
 		pcapHandle:      pcapHandle,
 
 		outboxes:          make(map[<-chan struct{}]*outbox),
