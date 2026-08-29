@@ -394,11 +394,25 @@ func (tr *Transport) NewGZNRspPacket(zoneName string, notSupported bool, nets Ne
 	}
 }
 
-// NewRDPacket returns a new RD packet structure.
+// NewRDPacket returns a receiver-originated RD packet. RFC 1504 requires
+// receiver-originated RD packets to use sequence number 0.
 func (tr *Transport) NewRDPacket(errCode ErrorCode) *RDPacket {
 	return &RDPacket{
 		Header: Header{
 			TrHeader:    tr.transaction(tr.LocalConnID()),
+			CommandCode: CmdCodeRD,
+			Flags:       0,
+		},
+		ErrorCode: errCode,
+	}
+}
+
+// NewSenderRDPacket returns a sender-originated RD packet. Sender-originated
+// RD packets are sequenced on the sender connection like RI-Rsp and RI-Upd.
+func (tr *Transport) NewSenderRDPacket(errCode ErrorCode) *RDPacket {
+	return &RDPacket{
+		Header: Header{
+			TrHeader:    tr.sequenced(tr.RemoteConnID(), tr.LocalSeq()),
 			CommandCode: CmdCodeRD,
 			Flags:       0,
 		},
