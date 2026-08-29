@@ -111,6 +111,15 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 		if err != nil {
 			return fmt.Errorf("unmarshal RTMP Data packet: %w", err)
 		}
+		if len(dataPkt.NetworkTuples) > 0 {
+			first := dataPkt.NetworkTuples[0]
+			port.observeCableRange(
+				first.RangeStart,
+				first.RangeEnd,
+				fmt.Sprintf("RTMP %d.%d", dataPkt.RouterAddr.Network, dataPkt.RouterAddr.Node),
+				false,
+			)
+		}
 		peer := &EtherTalkPeer{
 			Port:     port,
 			PeerAddr: dataPkt.RouterAddr,
