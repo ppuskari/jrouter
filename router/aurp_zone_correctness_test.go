@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"drjosh.dev/jrouter/aurp"
+	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
 func TestSet9ZIRspZoneRequiresOwningPeerRoute(t *testing.T) {
@@ -281,7 +282,7 @@ func TestSet9ZIRspSenderUsesExtendedPacketsWhenNeeded(t *testing.T) {
 	}
 	packets, err := buildZIRspPackets(
 		peer.Transport,
-		map[uint16][]string{2500: zones},
+		map[ddp.Network][]string{2500: zones},
 	)
 	if err != nil {
 		t.Fatal(err)
