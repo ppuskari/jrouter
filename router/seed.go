@@ -39,8 +39,9 @@ type seedController struct {
 	active            bool
 	externalAuthority bool
 	conflict          bool
-	observedStart     ddp.Network
-	observedEnd       ddp.Network
+	observedStart            ddp.Network
+	observedEnd              ddp.Network
+	observedZone             string
 	lastObservation          time.Time
 	lastAuthorityObservation time.Time
 }
@@ -160,7 +161,7 @@ func (s *seedController) snapshot() seedStatus {
 		ObservedEnd:       s.observedEnd,
 		ObservedZone:      s.observedZone,
 		ExternalAuthority: s.externalAuthority,
-		Conflict:          s.conflict,
+		Conflict:                 s.conflict,
 		LastObservation:          s.lastObservation,
 		LastAuthorityObservation: s.lastAuthorityObservation,
 	}
