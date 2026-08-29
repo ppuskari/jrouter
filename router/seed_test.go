@@ -75,3 +75,32 @@ func TestSeedControllerRTMPObservationDoesNotSuppressSoftPromotion(t *testing.T)
 		t.Fatal("ordinary RTMP range observation was treated as ZIP seed authority")
 	}
 }
+
+
+func TestSeedControllerSoftAuthorityExpiryAllowsTakeover(t *testing.T) {
+	s := newSeedController(SeedModeSoft, 30*time.Second, 1000, 1009)
+	now := time.Now()
+	s.observeRange(1000, 1009, true, now)
+	if !s.snapshot().ExternalAuthority {
+		t.Fatal("external authority was not recorded")
+	}
+	if s.expireExternalAuthority(now.Add(89*time.Second), 90*time.Second) {
+		t.Fatal("authority expired before timeout")
+	}
+	if !s.expireExternalAuthority(now.Add(91*time.Second), 90*time.Second) {
+		t.Fatal("authority did not expire after timeout")
+	}
+	if !s.promoteSoft() {
+		t.Fatal("soft seed could not promote after authority loss")
+	}
+}
+
+func TestSeedControllerMatchingAuthorityRefreshesLease(t *testing.T) {
+	s := newSeedController(SeedModeSoft, 30*time.Second, 1000, 1009)
+	now := time.Now()
+	s.observeRange(1000, 1009, true, now)
+	s.observeRange(1000, 1009, true, now.Add(60*time.Second))
+	if s.expireExternalAuthority(now.Add(120*time.Second), 90*time.Second) {
+		t.Fatal("refreshed authority lease expired too early")
+	}
+}
