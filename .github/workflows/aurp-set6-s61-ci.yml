@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - petar/aurp-set6-field-20260828
+      - archive/aurp-set6-s64-build-20260828
   workflow_dispatch:
 
 jobs:
