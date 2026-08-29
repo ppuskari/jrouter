@@ -87,8 +87,8 @@ type AURPPeer struct {
 
 	// Remaining chunks in an ACK-gated routing-information sequence.
 	// These fields are owned by the Handle goroutine.
-	pendingRIRsp   []aurp.NetworkTuples
-	pendingRIUpd   []aurp.EventTuples
+	pendingRIRsp    []aurp.NetworkTuples
+	pendingRIUpd    []aurp.EventTuples
 	pendingZoneInfo map[ddp.Network]*pendingAURPZoneInfo
 
 	// The logger.
