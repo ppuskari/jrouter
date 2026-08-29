@@ -135,6 +135,20 @@ func (r Route) RouteOrigin() RouteOrigin {
 	return routeOriginForTarget(r.Target)
 }
 
+func (r Route) LearnedVia() string {
+	switch r.RouteOrigin().Kind {
+	case RouteOriginDirect:
+		return "local"
+	case RouteOriginAppleTalk:
+		return "rtmp"
+	case RouteOriginAURP:
+		return "aurp"
+	default:
+		return "unknown"
+	}
+}
+
+
 // RouteTarget implementations can forward packets somewhere.
 type RouteTarget interface {
 	// Forward should send the packet to the route target.
