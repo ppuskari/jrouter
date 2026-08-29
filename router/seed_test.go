@@ -8,7 +8,7 @@ import (
 )
 
 func TestSeedControllerHardStartsActive(t *testing.T) {
-	s := newSeedController(SeedModeHard, 30*time.Second, 1000, 1009)
+	s := newSeedController(SeedModeHard, 30*time.Second, 1000, 1009, "Petar's Place")
 	if !s.activeAuthority() {
 		t.Fatal("hard seed did not start active")
 	}
@@ -18,7 +18,7 @@ func TestSeedControllerHardStartsActive(t *testing.T) {
 }
 
 func TestSeedControllerNoneNeverPromotes(t *testing.T) {
-	s := newSeedController(SeedModeNone, 30*time.Second, 1000, 1009)
+	s := newSeedController(SeedModeNone, 30*time.Second, 1000, 1009, "Petar's Place")
 	if s.activeAuthority() {
 		t.Fatal("non-seed unexpectedly active")
 	}
@@ -28,7 +28,7 @@ func TestSeedControllerNoneNeverPromotes(t *testing.T) {
 }
 
 func TestSeedControllerSoftPromotesWithoutAuthority(t *testing.T) {
-	s := newSeedController(SeedModeSoft, 30*time.Second, 1000, 1009)
+	s := newSeedController(SeedModeSoft, 30*time.Second, 1000, 1009, "Petar's Place")
 	if s.activeAuthority() {
 		t.Fatal("soft seed started active")
 	}
@@ -41,8 +41,8 @@ func TestSeedControllerSoftPromotesWithoutAuthority(t *testing.T) {
 }
 
 func TestSeedControllerSoftYieldsToExternalAuthority(t *testing.T) {
-	s := newSeedController(SeedModeSoft, 30*time.Second, 1000, 1009)
-	s.observeRange(1000, 1009, true, time.Now())
+	s := newSeedController(SeedModeSoft, 30*time.Second, 1000, 1009, "Petar's Place")
+	s.observeRange(1000, 1009, true, "Petar's Place", time.Now())
 	if s.promoteSoft() {
 		t.Fatal("soft seed promoted despite external authority")
 	}
@@ -56,7 +56,7 @@ func TestSeedControllerConflictFailsClosed(t *testing.T) {
 	for _, mode := range []SeedMode{SeedModeHard, SeedModeSoft, SeedModeNone} {
 		t.Run(string(mode), func(t *testing.T) {
 			s := newSeedController(mode, 30*time.Second, 1000, 1009)
-			s.observeRange(2000, 2009, true, time.Now())
+			s.observeRange(2000, 2009, true, "Petar's Place", time.Now())
 			if s.activeAuthority() {
 				t.Fatal("conflicting cable range left seed authority active")
 			}
@@ -69,8 +69,8 @@ func TestSeedControllerConflictFailsClosed(t *testing.T) {
 }
 
 func TestSeedControllerRTMPObservationDoesNotSuppressSoftPromotion(t *testing.T) {
-	s := newSeedController(SeedModeSoft, 30*time.Second, 1000, 1009)
-	s.observeRange(ddp.Network(1000), ddp.Network(1009), false, time.Now())
+	s := newSeedController(SeedModeSoft, 30*time.Second, 1000, 1009, "Petar's Place")
+	s.observeRange(ddp.Network(1000), ddp.Network(1009), false, "", time.Now())
 	if !s.promoteSoft() {
 		t.Fatal("ordinary RTMP range observation was treated as ZIP seed authority")
 	}
@@ -78,9 +78,9 @@ func TestSeedControllerRTMPObservationDoesNotSuppressSoftPromotion(t *testing.T)
 
 
 func TestSeedControllerSoftAuthorityExpiryAllowsTakeover(t *testing.T) {
-	s := newSeedController(SeedModeSoft, 30*time.Second, 1000, 1009)
+	s := newSeedController(SeedModeSoft, 30*time.Second, 1000, 1009, "Petar's Place")
 	now := time.Now()
-	s.observeRange(1000, 1009, true, now)
+	s.observeRange(1000, 1009, true, "Petar's Place", now)
 	if !s.snapshot().ExternalAuthority {
 		t.Fatal("external authority was not recorded")
 	}
@@ -96,11 +96,36 @@ func TestSeedControllerSoftAuthorityExpiryAllowsTakeover(t *testing.T) {
 }
 
 func TestSeedControllerMatchingAuthorityRefreshesLease(t *testing.T) {
-	s := newSeedController(SeedModeSoft, 30*time.Second, 1000, 1009)
+	s := newSeedController(SeedModeSoft, 30*time.Second, 1000, 1009, "Petar's Place")
 	now := time.Now()
-	s.observeRange(1000, 1009, true, now)
-	s.observeRange(1000, 1009, true, now.Add(60*time.Second))
+	s.observeRange(1000, 1009, true, "Petar's Place", now)
+	s.observeRange(1000, 1009, true, "Petar's Place", now.Add(60*time.Second))
 	if s.expireExternalAuthority(now.Add(120*time.Second), 90*time.Second) {
 		t.Fatal("refreshed authority lease expired too early")
+	}
+}
+
+
+func TestSeedControllerZoneConflictFailsClosed(t *testing.T) {
+	s := newSeedController(
+		SeedModeHard,
+		30*time.Second,
+		1000,
+		1009,
+		"Petar's Place",
+	)
+	s.observeRange(
+		1000,
+		1009,
+		true,
+		"Other Zone",
+		time.Now(),
+	)
+	if s.activeAuthority() {
+		t.Fatal("zone conflict left hard seed active")
+	}
+	st := s.snapshot()
+	if !st.Conflict || st.ObservedZone != "Other Zone" {
+		t.Fatalf("zone conflict state = %+v", st)
 	}
 }
