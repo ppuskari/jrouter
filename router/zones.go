@@ -58,6 +58,56 @@ func (rt *RouteTable) AddZonesToNetwork(n ddp.Network, zs ...string) error {
 	return nil
 }
 
+
+// ReplaceZonesForNetwork atomically replaces the complete zone list for one
+// network and keeps the reverse zone index synchronized. This is used when a
+// complete AURP ZI-Rsp supersedes previously learned zone information.
+func (rt *RouteTable) ReplaceZonesForNetwork(n ddp.Network, zs ...string) error {
+	oldBest := rt.Lookup(n)
+
+	next := make(Set[string])
+	for _, zn := range zs {
+		if zn != "" {
+			next.Insert(zn)
+		}
+	}
+
+	rt.byNetwork[n].Lock()
+	old := rt.byNetwork[n].ZoneNames
+	if old == nil {
+		old = make(Set[string])
+	}
+
+	rt.networksByZoneMu.Lock()
+	for zn := range old {
+		if next.Contains(zn) {
+			continue
+		}
+		networks := slices.DeleteFunc(
+			rt.networksByZone[zn],
+			func(network ddp.Network) bool { return network == n },
+		)
+		if len(networks) == 0 {
+			delete(rt.networksByZone, zn)
+		} else {
+			rt.networksByZone[zn] = networks
+		}
+	}
+	for zn := range next {
+		if old.Contains(zn) {
+			continue
+		}
+		rt.networksByZone[zn] = append(rt.networksByZone[zn], n)
+	}
+	rt.byNetwork[n].ZoneNames = next
+	rt.networksByZoneMu.Unlock()
+	rt.byNetwork[n].Unlock()
+
+	newBest := rt.Lookup(n)
+	rt.informObservers(oldBest, newBest)
+	return nil
+}
+
 // clearZonesForNetworkIfNoRoutes removes zone metadata once a network has no
 // stored route candidates at all. This prevents a disconnected AURP peer from
 // leaving zone names behind that would make a later route immediately appear
