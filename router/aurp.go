@@ -161,7 +161,7 @@ func (r *Router) AURPInput(ctx context.Context, logger *slog.Logger, wg *sync.Wa
 			// incremented when it was sent by the remote peer. (To put it
 			// another way, the whole network of AURP nodes acts as one huge
 			// "router".) Hence rooter.Output and not rooter.Forward.
-			if err := r.Output(ctx, ddpkt); err != nil {
+			if err := r.OutputFromAURP(ctx, peer, ddpkt); err != nil {
 				logger.Error("DDP/AURP: Couldn't route packet", "error", err)
 			}
 
