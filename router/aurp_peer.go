@@ -1252,21 +1252,48 @@ func (p *AURPPeer) handleRIUpd(logger *slog.Logger, pkt *aurp.RIUpdPacket) error
 	case ReceiverConnected:
 		// Business as usual.
 
+	case ReceiverWaitForTickleAck:
+		// Any valid routing update proves the sender is alive. Do not wait
+		// for a separate Tickle-Ack before resuming normal processing.
+		p.setRState(ReceiverConnected)
+
 	case ReceiverUnconnected, ReceiverWaitForOpenRsp:
-		logger.Error("AURP Peer: Got an RI-Upd while not in Connected state")
-		// Remote thinks we are connected, but we are not, or we are starting
-		// from the beginning. Try an RI-Req, jump to WaitForRIRsp state, and
-		// don't ack or use the RI-Upd.
+		logger.Warn("AURP Peer: RI-Upd arrived before receiver connection was ready")
+		// Re-synchronize from a complete routing snapshot. Do not apply this
+		// update because there is no known-good baseline yet.
 		if _, err := p.send(p.Transport.NewRIReqPacket()); err != nil {
 			logger.Error("AURP Peer: Couldn't send RI-Req", "error", err)
 		}
 		p.setRState(ReceiverWaitForRIRsp)
-		// restart the receiving sequence
 		p.Transport.ResetRemoteSeq()
+		p.sendRetries.Store(0)
 		return nil
 
-	case ReceiverWaitForRIRsp, ReceiverWaitForTickleAck:
-		logger.Error("AURP Peer: Got an RI-Upd while not in Connected state")
+	case ReceiverWaitForRIRsp:
+		// Some deployed peers emit an RI-Upd while an RI-Rsp refresh is in
+		// progress. RFC 1504 still requires valid sequenced data to be
+		// acknowledged. Advance the sequence but do not mutate the partial
+		// routing baseline; request the complete table again.
+		if err := p.checkRemoteSeq(logger, &pkt.TrHeader); err != nil {
+			if err == errDropPacket {
+				return nil
+			}
+			return err
+		}
+		if _, err := p.send(
+			p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, 0),
+		); err != nil {
+			logger.Error("AURP Peer: Couldn't acknowledge RI-Upd during RI-Rsp sync", "error", err)
+			return err
+		}
+		p.Transport.IncRemoteSeq()
+		p.sendRetries.Store(0)
+		if _, err := p.send(p.Transport.NewRIReqPacket()); err != nil {
+			logger.Error("AURP Peer: Couldn't re-request RI-Rsp after early RI-Upd", "error", err)
+			return err
+		}
+		p.lastSend.Store(time.Now())
+		logger.Info("AURP Peer: acknowledged early RI-Upd and re-requested complete RI-Rsp")
 		return nil
 	}
 
