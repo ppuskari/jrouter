@@ -83,6 +83,24 @@
     table thead tr th {
         border-bottom: 1px solid;
     }
+    table.sortable thead th {
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+    }
+    table.sortable thead th::after {
+        content: " ↕";
+        opacity: 0.35;
+        font-size: 85%;
+    }
+    table.sortable thead th[aria-sort="ascending"]::after {
+        content: " ▲";
+        opacity: 1;
+    }
+    table.sortable thead th[aria-sort="descending"]::after {
+        content: " ▼";
+        opacity: 1;
+    }
     tr:nth-child(even) {
         background-color: light-dark(#eee, #333);
     }
@@ -129,5 +147,121 @@
         </div>
     </div>
     {{template "render_items" .Items}}
+    <script>
+    (() => {
+        const collator = new Intl.Collator(undefined, {
+            numeric: true,
+            sensitivity: "base"
+        });
+
+        function durationSeconds(text) {
+            const s = text.trim().toLowerCase();
+            if (!s.endsWith(" ago")) {
+                return null;
+            }
+            const body = s.slice(0, -4);
+            let total = 0;
+            let matched = false;
+            const units = {
+                "ns": 1e-9,
+                "us": 1e-6,
+                "µs": 1e-6,
+                "ms": 1e-3,
+                "s": 1,
+                "m": 60,
+                "h": 3600,
+                "d": 86400
+            };
+            const re = /([0-9]+(?:\.[0-9]+)?)(ns|us|µs|ms|s|m|h|d)/g;
+            let m;
+            while ((m = re.exec(body)) !== null) {
+                total += Number(m[1]) * units[m[2]];
+                matched = true;
+            }
+            return matched ? total : null;
+        }
+
+        function sortValue(cell) {
+            const text = cell.textContent.trim();
+            if (text === "" || text === "-" || text.toLowerCase() === "never") {
+                return {kind: 3, value: ""};
+            }
+
+            const duration = durationSeconds(text);
+            if (duration !== null) {
+                return {kind: 0, value: duration};
+            }
+
+            if (/^[+-]?[0-9]+(?:\.[0-9]+)?$/.test(text)) {
+                return {kind: 0, value: Number(text)};
+            }
+
+            const date = Date.parse(text);
+            if (!Number.isNaN(date) &&
+                /[0-9]{4}|UTC|GMT|T[0-9]{2}:/.test(text)) {
+                return {kind: 1, value: date};
+            }
+
+            return {kind: 2, value: text};
+        }
+
+        function compareValues(a, b) {
+            if (a.kind !== b.kind) {
+                return a.kind - b.kind;
+            }
+            if (a.kind === 0 || a.kind === 1) {
+                return a.value - b.value;
+            }
+            return collator.compare(a.value, b.value);
+        }
+
+        document.querySelectorAll("table").forEach((table) => {
+            const head = table.tHead;
+            const body = table.tBodies[0];
+            if (!head || !body || head.rows.length === 0) {
+                return;
+            }
+
+            const headers = Array.from(head.rows[head.rows.length - 1].cells);
+            if (headers.length === 0) {
+                return;
+            }
+
+            table.classList.add("sortable");
+            headers.forEach((header, column) => {
+                header.tabIndex = 0;
+                header.title = "Click to sort";
+                header.setAttribute("aria-sort", "none");
+
+                const sort = () => {
+                    const descending =
+                        header.getAttribute("aria-sort") === "ascending";
+                    headers.forEach((h) => h.setAttribute("aria-sort", "none"));
+                    header.setAttribute(
+                        "aria-sort",
+                        descending ? "descending" : "ascending"
+                    );
+
+                    const rows = Array.from(body.rows);
+                    rows.sort((ra, rb) => {
+                        const a = sortValue(ra.cells[column] || ra);
+                        const b = sortValue(rb.cells[column] || rb);
+                        const cmp = compareValues(a, b);
+                        return descending ? -cmp : cmp;
+                    });
+                    rows.forEach((row) => body.appendChild(row));
+                };
+
+                header.addEventListener("click", sort);
+                header.addEventListener("keydown", (event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        sort();
+                    }
+                });
+            });
+        });
+    })();
+    </script>
 </body>
 </html>
