@@ -114,6 +114,10 @@ type AURPPeer struct {
 	futureRoutingPackets    atomic.Uint64
 	connectionIDMismatches  atomic.Uint64
 
+	// SUI flags requested by the remote data receiver. These control which
+	// incremental routing events we send after the initial RI-Rsp exchange.
+	suiFlags atomic.Uint32
+
 	// Used for debugging AURP conversations.
 	chatLogMu sync.RWMutex
 	chatLog   []ChatLogEntry
@@ -279,6 +283,10 @@ func (p *AURPPeer) LastReconnect() time.Time {
 // LastHeardFromAgo returns the time of the last packet received from this peer.
 func (p *AURPPeer) LastHeardFrom() time.Time {
 	return nilToZero[time.Time](p.lastHeardFrom.Load())
+}
+
+func (p *AURPPeer) markReceiverAlive() {
+	p.lastHeardFrom.Store(time.Now())
 }
 
 // LastSendAgo returns the time of the last packet sent to this peer.
@@ -712,9 +720,6 @@ func (p *AURPPeer) stickerTasks() error {
 }
 
 func (p *AURPPeer) handlePacket(pkt aurp.RoutingPacket) error {
-	now := time.Now()
-	p.lastHeardFrom.Store(now)
-
 	p.addToChatLog(pkt, false /* received */)
 
 	header := pkt.AURPHeader()
@@ -1014,6 +1019,7 @@ func (p *AURPPeer) handleRIRsp(logger *slog.Logger, pkt *aurp.RIRspPacket) error
 		}
 		return err
 	}
+	p.markReceiverAlive()
 
 	if p.ReceiverState() != ReceiverWaitForRIRsp {
 		logger.Warn("Received RI-Rsp but was not waiting for one")
@@ -1238,6 +1244,7 @@ func (p *AURPPeer) handleRIUpd(logger *slog.Logger, pkt *aurp.RIUpdPacket) error
 		}
 		return err
 	}
+	p.markReceiverAlive()
 
 	switch rstate := p.ReceiverState(); rstate {
 	case ReceiverConnected:
@@ -1359,6 +1366,7 @@ func (p *AURPPeer) handleZIRsp(logger *slog.Logger, pkt *aurp.ZIRspPacket) error
 		}
 		return err
 	}
+	p.markReceiverAlive()
 
 	logger.Debug(
 		"AURP Peer: Learned about these zones",
@@ -1513,6 +1521,7 @@ func (p *AURPPeer) handleTickleAck(logger *slog.Logger, pkt *aurp.TickleAckPacke
 		}
 		return err
 	}
+	p.markReceiverAlive()
 
 	if rstate := p.ReceiverState(); rstate != ReceiverWaitForTickleAck {
 		logger.Warn("AURP Peer: Received Tickle-Ack but was not waiting for one")
