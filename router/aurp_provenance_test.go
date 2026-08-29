@@ -53,7 +53,7 @@ func TestSet82AURPIngressDoesNotReflectToSamePeer(t *testing.T) {
 	}
 
 	rtr := &Router{RouteTable: rt}
-	pkt := &ddp.ExtPacket{DstNet: 1300}
+	pkt := &ddp.ExtPacket{ExtHeader: ddp.ExtHeader{DstNet: 1300}}
 
 	if _, err := rtr.outputRoute(pkt, peer.TunnelID()); err == nil {
 		t.Fatal("same-peer AURP reflection was not rejected")
@@ -79,7 +79,7 @@ func TestSet82AURPIngressMayUseDifferentPeer(t *testing.T) {
 	}
 
 	rtr := &Router{RouteTable: rt}
-	pkt := &ddp.ExtPacket{DstNet: 1400}
+	pkt := &ddp.ExtPacket{ExtHeader: ddp.ExtHeader{DstNet: 1400}}
 
 	route, err := rtr.outputRoute(pkt, ingress.TunnelID())
 	if err != nil {
