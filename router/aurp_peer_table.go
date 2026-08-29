@@ -498,8 +498,6 @@ func (t *AURPPeerTable) ResolveConfiguredPeer(
 		t.noteDNSFailure(peerAddr, time.Now(), err)
 		return nil, err
 	}
-	t.resetDNSBackoff(peerAddr)
-
 	var localIP net.IP
 	if ipDI, ok := localDI.(aurp.IPDomainIdentifier); ok {
 		localIP = net.IP(ipDI)
@@ -522,8 +520,11 @@ func (t *AURPPeerTable) ResolveConfiguredPeer(
 		}
 	}
 	if peer == nil {
-		return nil, fmt.Errorf("configured peer %q resolved only to local address", peerAddr)
+		err := fmt.Errorf("configured peer %q resolved only to local address", peerAddr)
+		t.noteDNSFailure(peerAddr, time.Now(), err)
+		return nil, err
 	}
+	t.resetDNSBackoff(peerAddr)
 	return peer, nil
 }
 
@@ -622,7 +623,8 @@ func (t *AURPPeerTable) setConfiguredCandidates(
 	for key := range desired {
 		if other := t.peersByIP[key]; other != nil && other != peer {
 			return false, fmt.Errorf(
-				"configured peer %q candidate %v already belongs to %q",
+				"%w: configured peer %q candidate %v already belongs to %q",
+				errPeerCandidateConflict,
 				peer.ConfiguredAddr, net.IP(key[:]), other.ConfiguredAddr,
 			)
 		}
@@ -686,13 +688,13 @@ func (t *AURPPeerTable) reconnectPeer(ctx context.Context, logger *slog.Logger, 
 		logger.Warn("Resolved peer has no IPv4 addresses, skipping", "configured-addr", peer.ConfiguredAddr)
 		return nil
 	}
-	t.resetDNSBackoff(peer.ConfiguredAddr)
-
 	switched, err := t.setConfiguredCandidates(peer, candidates)
 	if err != nil {
+		t.noteDNSFailure(peer.ConfiguredAddr, time.Now(), err)
 		logger.Warn("AURP Peer: candidate refresh", "configured-addr", peer.ConfiguredAddr, "error", err)
 		return nil
 	}
+	t.resetDNSBackoff(peer.ConfiguredAddr)
 	if switched {
 		logger.Info(
 			"AURP Peer: active DNS endpoint changed",
