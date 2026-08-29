@@ -68,9 +68,10 @@ func (rtr *Router) outputRoute(
 			ddpkt.DstNet,
 		)
 	}
+	origin := route.RouteOrigin()
 	if ingressAURPID != "" &&
-		route.Origin.Kind == RouteOriginAURP &&
-		route.Origin.ID == ingressAURPID {
+		origin.Kind == RouteOriginAURP &&
+		origin.ID == ingressAURPID {
 		return Route{}, fmt.Errorf(
 			"AURP reflection to ingress tunnel %q for dstnet %d; dropping packet",
 			ingressAURPID,
