@@ -12,15 +12,15 @@ import (
 )
 
 type seedStatus struct {
-	Mode             SeedMode
-	Effective        string
-	ConfiguredStart  ddp.Network
-	ConfiguredEnd    ddp.Network
-	ObservedStart    ddp.Network
-	ObservedEnd      ddp.Network
+	Mode              SeedMode
+	Effective         string
+	ConfiguredStart   ddp.Network
+	ConfiguredEnd     ddp.Network
+	ObservedStart     ddp.Network
+	ObservedEnd       ddp.Network
 	ExternalAuthority bool
-	Conflict         bool
-	LastObservation  time.Time
+	Conflict          bool
+	LastObservation   time.Time
 }
 
 type seedController struct {
@@ -228,9 +228,12 @@ func (port *EtherTalkPort) sendSeedDiscovery() error {
 //
 // hard: configured cable/zone authority is active immediately.
 // soft: actively probes for an existing ZIP cable authority, then promotes
-//       only when none is observed during SoftSeedDelay.
+//
+//	only when none is observed during SoftSeedDelay.
+//
 // none: never becomes a cable/zone authority; a discovery probe is still sent
-//       so status/conflict checks can validate the configured expectation.
+//
+//	so status/conflict checks can validate the configured expectation.
 func (port *EtherTalkPort) RunSeedState(ctx context.Context) error {
 	if port.seed == nil {
 		return nil
