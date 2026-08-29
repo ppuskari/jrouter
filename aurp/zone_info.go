@@ -473,16 +473,19 @@ func parseZoneTuples(p []byte) (ZoneTuples, error) {
 	if len(p) < 2 {
 		return nil, fmt.Errorf("insufficient input length %d for zone tuples", len(p))
 	}
-	count := binary.BigEndian.Uint16(p[:2])
+	declaredCount := binary.BigEndian.Uint16(p[:2])
 	p = p[2:]
 
-	if len(p) < int(3*count) {
-		return nil, fmt.Errorf("insufficient remaining input length %d for %d zone tuples", len(p), count)
+	// RFC 1504 requires receivers of nonextended ZI-Rsp packets to process
+	// all tuples actually present, regardless of the count advertised in the
+	// packet header.
+	capacity := int(declaredCount)
+	if minimum := len(p) / 3; capacity < minimum {
+		capacity = minimum
 	}
-
-	zs := make(ZoneTuples, 0, count)
+	zs := make(ZoneTuples, 0, capacity)
 	var fromFirst []byte
-	for range count {
+	for len(p) > 0 {
 		if len(p) < 3 {
 			return nil, fmt.Errorf("insufficient remaining input length %d for another zone tuple", len(p))
 		}
