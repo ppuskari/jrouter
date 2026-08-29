@@ -44,7 +44,7 @@ const (
 )
 
 var (
-	errDNSBackoff           = errors.New("DNS lookup is in backoff")
+	errDNSBackoff            = errors.New("DNS lookup is in backoff")
 	errPeerCandidateConflict = errors.New("configured peer candidate identity conflict")
 )
 
