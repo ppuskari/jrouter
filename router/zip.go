@@ -56,6 +56,15 @@ func (port *EtherTalkPort) handleZIPZIP(ctx context.Context, ddpkt *ddp.ExtPacke
 	case *zip.GetNetInfoPacket:
 		return port.handleZIPGetNetInfo(ctx, ddpkt, zipkt)
 
+	case *zip.GetNetInfoReplyPacket:
+		port.observeCableRange(
+			zipkt.NetStart,
+			zipkt.NetEnd,
+			fmt.Sprintf("ZIP GetNetInfo-Reply %d.%d", ddpkt.SrcNet, ddpkt.SrcNode),
+			true,
+		)
+		return nil
+
 	default:
 		return fmt.Errorf("TODO: handle type %T", zipkt)
 	}
@@ -170,6 +179,13 @@ func (port *EtherTalkPort) handleZIPReply(zipkt *zip.ReplyPacket) error {
 
 func (port *EtherTalkPort) handleZIPGetNetInfo(ctx context.Context, ddpkt *ddp.ExtPacket, zipkt *zip.GetNetInfoPacket) error {
 	port.logger.Debug("ZIP: Got GetNetInfo", "zone", zipkt.ZoneName)
+	if !port.seedAuthorityActive() {
+		port.logger.Debug(
+			"ZIP: not answering GetNetInfo while local seed authority is inactive",
+			"seed-state", port.seed.snapshot().Effective,
+		)
+		return nil
+	}
 
 	// The request is zoneValid if the zone name is available on this network.
 	zoneValid := port.availableZones.Contains(zipkt.ZoneName)
@@ -265,6 +281,17 @@ func (port *EtherTalkPort) handleZIPTReq(ctx context.Context, ddpkt *ddp.ExtPack
 	resp := &zip.GetZonesReplyPacket{
 		TID:      gzl.TID,
 		LastFlag: true,
+	}
+
+	if !port.seedAuthorityActive() &&
+		(gzl.Function == zip.FunctionGetLocalZones ||
+			gzl.Function == zip.FunctionGetMyZone) {
+		port.logger.Debug(
+			"ZIP ATP: not answering local-zone authority request while seed authority is inactive",
+			"function", gzl.Function,
+			"seed-state", port.seed.snapshot().Effective,
+		)
+		return nil
 	}
 
 	switch gzl.Function {
