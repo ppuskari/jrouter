@@ -332,7 +332,7 @@ func ParsePacket(p []byte) (DomainHeader, Packet, error) {
 			}
 			switch sc {
 			case SubcodeZoneInfoNonExt, SubcodeZoneInfoExt:
-				zir, err := parseZIRspPacket(p)
+				zir, err := parseZIRspPacket(p, sc)
 				if err != nil {
 					return dh, nil, err
 				}
