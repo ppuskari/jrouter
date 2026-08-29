@@ -21,7 +21,9 @@ func dedupeSortedZones(zones []string) []string {
 			set.Insert(zone)
 		}
 	}
-	return slices.Sorted(set)
+	out := set.ToSlice()
+	slices.Sort(out)
+	return out
 }
 
 func aurpPacketSize(pkt aurp.Packet) (int, error) {
@@ -221,7 +223,8 @@ func (p *AURPPeer) applyExtendedZIRsp(
 		return false, network, nil
 	}
 
-	zones := slices.Sorted(pending.zones)
+	zones := pending.zones.ToSlice()
+	slices.Sort(zones)
 	if err := p.RouteTable.ReplaceZonesForNetwork(network, zones...); err != nil {
 		return false, network, err
 	}
