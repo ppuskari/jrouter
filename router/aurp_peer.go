@@ -135,6 +135,28 @@ type ChatLogEntry struct {
 	Timestamp time.Time
 }
 
+func (p *AURPPeer) setSUIFlags(flags aurp.RoutingFlag) {
+	p.suiFlags.Store(uint32(flags & aurp.RoutingFlagAllSUI))
+}
+
+func (p *AURPPeer) allowsUpdateEvent(code aurp.EventCode) bool {
+	flags := aurp.RoutingFlag(p.suiFlags.Load())
+	var required aurp.RoutingFlag
+	switch code {
+	case aurp.EventCodeNA:
+		required = aurp.RoutingFlagSUINA
+	case aurp.EventCodeND, aurp.EventCodeNRC:
+		required = aurp.RoutingFlagSUINDOrNRC
+	case aurp.EventCodeNDC:
+		required = aurp.RoutingFlagSUINDC
+	case aurp.EventCodeZC:
+		required = aurp.RoutingFlagSUIZC
+	default:
+		return true
+	}
+	return flags&required != 0
+}
+
 func (p *AURPPeer) queueBestNetworkTransition(oldBest, newBest Route) {
 	// A fresh RI-Rsp will reconstruct the peer's view after reconnect, so
 	// updates accumulated while the sender is disconnected are unnecessary.
@@ -165,8 +187,10 @@ func (p *AURPPeer) queueBestNetworkTransition(oldBest, newBest Route) {
 	change.after = newBest
 
 	// If the accumulated transition leaves the remote peer with exactly the
-	// same exported view it started with, discard it entirely.
-	if _, advertise := aurpEventForBestTransition(change.before, change.after); !advertise {
+	// same exported view it started with, discard it entirely. Also honor the
+	// remote receiver's SUI subscription flags from Open-Req / RI-Req.
+	event, advertise := aurpEventForBestTransition(change.before, change.after)
+	if !advertise || !p.allowsUpdateEvent(event.EventCode) {
 		delete(p.pendingEvents, netStart)
 		return
 	}
@@ -869,8 +893,10 @@ func (p *AURPPeer) handleOpenReq(logger *slog.Logger, pkt *aurp.OpenReqPacket) e
 		}
 	}
 
-	// The peer tells us their connection ID in Open-Req.
+	// The peer tells us their connection ID and which update classes it wants
+	// in Open-Req. RFC 1504 requires the sender to honor these SUI flags.
 	p.Transport.SetRemoteConnID(pkt.ConnectionID)
+	p.setSUIFlags(pkt.Flags)
 
 	// Formulate a response.
 	var orsp *aurp.OpenRspPacket
@@ -962,6 +988,7 @@ func (p *AURPPeer) handleRIReq(logger *slog.Logger, pkt *aurp.RIReqPacket) error
 	if sstate := p.SenderState(); sstate != SenderConnected {
 		logger.Warn("AURP Peer: Received RI-Req but was not expecting one")
 	}
+	p.setSUIFlags(pkt.Flags)
 
 	// TODO: Load ExtraAdvertisedZones and HiddenZones. The base exported route
 	// set is deliberately built in one place so initial RI-Rsp and incremental
