@@ -61,6 +61,10 @@ type AURPPeer struct {
 	// open_peering enabled).
 	ConfiguredAddr string
 
+	// tunnelID is the immutable logical identity of this AURP peer. It must
+	// not change when DNS selects a different active endpoint.
+	tunnelID string
+
 	// The active resolved address of the peer. It can change when a configured
 	// hostname's DNS candidate set changes. Use RemoteAddr() to read it safely.
 	// NOTE: The UDP port is always assumed to be 387.
@@ -198,9 +202,15 @@ func (p *AURPPeer) Forward(_ context.Context, ddpkt *ddp.ExtPacket) error {
 	return err
 }
 
-// RouteTargetKey returns "AURPPeer|peer's IP address".
+// TunnelID returns the immutable logical identity of this AURP tunnel peer.
+func (p *AURPPeer) TunnelID() string {
+	return p.tunnelID
+}
+
+// RouteTargetKey uses the immutable tunnel identity rather than the active IP
+// endpoint, so DNS failover cannot orphan route-table entries.
 func (p *AURPPeer) RouteTargetKey() string {
-	return "AURPPeer|" + p.RemoteAddrString()
+	return "AURPPeer|" + p.tunnelID
 }
 
 // Class returns TargetClassAURPPeer.
