@@ -7,7 +7,39 @@ on:
   workflow_dispatch:
 
 jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Global gofmt gate
+        shell: bash
+        run: |
+          mapfile -t gofiles < <(git ls-files '*.go')
+          if [ "${#gofiles[@]}" -eq 0 ]; then
+            exit 0
+          fi
+
+          files="$(gofmt -l "${gofiles[@]}")"
+          if [ -n "$files" ]; then
+            echo "Tracked Go files requiring gofmt:"
+            echo "$files"
+            echo
+            echo "=== gofmt diff ==="
+            while IFS= read -r file; do
+              [ -n "$file" ] && gofmt -d "$file"
+            done <<< "$files"
+            exit 1
+          fi
+
   test:
+    needs: format
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -22,18 +54,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libpcap-dev
-
-      - name: Go format check
-        run: |
-          files="$(gofmt -l .)"
-          if [ -n "$files" ]; then
-            echo "Files requiring gofmt:"
-            echo "$files"
-            echo
-            echo "=== gofmt diff ==="
-            gofmt -d $files
-            exit 1
-          fi
 
       - name: Unit tests
         run: go test ./...
