@@ -101,7 +101,11 @@ func parseZIReqPacket(p []byte) (*ZIReqPacket, error) {
 type ZIRspPacket struct {
 	Header
 	Subcode
-	Zones ZoneTuples
+	// TotalTuples is meaningful for extended ZI-Rsp packets. RFC 1504
+	// requires each packet in an extended response sequence to carry the
+	// total tuple count for the network's complete zone list.
+	TotalTuples uint16
+	Zones       ZoneTuples
 }
 
 func (p *ZIRspPacket) String() string {
@@ -124,18 +128,79 @@ func (p *ZIRspPacket) WriteTo(w io.Writer) (int64, error) {
 	a := acc(w)
 	a.writeTo(&p.Header)
 	a.write16(uint16(p.Subcode))
-	a.writeTo(p.Zones)
+
+	if p.Subcode != SubcodeZoneInfoExt {
+		a.writeTo(p.Zones)
+		return a.ret()
+	}
+
+	total := p.TotalTuples
+	if total == 0 {
+		total = uint16(len(p.Zones))
+	}
+	a.write16(total)
+	for _, zt := range p.Zones {
+		if len(zt.Name) > 127 {
+			return 0, fmt.Errorf("zone name %q too long", zt.Name)
+		}
+		// Extended ZI-Rsp packets always use long tuples and all tuples in
+		// one packet must refer to the same network.
+		a.write16(uint16(zt.Network))
+		a.write8(uint8(len(zt.Name)))
+		a.write([]byte(zt.Name))
+	}
 	return a.ret()
 }
 
-func parseZIRspPacket(p []byte) (*ZIRspPacket, error) {
-	zs, err := parseZoneTuples(p)
-	if err != nil {
-		return nil, err
+func parseZIRspPacket(p []byte, subcode Subcode) (*ZIRspPacket, error) {
+	if subcode != SubcodeZoneInfoExt {
+		zs, err := parseZoneTuples(p)
+		if err != nil {
+			return nil, err
+		}
+		return &ZIRspPacket{
+			Subcode: subcode,
+			Zones:   zs,
+		}, nil
 	}
+
+	if len(p) < 2 {
+		return nil, fmt.Errorf("insufficient input length %d for extended ZI-Rsp tuple count", len(p))
+	}
+	total := binary.BigEndian.Uint16(p[:2])
+	p = p[2:]
+
+	var zones ZoneTuples
+	var network ddp.Network
+	for len(p) > 0 {
+		if len(p) < 3 {
+			return nil, fmt.Errorf("insufficient remaining input length %d for extended zone tuple", len(p))
+		}
+		n := ddp.Network(binary.BigEndian.Uint16(p[:2]))
+		nameLen := p[2]
+		p = p[3:]
+		if nameLen&0x80 != 0 {
+			return nil, fmt.Errorf("optimized tuple not permitted in extended ZI-Rsp")
+		}
+		if len(p) < int(nameLen) {
+			return nil, fmt.Errorf("insufficient remaining input length %d for zone name of length %d", len(p), nameLen)
+		}
+		if len(zones) == 0 {
+			network = n
+		} else if n != network {
+			return nil, fmt.Errorf("extended ZI-Rsp contains multiple network numbers %d and %d", network, n)
+		}
+		zones = append(zones, ZoneTuple{
+			Network: n,
+			Name:    string(p[:nameLen]),
+		})
+		p = p[nameLen:]
+	}
+
 	return &ZIRspPacket{
-		// Subcode needs to be provided by layer above
-		Zones: zs,
+		Subcode:     subcode,
+		TotalTuples: total,
+		Zones:       zones,
 	}, nil
 }
 
