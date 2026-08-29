@@ -9,11 +9,11 @@ import (
 func TestSet9ZIRspZoneRequiresOwningPeerRoute(t *testing.T) {
 	rt := NewRouteTable(t.Context())
 	owner := &AURPPeer{
-		tunnelID:  "cfg:owner.example",
+		tunnelID:   "cfg:owner.example",
 		RouteTable: rt,
 	}
 	other := &AURPPeer{
-		tunnelID:  "cfg:other.example",
+		tunnelID:   "cfg:other.example",
 		RouteTable: rt,
 	}
 
@@ -48,7 +48,7 @@ func TestSet9ZIRspZoneRequiresOwningPeerRoute(t *testing.T) {
 func TestSet9ZIRspZoneRejectsUnknownNetwork(t *testing.T) {
 	rt := NewRouteTable(t.Context())
 	peer := &AURPPeer{
-		tunnelID:  "cfg:peer.example",
+		tunnelID:   "cfg:peer.example",
 		RouteTable: rt,
 	}
 
