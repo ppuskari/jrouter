@@ -37,6 +37,7 @@ const routingTableTemplate = `
 		<th>Extended?</th>
 		<th>Zone names</th>
 		<th>Distance</th>
+		<th>Learned via</th>
 		<th>Last seen</th>
 		<th>Valid?</th>
 		<th>Target</th>
@@ -48,6 +49,7 @@ const routingTableTemplate = `
 		<td>{{if $route.Extended}}extended{{else}}non-extended{{end}}</td>
 		<td><ul>{{range $route.ZoneNames}}<li>{{.}}</li>{{end}}</ul></td>
 		<td>{{$route.Distance}}</td>
+		<td>{{$route.LearnedVia}}</td>
 		<td>{{$route.LastSeen | ago}}</td>
 		<td class="{{if $route.Valid}}green{{else}}red{{end}}">{{if $route.Valid}}valid{{else}}stale{{end}}</td>
 		<td>{{$route.Target}}</td>
