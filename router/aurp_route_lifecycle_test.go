@@ -131,6 +131,7 @@ func TestSet7UpdateDistancePersistsStoredRouteAndNDC15(t *testing.T) {
 	local := fakeTarget{key: "local", class: TargetClassAppleTalkPeer}
 	peerObserver := &AURPPeer{}
 	peerObserver.setSState(SenderConnected)
+	peerObserver.setSUIFlags(aurp.RoutingFlagAllSUI)
 	rt.AddObserver(peerObserver)
 
 	if _, err := rt.UpsertRoute(local, true, 400, 400, 14); err != nil {
@@ -397,6 +398,7 @@ func TestSet7PruneSoleLocalRouteQueuesNDAndClearsZone(t *testing.T) {
 	local := fakeTarget{key: "sole-local", class: TargetClassAppleTalkPeer}
 	peerObserver := &AURPPeer{}
 	peerObserver.setSState(SenderConnected)
+	peerObserver.setSUIFlags(aurp.RoutingFlagAllSUI)
 	rt.AddObserver(peerObserver)
 
 	if _, err := rt.UpsertRoute(local, true, 720, 720, 2); err != nil {
@@ -434,6 +436,7 @@ func TestSet7PruneLocalRouteToAURPFallbackQueuesNRC(t *testing.T) {
 	tunnel := fakeTarget{key: "aurp-fallback", class: TargetClassAURPPeer}
 	peerObserver := &AURPPeer{}
 	peerObserver.setSState(SenderConnected)
+	peerObserver.setSUIFlags(aurp.RoutingFlagAllSUI)
 	rt.AddObserver(peerObserver)
 
 	if _, err := rt.UpsertRoute(local, true, 730, 730, 1); err != nil {
@@ -472,6 +475,7 @@ func TestSet7MetricTransitionsPromoteAndRestoreBestPath(t *testing.T) {
 	fallback := fakeTarget{key: "metric-fallback", class: TargetClassAppleTalkPeer}
 	peerObserver := &AURPPeer{}
 	peerObserver.setSState(SenderConnected)
+	peerObserver.setSUIFlags(aurp.RoutingFlagAllSUI)
 	rt.AddObserver(peerObserver)
 
 	if _, err := rt.UpsertRoute(primary, true, 740, 740, 1); err != nil {
@@ -527,6 +531,7 @@ func TestSet7RangeShrinkPublishesAndAppliesNDC(t *testing.T) {
 	local := fakeTarget{key: "range-local", class: TargetClassAppleTalkPeer}
 	peerObserver := &AURPPeer{}
 	peerObserver.setSState(SenderConnected)
+	peerObserver.setSUIFlags(aurp.RoutingFlagAllSUI)
 	rt.AddObserver(peerObserver)
 
 	if _, err := rt.UpsertRoute(local, true, 800, 810, 2); err != nil {
