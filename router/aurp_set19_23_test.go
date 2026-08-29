@@ -177,7 +177,7 @@ func TestSet23ZoneTelemetryTracksOwnershipAndExtendedCompletion(t *testing.T) {
 	}
 
 	part1 := &aurp.ZIRspPacket{
-		Header: nonext.Header,
+		Header:      nonext.Header,
 		Subcode:     aurp.SubcodeZoneInfoExt,
 		TotalTuples: 2,
 		Zones: aurp.ZoneTuples{
@@ -185,7 +185,7 @@ func TestSet23ZoneTelemetryTracksOwnershipAndExtendedCompletion(t *testing.T) {
 		},
 	}
 	part2 := &aurp.ZIRspPacket{
-		Header: nonext.Header,
+		Header:      nonext.Header,
 		Subcode:     aurp.SubcodeZoneInfoExt,
 		TotalTuples: 2,
 		Zones: aurp.ZoneTuples{
