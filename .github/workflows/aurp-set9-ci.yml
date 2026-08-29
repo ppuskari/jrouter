@@ -1,0 +1,86 @@
+name: AURP Set-9 Zone Correctness
+
+on:
+  push:
+    branches:
+      - petar/aurp-set9-zone-correctness-20260829
+  workflow_dispatch:
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Global gofmt gate
+        shell: bash
+        run: |
+          mapfile -t gofiles < <(git ls-files '*.go')
+          if [ "${#gofiles[@]}" -eq 0 ]; then
+            exit 0
+          fi
+
+          files="$(gofmt -l "${gofiles[@]}")"
+          if [ -n "$files" ]; then
+            echo "Tracked Go files requiring gofmt:"
+            echo "$files"
+            echo
+            echo "=== gofmt diff ==="
+            while IFS= read -r file; do
+              [ -n "$file" ] && gofmt -d "$file"
+            done <<< "$files"
+            exit 1
+          fi
+
+  test:
+    needs: format
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install libpcap headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpcap-dev
+
+      - name: Unit tests
+        run: go test ./...
+
+      - name: Race tests for routing packages
+        run: go test -race ./router ./aurp
+
+      - name: Set-9 zone stress x100
+        run: go test ./router ./aurp -count=100
+
+      - name: Set-9 race soak x20
+        run: go test -race ./router ./aurp -count=20
+
+      - name: Build all packages
+        run: go build ./...
+
+      - name: Build Linux amd64 Set-9 binary
+        run: |
+          mkdir -p dist
+          GOOS=linux GOARCH=amd64 go build -o dist/jrouter-set9-linux-amd64 .
+          sha256sum dist/jrouter-set9-linux-amd64 | tee dist/jrouter-set9-linux-amd64.sha256
+
+      - name: Upload Linux amd64 Set-9 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: jrouter-set9-linux-amd64
+          path: |
+            dist/jrouter-set9-linux-amd64
+            dist/jrouter-set9-linux-amd64.sha256
+          if-no-files-found: error
