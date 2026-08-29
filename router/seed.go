@@ -12,16 +12,16 @@ import (
 )
 
 type seedStatus struct {
-	Mode              SeedMode
-	Effective         string
-	ConfiguredStart   ddp.Network
-	ConfiguredEnd     ddp.Network
-	ConfiguredZone    string
-	ObservedStart     ddp.Network
-	ObservedEnd       ddp.Network
-	ObservedZone      string
-	ExternalAuthority bool
-	Conflict          bool
+	Mode                     SeedMode
+	Effective                string
+	ConfiguredStart          ddp.Network
+	ConfiguredEnd            ddp.Network
+	ConfiguredZone           string
+	ObservedStart            ddp.Network
+	ObservedEnd              ddp.Network
+	ObservedZone             string
+	ExternalAuthority        bool
+	Conflict                 bool
 	LastObservation          time.Time
 	LastAuthorityObservation time.Time
 }
@@ -36,9 +36,9 @@ type seedController struct {
 	configuredEnd   ddp.Network
 	configuredZone  string
 
-	active            bool
-	externalAuthority bool
-	conflict          bool
+	active                   bool
+	externalAuthority        bool
+	conflict                 bool
 	observedStart            ddp.Network
 	observedEnd              ddp.Network
 	observedZone             string
@@ -152,15 +152,15 @@ func (s *seedController) snapshot() seedStatus {
 	}
 
 	return seedStatus{
-		Mode:              s.mode,
-		Effective:         effective,
-		ConfiguredStart:   s.configuredStart,
-		ConfiguredEnd:     s.configuredEnd,
-		ConfiguredZone:    s.configuredZone,
-		ObservedStart:     s.observedStart,
-		ObservedEnd:       s.observedEnd,
-		ObservedZone:      s.observedZone,
-		ExternalAuthority: s.externalAuthority,
+		Mode:                     s.mode,
+		Effective:                effective,
+		ConfiguredStart:          s.configuredStart,
+		ConfiguredEnd:            s.configuredEnd,
+		ConfiguredZone:           s.configuredZone,
+		ObservedStart:            s.observedStart,
+		ObservedEnd:              s.observedEnd,
+		ObservedZone:             s.observedZone,
+		ExternalAuthority:        s.externalAuthority,
 		Conflict:                 s.conflict,
 		LastObservation:          s.lastObservation,
 		LastAuthorityObservation: s.lastAuthorityObservation,
