@@ -3,7 +3,7 @@ name: AURP Set-8 Route Lifecycle
 on:
   push:
     branches:
-      - petar/aurp-set8-tunnel-identity-20260829
+      - petar/aurp-set8-provenance-20260829
   workflow_dispatch:
 
 jobs:
