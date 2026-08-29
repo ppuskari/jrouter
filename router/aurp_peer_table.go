@@ -43,7 +43,10 @@ const (
 	dnsJitterPct   = 10
 )
 
-var errDNSBackoff = errors.New("DNS lookup is in backoff")
+var (
+	errDNSBackoff           = errors.New("DNS lookup is in backoff")
+	errPeerCandidateConflict = errors.New("configured peer candidate identity conflict")
+)
 
 type configuredDNSState struct {
 	failures int
@@ -79,6 +82,9 @@ func jitterDNSBackoff(d time.Duration) time.Duration {
 }
 
 func dnsErrorKind(err error) string {
+	if errors.Is(err, errPeerCandidateConflict) {
+		return "identity-conflict"
+	}
 	var dnsErr *net.DNSError
 	if !errors.As(err, &dnsErr) {
 		return "error"
@@ -238,8 +244,8 @@ func (t *AURPPeerTable) LookupOrCreate(
 		if peer := t.peersByConfigured[peerAddr]; peer != nil {
 			if other := t.peersByIP[key]; other != nil && other != peer {
 				return nil, fmt.Errorf(
-					"configured peer %q candidate %v already belongs to %q",
-					peerAddr, raddr4, other.ConfiguredAddr,
+					"%w: configured peer %q candidate %v already belongs to %q",
+					errPeerCandidateConflict, peerAddr, raddr4, other.ConfiguredAddr,
 				)
 			}
 			t.peersByIP[key] = peer
@@ -253,8 +259,8 @@ func (t *AURPPeerTable) LookupOrCreate(
 		}
 		if peer.ConfiguredAddr != "" && peer.ConfiguredAddr != peerAddr {
 			return nil, fmt.Errorf(
-				"configured peer %q candidate %v already belongs to %q",
-				peerAddr, raddr4, peer.ConfiguredAddr,
+				"%w: configured peer %q candidate %v already belongs to %q",
+				errPeerCandidateConflict, peerAddr, raddr4, peer.ConfiguredAddr,
 			)
 		}
 		peer.ConfiguredAddr = peerAddr
@@ -265,10 +271,15 @@ func (t *AURPPeerTable) LookupOrCreate(
 	if remoteDI == nil {
 		remoteDI = aurp.IPDomainIdentifier(raddr4)
 	}
+	tunnelID := "di:" + remoteDI.String()
+	if peerAddr != "" {
+		tunnelID = "cfg:" + strings.ToLower(peerAddr)
+	}
 	peer := &AURPPeer{
 		Transport:      aurp.NewTransport(localDI, remoteDI, t.nextConnID, 0),
 		UDPConn:        udpConn,
 		ConfiguredAddr: peerAddr,
+		tunnelID:       tunnelID,
 		ReceiveCh:      make(chan aurp.RoutingPacket, 1024),
 		RouteTable:     routes,
 
@@ -501,6 +512,7 @@ func (t *AURPPeerTable) ResolveConfiguredPeer(
 			ctx, logger, routes, udpConn, peerAddr, raddr4, localDI, nil,
 		)
 		if err != nil {
+			t.noteDNSFailure(peerAddr, time.Now(), err)
 			return nil, err
 		}
 		if peer == nil {
