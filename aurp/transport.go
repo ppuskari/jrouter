@@ -296,18 +296,10 @@ func (tr *Transport) NewRIUpdPacket(events EventTuples) *RIUpdPacket {
 	}
 }
 
-// NewZIRspPacket returns a new ZI-Rsp packet structure containing the given
-// zone information. It automatically chooses between subcodes 1 or 2 depending
-// on whether there is one network ID or more than one network ID.
+// NewZIRspPacket returns a nonextended ZI-Rsp packet containing the given
+// complete zone lists. Extended responses are constructed explicitly when a
+// single network's zone list does not fit in one packet.
 func (tr *Transport) NewZIRspPacket(zoneLists map[ddp.Network][]string) *ZIRspPacket {
-	// Only one zone: use non-extended
-	subcode := SubcodeZoneInfoNonExt
-	if len(zoneLists) == 1 {
-		// Only one network: use extended format
-		subcode = SubcodeZoneInfoExt
-	}
-
-	// Translate from network->zones map into zone tuples
 	var zones ZoneTuples
 	for nn, zl := range zoneLists {
 		for _, z := range zl {
@@ -324,8 +316,24 @@ func (tr *Transport) NewZIRspPacket(zoneLists map[ddp.Network][]string) *ZIRspPa
 			CommandCode: CmdCodeZoneRsp,
 			Flags:       0,
 		},
-		Subcode: subcode,
+		Subcode: SubcodeZoneInfoNonExt,
 		Zones:   zones,
+	}
+}
+
+// NewExtendedZIRspPacket returns one packet in an extended ZI-Rsp sequence.
+// totalTuples is the size of the complete zone list for the network, while
+// zones contains only the tuples carried in this packet.
+func (tr *Transport) NewExtendedZIRspPacket(totalTuples uint16, zones ZoneTuples) *ZIRspPacket {
+	return &ZIRspPacket{
+		Header: Header{
+			TrHeader:    tr.transaction(tr.RemoteConnID()),
+			CommandCode: CmdCodeZoneRsp,
+			Flags:       0,
+		},
+		Subcode:     SubcodeZoneInfoExt,
+		TotalTuples: totalTuples,
+		Zones:       zones,
 	}
 }
 
