@@ -140,6 +140,13 @@ func (port *EtherTalkPort) seedAuthorityActive() bool {
 	return port.seed != nil && port.seed.activeAuthority()
 }
 
+func (port *EtherTalkPort) seedEffectiveState() string {
+	if port.seed == nil {
+		return "unconfigured"
+	}
+	return port.seed.snapshot().Effective
+}
+
 func (port *EtherTalkPort) observeCableRange(
 	start ddp.Network,
 	end ddp.Network,
