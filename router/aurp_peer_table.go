@@ -330,6 +330,7 @@ func (t *AURPPeerTable) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 type aurpPeerStatusRow struct {
 	ConfiguredAddr string
+	TunnelID       string
 	CandidateAddrs string
 	RemoteAddr     string
 	HasPeer        bool
@@ -398,6 +399,7 @@ func newAURPPeerStatusRow(
 	}
 
 	row.HasPeer = true
+	row.TunnelID = peer.TunnelID()
 	row.RemoteAddr = peer.RemoteAddrString()
 	row.Running = peer.Running()
 	row.ReceiverConnected = peer.ReceiverState() == ReceiverConnected
@@ -718,6 +720,7 @@ const peerTableTemplate = `
 <table>
 	<thead><tr>
 		<th>Configured</th>
+		<th>Tunnel ID</th>
 		<th>Candidates</th>
 		<th>Active</th>
 		<th>Running</th>
@@ -744,6 +747,7 @@ const peerTableTemplate = `
 {{range $peer := . }}
 	<tr>
 		<td>{{$peer.ConfiguredAddr}}</td>
+		<td>{{$peer.TunnelID}}</td>
 		<td>{{$peer.CandidateAddrs}}</td>
 		<td>{{if $peer.HasPeer}}<a href="/chatlog/{{$peer.RemoteAddr}}">{{$peer.RemoteAddr}}</a>{{else}}unresolved{{end}}</td>
 		<td class="{{if $peer.Running}}green{{else}}red{{end}}">{{if $peer.Running}}running{{else}}stopped{{end}}</td>
