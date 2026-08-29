@@ -31,14 +31,63 @@ const (
 // Route represents a route: a destination network range, a way to send packets
 // towards the destination, and some other data that affects whether the route
 // is used.
+type RouteOriginKind uint8
+
+const (
+	RouteOriginDirect RouteOriginKind = iota
+	RouteOriginAppleTalk
+	RouteOriginAURP
+)
+
+type RouteOrigin struct {
+	Kind RouteOriginKind
+	ID   string
+}
+
+type aurpTunnelIdentity interface {
+	TunnelID() string
+}
+
+func routeOriginForTarget(target RouteTarget) RouteOrigin {
+	if target == nil {
+		return RouteOrigin{}
+	}
+	switch target.Class() {
+	case TargetClassAURPPeer:
+		id := target.RouteTargetKey()
+		if t, ok := target.(aurpTunnelIdentity); ok {
+			id = t.TunnelID()
+		}
+		return RouteOrigin{Kind: RouteOriginAURP, ID: id}
+	case TargetClassAppleTalkPeer:
+		return RouteOrigin{
+			Kind: RouteOriginAppleTalk,
+			ID:   target.RouteTargetKey(),
+		}
+	default:
+		return RouteOrigin{
+			Kind: RouteOriginDirect,
+			ID:   target.RouteTargetKey(),
+		}
+	}
+}
+
+// Route represents a route: a destination network range, a way to send packets
+// towards the destination, and some other data that affects whether the route
+// is used.
 type Route struct {
 	RouteKey // embeds TargetKey and NetStart
 
 	Extended bool
 	NetEnd   ddp.Network
 
-	// Target provides a way to forward packets using this route
+	// Target provides a way to forward packets using this route.
 	Target RouteTarget
+
+	// Origin records where the route was learned independently from the
+	// current forwarding endpoint. In particular, AURP origin identity remains
+	// stable across DNS endpoint changes.
+	Origin RouteOrigin
 
 	Distance uint8
 	LastSeen time.Time
