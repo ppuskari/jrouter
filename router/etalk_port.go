@@ -83,6 +83,7 @@ type EtherTalkPort struct {
 	netEnd          ddp.Network
 	defaultZoneName string
 	availableZones  Set[string]
+	seed            *seedController
 
 	// Outbound packet queueing
 	outboxesMu        sync.Mutex
@@ -98,6 +99,8 @@ func (router *Router) NewEtherTalkPort(
 	netEnd ddp.Network,
 	defaultZoneName string,
 	availableZones Set[string],
+	seedMode SeedMode,
+	softSeedDelay time.Duration,
 	pcapHandle *pcap.Handle) *EtherTalkPort {
 
 	port := &EtherTalkPort{
@@ -111,6 +114,7 @@ func (router *Router) NewEtherTalkPort(
 		netEnd:          netEnd,
 		defaultZoneName: defaultZoneName,
 		availableZones:  availableZones,
+		seed:            newSeedController(seedMode, softSeedDelay, netStart, netEnd),
 		pcapHandle:      pcapHandle,
 
 		outboxes:          make(map[<-chan struct{}]*outbox),
@@ -127,9 +131,11 @@ func (router *Router) NewEtherTalkPort(
 		port.logger.Error("Couldn't create route for EtherTalk port", "error", err)
 		os.Exit(1)
 	}
-	if err := router.RouteTable.AddZonesToNetwork(netStart, availableZones.ToSlice()...); err != nil {
-		port.logger.Error("Couldn't add zones to route that was just created", "error", err)
-		os.Exit(1)
+	if port.seedAuthorityActive() {
+		if err := port.activateConfiguredZones(); err != nil {
+			port.logger.Error("Couldn't add zones to route that was just created", "error", err)
+			os.Exit(1)
+		}
 	}
 	return port
 }
@@ -427,7 +433,11 @@ func (port *EtherTalkPort) String() string {
 const portStatusTmpl = `Device: {{.Device}}<br/>
 Ethernet address: {{.EthernetAddr}}<br/>
 AppleTalk network: {{.NetStart}}{{if ne .NetStart .NetEnd}}-{{.NetEnd}}{{end}} (extended)<br/>
-Available zones (default zone in bold): <ul>{{range .AvailZones}}<li{{if eq . $.DefaultZone}} style="font-weight:bold"{{end}}>{{.}}</li>{{end}}</ul><br/>`
+Seed mode: {{.Seed.Mode}}<br/>
+Seed effective state: {{.Seed.Effective}}<br/>
+{{if .Seed.ObservedStart}}Observed cable range: {{.Seed.ObservedStart}}{{if ne .Seed.ObservedStart .Seed.ObservedEnd}}-{{.Seed.ObservedEnd}}{{end}}<br/>{{end}}
+{{if .Seed.Conflict}}<strong>SEED RANGE CONFLICT - local seed authority disabled</strong><br/>{{end}}
+Available configured zones (default zone in bold): <ul>{{range .AvailZones}}<li{{if eq . $.DefaultZone}} style="font-weight:bold"{{end}}>{{.}}</li>{{end}}</ul><br/>`
 
 // StatusCtx returns a context with a new status grouping specifically for this
 // port.
@@ -440,6 +450,7 @@ func (port *EtherTalkPort) StatusCtx(ctx context.Context) context.Context {
 			"NetEnd":       port.netEnd,
 			"DefaultZone":  port.defaultZoneName,
 			"AvailZones":   port.availableZones.ToSlice(),
+			"Seed":         port.seed.snapshot(),
 		}, nil
 	},
 	)
