@@ -57,9 +57,14 @@ func (port *EtherTalkPort) handleZIPZIP(ctx context.Context, ddpkt *ddp.ExtPacke
 		return port.handleZIPGetNetInfo(ctx, ddpkt, zipkt)
 
 	case *zip.GetNetInfoReplyPacket:
-		port.observeCableRange(
+		observedZone := zipkt.ZoneName
+		if zipkt.ZoneInvalid && zipkt.DefaultZoneName != "" {
+			observedZone = zipkt.DefaultZoneName
+		}
+		port.observeCableConfig(
 			zipkt.NetStart,
 			zipkt.NetEnd,
+			observedZone,
 			fmt.Sprintf("ZIP GetNetInfo-Reply %d.%d", ddpkt.SrcNet, ddpkt.SrcNode),
 			true,
 		)
