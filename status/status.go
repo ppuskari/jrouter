@@ -204,10 +204,12 @@ func (i *templatedItem) Eval(ctx context.Context) template.HTML {
 
 // Handle handles status page requests.
 func Handle(w http.ResponseWriter, r *http.Request) {
-	build := "unknown"
-	info, has := debug.ReadBuildInfo()
-	if has && info != nil {
-		build = cmp.Or(info.Main.Sum, "unknown")
+	build := meta.Build
+	if build == "" || build == "unknown" {
+		info, has := debug.ReadBuildInfo()
+		if has && info != nil {
+			build = cmp.Or(info.Main.Sum, "unknown")
+		}
 	}
 
 	data := &statusData{
