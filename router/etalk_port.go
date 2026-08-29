@@ -436,7 +436,9 @@ AppleTalk network: {{.NetStart}}{{if ne .NetStart .NetEnd}}-{{.NetEnd}}{{end}} (
 Seed mode: {{.Seed.Mode}}<br/>
 Seed effective state: {{.Seed.Effective}}<br/>
 {{if .Seed.ObservedStart}}Observed cable range: {{.Seed.ObservedStart}}{{if ne .Seed.ObservedStart .Seed.ObservedEnd}}-{{.Seed.ObservedEnd}}{{end}}<br/>{{end}}
-{{if .Seed.Conflict}}<strong>SEED RANGE CONFLICT - local seed authority disabled</strong><br/>{{end}}
+{{if .Seed.ObservedZone}}Observed seed/default zone: {{.Seed.ObservedZone}}<br/>{{end}}
+{{if not .Seed.LastAuthorityObservation.IsZero}}Last seed authority reply: {{.Seed.LastAuthorityObservation | ago}}<br/>{{end}}
+{{if .Seed.Conflict}}<strong>SEED CONFIGURATION CONFLICT - local seed authority disabled</strong><br/>{{end}}
 Available configured zones (default zone in bold): <ul>{{range .AvailZones}}<li{{if eq . $.DefaultZone}} style="font-weight:bold"{{end}}>{{.}}</li>{{end}}</ul><br/>`
 
 // StatusCtx returns a context with a new status grouping specifically for this
