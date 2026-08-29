@@ -449,8 +449,10 @@ func (p *AURPPeer) Handle(ctx context.Context) {
 				// Return immediately
 				return
 			}
-			// Send a best-effort Router Down before returning
-			p.lastRISent = p.Transport.NewRDPacket(aurp.ErrCodeNormalClose)
+			// Send a best-effort sender-originated Router Down before
+			// returning. RFC 1504 sequences sender RD packets.
+			p.Transport.IncLocalSeq()
+			p.lastRISent = p.Transport.NewSenderRDPacket(aurp.ErrCodeNormalClose)
 			if _, err := p.send(p.lastRISent); err != nil {
 				p.logger.Error("Couldn't send RD packet", "error", err)
 			}
@@ -1307,33 +1309,55 @@ func (p *AURPPeer) handleRIUpd(logger *slog.Logger, pkt *aurp.RIUpdPacket) error
 }
 
 func (p *AURPPeer) handleRD(logger *slog.Logger, pkt *aurp.RDPacket) error {
-	// We are: sender
-	// They are: receiver
+	// RFC 1504 permits RD from either side of a one-way connection:
+	// data-sender RD is sequenced; data-receiver RD uses sequence 0.
+	if pkt.Sequence == 0 {
+		// They are the data receiver; we are the data sender.
+		if err := p.checkRemoteConnID(logger, &pkt.TrHeader); err != nil {
+			if err == errDropPacket {
+				return nil
+			}
+			return err
+		}
+		logger.Info(
+			"AURP Peer: receiver-originated Router Down",
+			"code", int(pkt.ErrorCode),
+			"code-str", pkt.ErrorCode,
+		)
+		p.RouteTable.RemoveObserver(p)
+		p.disconnectSender()
+		return nil
+	}
 
-	if err := p.checkRemoteConnID(logger, &pkt.TrHeader); err != nil {
+	// They are the data sender; we are the data receiver.
+	if err := p.checkLocalConnID(logger, &pkt.TrHeader); err != nil {
 		if err == errDropPacket {
 			return nil
 		}
 		return err
 	}
-
-	if rstate := p.ReceiverState(); rstate == ReceiverUnconnected || rstate == ReceiverWaitForOpenRsp {
-		logger.Error("AURP Peer: Received RD but was not expecting one")
+	if err := p.checkRemoteSeq(logger, &pkt.TrHeader); err != nil {
+		if err == errDropPacket {
+			return nil
+		}
+		return err
 	}
+	p.markReceiverAlive()
 
-	// TODO: check sequence number
-	// "Whenever the data receiver receives an RI-Rsp, RI-Upd, or RD packet
-	// that has the expected sequence number and connection ID..."
+	logger.Info(
+		"AURP Peer: sender-originated Router Down",
+		"code", int(pkt.ErrorCode),
+		"code-str", pkt.ErrorCode,
+	)
 
-	logger.Info("AURP Peer: Router Down", "code", int(pkt.ErrorCode), "code-str", pkt.ErrorCode)
-
-	// Respond with RI-Ack
-	if _, err := p.send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, 0)); err != nil {
+	if _, err := p.send(
+		p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, 0),
+	); err != nil {
 		logger.Error("AURP Peer: Couldn't send RI-Ack", "error", err)
 		return err
 	}
-	// Connections closed
-	p.disconnect()
+	p.Transport.IncRemoteSeq()
+	p.disconnectReceiver()
 	return nil
 }
 
