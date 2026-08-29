@@ -20,6 +20,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/sfiera/multitalk/pkg/ddp"
 	"go.yaml.in/yaml/v3"
@@ -91,8 +93,27 @@ func (cs *EtherTalkConfigs) UnmarshalYAML(n *yaml.Node) error {
 	}
 }
 
+type SeedMode string
+
+const (
+	SeedModeHard SeedMode = "hard"
+	SeedModeSoft SeedMode = "soft"
+	SeedModeNone SeedMode = "none"
+)
+
 // EtherTalkConfig configures EtherTalk for a specific Ethernet interface.
 type EtherTalkConfig struct {
+	// SeedMode controls whether this interface seeds AppleTalk cable/zone
+	// information. "hard" seeds immediately, "soft" first defers to any
+	// existing seed router, and "none" never acts as a seed router.
+	// Optional; defaults to "hard" for compatibility with historical jrouter.
+	SeedMode SeedMode `yaml:"seed_mode"`
+
+	// SoftSeedDelay is how long a soft seed waits for another router to
+	// establish the configured cable range before promoting itself.
+	// Optional; defaults to 30 seconds. Ignored for hard/none.
+	SoftSeedDelay time.Duration `yaml:"soft_seed_delay"`
+
 	// EthAddr overrides the hardware address used by jrouter. Optional.
 	EthAddr string `yaml:"ethernet_addr"`
 
@@ -134,8 +155,29 @@ func LoadConfig(cfgPath string) (*Config, error) {
 
 	var validationErrs []error
 
-	// Check zone names
+	// Check EtherTalk port configuration.
 	for _, port := range c.EtherTalk {
+		if port.SeedMode == "" {
+			port.SeedMode = SeedModeHard
+		}
+		port.SeedMode = SeedMode(strings.ToLower(string(port.SeedMode)))
+		switch port.SeedMode {
+		case SeedModeHard, SeedModeSoft, SeedModeNone:
+		default:
+			validationErrs = append(validationErrs, fmt.Errorf(
+				"invalid seed_mode %q for port %q; want hard, soft, or none",
+				port.SeedMode, port.Device,
+			))
+		}
+		if port.SoftSeedDelay == 0 {
+			port.SoftSeedDelay = 30 * time.Second
+		}
+		if port.SoftSeedDelay < 0 {
+			validationErrs = append(validationErrs, fmt.Errorf(
+				"soft_seed_delay for port %q must not be negative",
+				port.Device,
+			))
+		}
 		// Invalid network numbers are:
 		//
 		// 	0x0000 (0) - used for unknown or the local network
