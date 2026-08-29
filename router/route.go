@@ -148,7 +148,6 @@ func (r Route) LearnedVia() string {
 	}
 }
 
-
 // RouteTarget implementations can forward packets somewhere.
 type RouteTarget interface {
 	// Forward should send the packet to the route target.
