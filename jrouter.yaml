@@ -28,6 +28,18 @@ ethertalk:
   # Name of the device - required.
   - device: en0
 
+    # seed_mode controls whether this EtherTalk interface seeds the local
+    # AppleTalk cable configuration.
+    #   hard - seed immediately (historical jrouter behavior and default)
+    #   soft - defer to an existing ZIP cable authority; become seed only
+    #          after soft_seed_delay if none is discovered
+    #   none - never act as the cable/zone seed authority
+    seed_mode: hard
+
+    # Only used with seed_mode: soft. Duration syntax is Go-style, such as
+    # 30s, 1m, or 2m30s. Default: 30s.
+    soft_seed_delay: 30s
+
     # ethernet_addr overrides the "hardware" address used by jrouter.
     # This may be useful if you have another AppleTalk software running on the
     # same machine, e.g. netatalk, and you do not want jrouter to steal its
