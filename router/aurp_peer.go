@@ -1356,15 +1356,29 @@ func (p *AURPPeer) handleZIRsp(logger *slog.Logger, pkt *aurp.ZIRspPacket) error
 
 	logger.Debug("AURP Peer: Learned about these zones", "zones", pkt.Zones)
 	for _, zt := range pkt.Zones {
-		// Filter out our own networks, because we manage those.
-		// (A peer that is reflecting routes is probably reflecting zones too.)
-		route := p.RouteTable.Lookup(zt.Network)
-		if route.Target != nil && route.Target.Class() == TargetClassDirect {
-			continue
+		if !p.applyZIRspZone(zt) {
+			logger.Warn(
+				"AURP Peer: ignoring zone information for a network not learned from this peer",
+				"network", zt.Network,
+				"zone", zt.Name,
+			)
 		}
-		p.RouteTable.AddZonesToNetwork(zt.Network, zt.Name)
 	}
 	return nil
+}
+
+func (p *AURPPeer) applyZIRspZone(zt aurp.ZoneTuple) bool {
+	// Zone information is meaningful only for a network currently learned
+	// from this receiver-side AURP connection. Without this ownership check,
+	// a delayed or reflected ZI-Rsp can attach a peer's zone name to a route
+	// currently owned by another peer.
+	if p.RouteTable == nil || p.RouteTable.find(p, zt.Network).Zero() {
+		return false
+	}
+	if err := p.RouteTable.AddZonesToNetwork(zt.Network, zt.Name); err != nil {
+		return false
+	}
+	return true
 }
 
 func (p *AURPPeer) handleGDZLReq(logger *slog.Logger, pkt *aurp.GDZLReqPacket) error {
