@@ -87,8 +87,9 @@ type AURPPeer struct {
 
 	// Remaining chunks in an ACK-gated routing-information sequence.
 	// These fields are owned by the Handle goroutine.
-	pendingRIRsp []aurp.NetworkTuples
-	pendingRIUpd []aurp.EventTuples
+	pendingRIRsp   []aurp.NetworkTuples
+	pendingRIUpd   []aurp.EventTuples
+	pendingZoneInfo map[ddp.Network]*pendingAURPZoneInfo
 
 	// The logger.
 	logger *slog.Logger
@@ -1121,7 +1122,7 @@ func (p *AURPPeer) handleRIAck(logger *slog.Logger, pkt *aurp.RIAckPacket) error
 			}
 		}
 		zones := p.RouteTable.ZonesForNetworks(nets)
-		if _, err := p.send(p.Transport.NewZIRspPacket(zones)); err != nil {
+		if err := p.sendZIRspPackets(zones); err != nil {
 			logger.Error("AURP Peer: Couldn't send ZI-Rsp packet", "error", err)
 		}
 	}
@@ -1165,7 +1166,13 @@ func (p *AURPPeer) handleRIAck(logger *slog.Logger, pkt *aurp.RIAckPacket) error
 
 func (p *AURPPeer) applyRIUpdEvent(et aurp.EventTuple) (bool, error) {
 	switch et.EventCode {
-	case aurp.EventCodeNull, aurp.EventCodeZC:
+	case aurp.EventCodeNull:
+		return false, nil
+
+	case aurp.EventCodeZC:
+		// RFC 1504 reserves ZC for future use and does not define the event
+		// tuple semantics. Accept the surrounding RI-Upd transaction without
+		// mutating routing or zone state.
 		return false, nil
 
 	case aurp.EventCodeNA:
@@ -1334,9 +1341,8 @@ func (p *AURPPeer) handleZIReq(logger *slog.Logger, pkt *aurp.ZIReqPacket) error
 		return err
 	}
 
-	// TODO: split ZI-Rsp packets similarly to ZIP Replies
 	zones := p.RouteTable.ZonesForNetworks(pkt.Networks)
-	if _, err := p.send(p.Transport.NewZIRspPacket(zones)); err != nil {
+	if err := p.sendZIRspPackets(zones); err != nil {
 		logger.Error("AURP Peer: Couldn't send ZI-Rsp packet", "error", err)
 		return err
 	}
@@ -1354,15 +1360,46 @@ func (p *AURPPeer) handleZIRsp(logger *slog.Logger, pkt *aurp.ZIRspPacket) error
 		return err
 	}
 
-	logger.Debug("AURP Peer: Learned about these zones", "zones", pkt.Zones)
-	for _, zt := range pkt.Zones {
-		if !p.applyZIRspZone(zt) {
+	logger.Debug(
+		"AURP Peer: Learned about these zones",
+		"subcode", pkt.Subcode,
+		"total-tuples", pkt.TotalTuples,
+		"zones", pkt.Zones,
+	)
+
+	switch pkt.Subcode {
+	case aurp.SubcodeZoneInfoNonExt:
+		accepted, ignored := p.applyNonExtendedZIRsp(pkt)
+		if ignored > 0 {
 			logger.Warn(
-				"AURP Peer: ignoring zone information for a network not learned from this peer",
-				"network", zt.Network,
-				"zone", zt.Name,
+				"AURP Peer: ignored zone tuples for networks not learned from this peer",
+				"ignored", ignored,
+				"accepted", accepted,
 			)
 		}
+
+	case aurp.SubcodeZoneInfoExt:
+		complete, network, err := p.applyExtendedZIRsp(pkt)
+		if err != nil {
+			logger.Warn(
+				"AURP Peer: invalid extended ZI-Rsp",
+				"network", network,
+				"error", err,
+			)
+			return nil
+		}
+		if complete {
+			logger.Debug(
+				"AURP Peer: completed extended zone list",
+				"network", network,
+			)
+		}
+
+	default:
+		logger.Warn(
+			"AURP Peer: unknown ZI-Rsp subcode",
+			"subcode", pkt.Subcode,
+		)
 	}
 	return nil
 }
@@ -1594,6 +1631,7 @@ func (p *AURPPeer) disconnectReceiver() {
 	// the data sender." Hence, IncLocalConnID.
 	p.Transport.ResetRemoteSeq()
 	p.Transport.IncLocalConnID()
+	p.pendingZoneInfo = nil
 	p.setRState(ReceiverUnconnected)
 }
 
