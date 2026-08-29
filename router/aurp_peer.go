@@ -1104,7 +1104,7 @@ func (p *AURPPeer) handleRIRsp(logger *slog.Logger, pkt *aurp.RIRspPacket) error
 		logger.Warn("Received RI-Rsp but was not waiting for one")
 	}
 
-	if err := p.checkRemoteSeqWithAckFlags(logger, &pkt.TrHeader, 0); err != nil {
+	if err := p.checkRemoteSeq(logger, &pkt.TrHeader); err != nil {
 		if err == errDropPacket {
 			return nil
 		}
@@ -1446,7 +1446,7 @@ func (p *AURPPeer) handleRD(logger *slog.Logger, pkt *aurp.RDPacket) error {
 		}
 		return err
 	}
-	if err := p.checkRemoteSeq(logger, &pkt.TrHeader); err != nil {
+	if err := p.checkRemoteSeqWithAckFlags(logger, &pkt.TrHeader, 0); err != nil {
 		if err == errDropPacket {
 			return nil
 		}
