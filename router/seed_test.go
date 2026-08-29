@@ -55,7 +55,7 @@ func TestSeedControllerSoftYieldsToExternalAuthority(t *testing.T) {
 func TestSeedControllerConflictFailsClosed(t *testing.T) {
 	for _, mode := range []SeedMode{SeedModeHard, SeedModeSoft, SeedModeNone} {
 		t.Run(string(mode), func(t *testing.T) {
-			s := newSeedController(mode, 30*time.Second, 1000, 1009)
+			s := newSeedController(mode, 30*time.Second, 1000, 1009, "Petar's Place")
 			s.observeRange(2000, 2009, true, "Petar's Place", time.Now())
 			if s.activeAuthority() {
 				t.Fatal("conflicting cable range left seed authority active")
@@ -75,7 +75,6 @@ func TestSeedControllerRTMPObservationDoesNotSuppressSoftPromotion(t *testing.T)
 		t.Fatal("ordinary RTMP range observation was treated as ZIP seed authority")
 	}
 }
-
 
 func TestSeedControllerSoftAuthorityExpiryAllowsTakeover(t *testing.T) {
 	s := newSeedController(SeedModeSoft, 30*time.Second, 1000, 1009, "Petar's Place")
@@ -104,7 +103,6 @@ func TestSeedControllerMatchingAuthorityRefreshesLease(t *testing.T) {
 		t.Fatal("refreshed authority lease expired too early")
 	}
 }
-
 
 func TestSeedControllerZoneConflictFailsClosed(t *testing.T) {
 	s := newSeedController(
