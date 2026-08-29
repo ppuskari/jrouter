@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -672,5 +673,59 @@ func TestSet8CandidateConflictGetsBackoffClassification(t *testing.T) {
 	table.mu.RUnlock()
 	if state.kind != "identity-conflict" || state.failures != 1 {
 		t.Fatalf("identity conflict state = %+v", state)
+	}
+}
+
+func TestSet8IdentityConflictBackoffProgressesWithoutReset(t *testing.T) {
+	table := newTestAURPPeerTable()
+	now := time.Unix(1_800_000_000, 0)
+	err := fmt.Errorf("%w: duplicate configured identity", errPeerCandidateConflict)
+
+	table.noteDNSFailure("dup.example", now, err)
+	table.mu.RLock()
+	first := table.dnsByConfigured["dup.example"]
+	table.mu.RUnlock()
+	if first.failures != 1 || first.kind != "identity-conflict" {
+		t.Fatalf("first conflict state = %+v", first)
+	}
+
+	table.noteDNSFailure("dup.example", first.next, err)
+	table.mu.RLock()
+	second := table.dnsByConfigured["dup.example"]
+	table.mu.RUnlock()
+	if second.failures != 2 || second.kind != "identity-conflict" {
+		t.Fatalf("second conflict state = %+v", second)
+	}
+	delay := second.next.Sub(first.next)
+	if delay < 54*time.Second || delay > 66*time.Second {
+		t.Fatalf("second identity-conflict delay = %v, want 1m +/-10%%", delay)
+	}
+}
+
+func TestSet8CandidateRefreshConflictIsClassified(t *testing.T) {
+	table := newTestAURPPeerTable()
+	localDI := aurp.IPDomainIdentifier(net.IPv4(192, 0, 2, 1))
+	ip1, ip2, _ := testPeerIPs()
+
+	peer1, err := table.LookupOrCreate(
+		context.Background(), table.logger, nil, nil,
+		"one.example", ip1, localDI, nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := table.LookupOrCreate(
+		context.Background(), table.logger, nil, nil,
+		"two.example", ip2, localDI, nil,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = table.setConfiguredCandidates(peer1, []net.IP{ip1, ip2})
+	if err == nil {
+		t.Fatal("expected candidate refresh identity conflict")
+	}
+	if got := dnsErrorKind(err); got != "identity-conflict" {
+		t.Fatalf("refresh conflict kind = %q, want identity-conflict", got)
 	}
 }
