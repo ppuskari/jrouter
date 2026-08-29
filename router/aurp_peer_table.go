@@ -367,6 +367,16 @@ type aurpPeerStatusRow struct {
 	StaleRoutingPackets     uint64
 	FutureRoutingPackets    uint64
 	ConnectionIDMismatches  uint64
+	LateTickleAcks          uint64
+	SenderRouterDowns       uint64
+	ReceiverRouterDowns     uint64
+	RouterDownAcks          uint64
+	EarlyRIUpdates          uint64
+	EarlyRIUpdateAcks       uint64
+	ExtendedZIFragments     uint64
+	ExtendedZICompleted     uint64
+	ZoneTuplesAccepted      uint64
+	ZoneTuplesIgnored       uint64
 }
 
 func (t *AURPPeerTable) candidateAddrsLocked(peer *AURPPeer) []string {
@@ -434,6 +444,16 @@ func newAURPPeerStatusRow(
 	row.StaleRoutingPackets = peer.StaleRoutingPackets()
 	row.FutureRoutingPackets = peer.FutureRoutingPackets()
 	row.ConnectionIDMismatches = peer.ConnectionIDMismatches()
+	row.LateTickleAcks = peer.LateTickleAcks()
+	row.SenderRouterDowns = peer.SenderRouterDowns()
+	row.ReceiverRouterDowns = peer.ReceiverRouterDowns()
+	row.RouterDownAcks = peer.RouterDownAcks()
+	row.EarlyRIUpdates = peer.EarlyRIUpdates()
+	row.EarlyRIUpdateAcks = peer.EarlyRIUpdateAcks()
+	row.ExtendedZIFragments = peer.ExtendedZIFragments()
+	row.ExtendedZICompleted = peer.ExtendedZICompleted()
+	row.ZoneTuplesAccepted = peer.ZoneTuplesAccepted()
+	row.ZoneTuplesIgnored = peer.ZoneTuplesIgnored()
 	return row
 }
 
@@ -755,6 +775,11 @@ const peerTableTemplate = `
 		<th>Stale</th>
 		<th>Future</th>
 		<th>Conn-ID mismatch</th>
+		<th>Late Tickle-Ack</th>
+		<th>RD sender/receiver/acks</th>
+		<th>Early RI-Upd/acks</th>
+		<th>Ext ZI parts/done</th>
+		<th>ZI accepted/ignored</th>
 	</tr></thead>
 	<tbody>
 {{range $peer := . }}
@@ -783,6 +808,11 @@ const peerTableTemplate = `
 		<td>{{$peer.StaleRoutingPackets}}</td>
 		<td>{{$peer.FutureRoutingPackets}}</td>
 		<td>{{$peer.ConnectionIDMismatches}}</td>
+		<td>{{$peer.LateTickleAcks}}</td>
+		<td>{{$peer.SenderRouterDowns}} / {{$peer.ReceiverRouterDowns}} / {{$peer.RouterDownAcks}}</td>
+		<td>{{$peer.EarlyRIUpdates}} / {{$peer.EarlyRIUpdateAcks}}</td>
+		<td>{{$peer.ExtendedZIFragments}} / {{$peer.ExtendedZICompleted}}</td>
+		<td>{{$peer.ZoneTuplesAccepted}} / {{$peer.ZoneTuplesIgnored}}</td>
 	</tr>
 {{end}}
 	</tbody>
