@@ -30,5 +30,9 @@ var rawVersion string
 // Version is the SemVer version string (without 'v' prefix).
 var Version = strings.TrimSpace(rawVersion)
 
+// Build is injected by release/CI builds with -ldflags. Local builds retain
+// the explicit "unknown" marker rather than pretending to be reproducible.
+var Build = "unknown"
+
 // NameVersion is the full name and version string.
 var NameVersion = Name + " v" + Version
