@@ -72,6 +72,7 @@ func TestAURPPendingChangesCoalesce(t *testing.T) {
 
 	p := &AURPPeer{}
 	p.setSState(SenderConnected)
+	p.setSUIFlags(aurp.RoutingFlagAllSUI)
 
 	local2 := testAURPRoute(local, 200, 2)
 	tunnel2 := testAURPRoute(tunnel, 200, 2)
