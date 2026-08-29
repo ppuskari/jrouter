@@ -1,7 +1,6 @@
 package router
 
 import (
-	"context"
 	"net"
 	"testing"
 
@@ -141,4 +140,3 @@ func TestSet82OpenPeerOriginUsesDomainIdentity(t *testing.T) {
 	}
 }
 
-var _ = context.Background
