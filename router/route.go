@@ -126,6 +126,15 @@ func (r Route) ZoneNames() []string {
 	return r.network.ZoneNames.ToSlice()
 }
 
+// RouteOrigin returns stored route provenance. Older/manually constructed
+// routes without explicit provenance derive it from their target.
+func (r Route) RouteOrigin() RouteOrigin {
+	if r.Origin.ID != "" || r.Target == nil {
+		return r.Origin
+	}
+	return routeOriginForTarget(r.Target)
+}
+
 // RouteTarget implementations can forward packets somewhere.
 type RouteTarget interface {
 	// Forward should send the packet to the route target.
