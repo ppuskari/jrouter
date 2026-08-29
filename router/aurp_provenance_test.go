@@ -11,7 +11,7 @@ import (
 func TestSet82RouteOriginUsesStableAURPTunnelIdentity(t *testing.T) {
 	rt := NewRouteTable(t.Context())
 	peer := &AURPPeer{
-		tunnelID:  "cfg:peer.example",
+		tunnelID:   "cfg:peer.example",
 		RouteTable: rt,
 	}
 	peer.setRemoteAddr(net.IPv4(198, 51, 100, 10))
@@ -40,7 +40,7 @@ func TestSet82RouteOriginUsesStableAURPTunnelIdentity(t *testing.T) {
 func TestSet82AURPIngressDoesNotReflectToSamePeer(t *testing.T) {
 	rt := NewRouteTable(t.Context())
 	peer := &AURPPeer{
-		tunnelID:  "cfg:peer.example",
+		tunnelID:   "cfg:peer.example",
 		RouteTable: rt,
 	}
 	peer.setRemoteAddr(net.IPv4(198, 51, 100, 10))
@@ -66,7 +66,7 @@ func TestSet82AURPIngressMayUseDifferentPeer(t *testing.T) {
 		tunnelID: "cfg:ingress.example",
 	}
 	egress := &AURPPeer{
-		tunnelID:  "cfg:egress.example",
+		tunnelID:   "cfg:egress.example",
 		RouteTable: rt,
 	}
 	egress.setRemoteAddr(net.IPv4(203, 0, 113, 30))
@@ -139,4 +139,3 @@ func TestSet82OpenPeerOriginUsesDomainIdentity(t *testing.T) {
 		t.Fatalf("open-peer origin = %+v", got)
 	}
 }
-
