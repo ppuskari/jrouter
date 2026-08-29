@@ -182,7 +182,7 @@ func (port *EtherTalkPort) handleZIPGetNetInfo(ctx context.Context, ddpkt *ddp.E
 	if !port.seedAuthorityActive() {
 		port.logger.Debug(
 			"ZIP: not answering GetNetInfo while local seed authority is inactive",
-			"seed-state", port.seed.snapshot().Effective,
+			"seed-state", port.seedEffectiveState(),
 		)
 		return nil
 	}
@@ -289,7 +289,7 @@ func (port *EtherTalkPort) handleZIPTReq(ctx context.Context, ddpkt *ddp.ExtPack
 		port.logger.Debug(
 			"ZIP ATP: not answering local-zone authority request while seed authority is inactive",
 			"function", gzl.Function,
-			"seed-state", port.seed.snapshot().Effective,
+			"seed-state", port.seedEffectiveState(),
 		)
 		return nil
 	}
