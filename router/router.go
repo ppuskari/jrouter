@@ -57,13 +57,51 @@ func (rtr *Router) Forward(ctx context.Context, ddpkt *ddp.ExtPacket) error {
 	return rtr.Output(ctx, ddpkt)
 }
 
+func (rtr *Router) outputRoute(
+	ddpkt *ddp.ExtPacket,
+	ingressAURPID string,
+) (Route, error) {
+	route := rtr.RouteTable.Lookup(ddpkt.DstNet)
+	if route.Zero() {
+		return Route{}, fmt.Errorf(
+			"no route for packet (dstnet %d); dropping packet",
+			ddpkt.DstNet,
+		)
+	}
+	if ingressAURPID != "" &&
+		route.Origin.Kind == RouteOriginAURP &&
+		route.Origin.ID == ingressAURPID {
+		return Route{}, fmt.Errorf(
+			"AURP reflection to ingress tunnel %q for dstnet %d; dropping packet",
+			ingressAURPID,
+			ddpkt.DstNet,
+		)
+	}
+	return route, nil
+}
+
 // Output outputs the packet in the direction of the destination.
 // (It does not check or adjust the hop count.)
 func (rtr *Router) Output(ctx context.Context, ddpkt *ddp.ExtPacket) error {
-	route := rtr.RouteTable.Lookup(ddpkt.DstNet)
-	if route.Zero() {
-		return fmt.Errorf("no route for packet (dstnet %d); dropping packet", ddpkt.DstNet)
+	route, err := rtr.outputRoute(ddpkt, "")
+	if err != nil {
+		return err
 	}
+	return route.Target.Forward(ctx, ddpkt)
+}
 
+// OutputFromAURP outputs an encapsulated AppleTalk packet while preserving
+// ingress tunnel provenance. A packet is never reflected back to the same
+// logical AURP peer that delivered it, but may still be routed to a different
+// AURP peer when the routing table explicitly selects that peer.
+func (rtr *Router) OutputFromAURP(
+	ctx context.Context,
+	ingress *AURPPeer,
+	ddpkt *ddp.ExtPacket,
+) error {
+	route, err := rtr.outputRoute(ddpkt, ingress.TunnelID())
+	if err != nil {
+		return err
+	}
 	return route.Target.Forward(ctx, ddpkt)
 }
