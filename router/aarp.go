@@ -38,7 +38,21 @@ const (
 	aarpRequestTimeout    = 10 * time.Second
 
 	aarpBodyLength = 28 // bytes
+
+	// AppleTalk Phase 2 startup range used by nodes before a cable range has
+	// been learned from a router.
+	phase2StartupStart ddp.Network = 0xff00
+	phase2StartupEnd   ddp.Network = 0xfffe
 )
+
+func isPhase2StartupRange(start, end ddp.Network) bool {
+	return start >= phase2StartupStart && end <= phase2StartupEnd
+}
+
+type aarpRange struct {
+	start ddp.Network
+	end   ddp.Network
+}
 
 const aarpStatusTemplate = `
 Status: {{.Status}}<br/>
@@ -79,11 +93,19 @@ type AARPMachine struct {
 	// probes, so this mutex is not used to enforce a single writer, only
 	// consistent reads
 	mu         sync.RWMutex
-	statusMsg  string
-	myAddr     aarp.AddrPair
-	probes     int
-	assigned   bool
-	assignedCh chan struct{}
+	statusMsg string
+	myAddr    aarp.AddrPair
+	probes    int
+	assigned  bool
+
+	rangeStart ddp.Network
+	rangeEnd   ddp.Network
+	rangeCh    chan aarpRange
+
+	assignedSignaled bool
+	assignedCh       chan struct{}
+	operational      bool
+	operationalCh    chan struct{}
 }
 
 // NewAARPMachine creates a new AARPMachine.
@@ -96,7 +118,9 @@ func NewAARPMachine(logger *slog.Logger, port *EtherTalkPort, myHWAddr ethernet.
 		myAddr: aarp.AddrPair{
 			Hardware: myHWAddr,
 		},
-		assignedCh: make(chan struct{}),
+		assignedCh:    make(chan struct{}),
+		operationalCh: make(chan struct{}),
+		rangeCh:       make(chan aarpRange, 1),
 	}
 }
 
@@ -117,8 +141,30 @@ func (a *AARPMachine) Address() (aarp.AddrPair, bool) {
 }
 
 // Assigned returns a channel that is closed when the local address is valid.
+// For soft/none ports this can initially be a provisional startup-range address.
 func (a *AARPMachine) Assigned() <-chan struct{} {
 	return a.assignedCh
+}
+
+// Operational returns a channel that is closed after the router owns a valid
+// address in the learned/configured non-startup cable range.
+func (a *AARPMachine) Operational() <-chan struct{} {
+	return a.operationalCh
+}
+
+// Rebind asks the AARP state machine to select and probe an address in a newly
+// learned cable range. The AARP goroutine remains the sole writer of address
+// state.
+func (a *AARPMachine) Rebind(start, end ddp.Network) {
+	if start == 0 || end == 0 || start > end || isPhase2StartupRange(start, end) {
+		return
+	}
+	select {
+	case a.rangeCh <- aarpRange{start: start, end: end}:
+	default:
+		// Coalesce duplicate discovery replies. The latest matching range is
+		// equivalent for address selection.
+	}
 }
 
 func (a *AARPMachine) status(ctx context.Context) (any, error) {
@@ -138,30 +184,63 @@ func (a *AARPMachine) Run(ctx context.Context) error {
 	ctx, done := status.AddItem(ctx, fmt.Sprintf("AARP on %s", a.port.device), aarpStatusTemplate, a.status)
 	defer done()
 
-	// Initialise our DDP address with a preferred address (first network.1)
+	// Initialise our DDP address with a preferred address (first network.1).
+	// Soft/none ports begin in the Phase 2 startup range; hard seeds begin in
+	// their configured cable range.
+	start, end := a.port.cableRange()
 	a.mu.Lock()
 	a.statusMsg = "Initialising"
 	a.probes = 0
+	a.rangeStart = start
+	a.rangeEnd = end
 	a.myAddr.Proto = ddp.Addr{
-		Network: ddp.Network(a.port.netStart),
+		Network: start,
 		Node:    1,
 	}
 	a.mu.Unlock()
 
-	ticker := time.Tick(200 * time.Millisecond) // 200ms is the AARP probe retransmit
+	probeTicker := time.NewTicker(200 * time.Millisecond)
+	defer probeTicker.Stop()
+	var ticker <-chan time.Time = probeTicker.C
 
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 
+		case rng := <-a.rangeCh:
+			a.mu.Lock()
+			if a.rangeStart == rng.start && a.rangeEnd == rng.end && a.operational {
+				a.mu.Unlock()
+				continue
+			}
+			a.statusMsg = fmt.Sprintf("Rebinding to cable range %d-%d", rng.start, rng.end)
+			a.rangeStart = rng.start
+			a.rangeEnd = rng.end
+			a.myAddr.Proto = ddp.Addr{Network: rng.start, Node: 1}
+			a.probes = 0
+			a.assigned = false
+			a.mu.Unlock()
+			if ticker == nil {
+				probeTicker = time.NewTicker(200 * time.Millisecond)
+				ticker = probeTicker.C
+			}
+
 		case <-ticker:
 			if a.probes >= 10 {
 				a.mu.Lock()
 				a.statusMsg = fmt.Sprintf("Assigned address %d.%d", a.myAddr.Proto.Network, a.myAddr.Proto.Node)
 				a.assigned = true
+				if !a.assignedSignaled {
+					close(a.assignedCh)
+					a.assignedSignaled = true
+				}
+				if !isPhase2StartupRange(a.rangeStart, a.rangeEnd) && !a.operational {
+					a.operational = true
+					close(a.operationalCh)
+				}
 				a.mu.Unlock()
-				close(a.assignedCh)
+				probeTicker.Stop()
 				ticker = nil
 				continue
 			}
@@ -261,11 +340,12 @@ func (a *AARPMachine) Run(ctx context.Context) error {
 func (a *AARPMachine) reroll() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.port.netStart != a.port.netEnd {
-		// Pick a new network number at random
+	if a.rangeStart != a.rangeEnd {
+		// Pick a new network number at random from the current provisional or
+		// operational range.
 		a.myAddr.Proto.Network = rand.N(
-			a.port.netEnd-a.port.netStart+1,
-		) + a.port.netStart
+			a.rangeEnd-a.rangeStart+1,
+		) + a.rangeStart
 	}
 
 	// Can't use: 0x00, 0xff, 0xfe, and should avoid the existing node number
