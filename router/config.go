@@ -178,23 +178,38 @@ func LoadConfig(cfgPath string) (*Config, error) {
 				port.Device,
 			))
 		}
-		// Invalid network numbers are:
-		//
-		// 	0x0000 (0) - used for unknown or the local network
-		// 	0xff00 - 0xfffe (65280 thru 65534) - the startup range
-		// 	0xffff (65535) - probably invalid? I couldn't find anything
-		// 		talking about it in Inside AppleTalk
-		if port.NetStart > port.NetEnd {
-			validationErrs = append(validationErrs, fmt.Errorf("the network number range used for port %q is backwards (start %d > end %d)", port.Device, port.NetStart, port.NetEnd))
+		// Hard and soft seeds need a configured cable range. A true non-seed
+		// may omit it and discover/adopt the cable range dynamically while
+		// using the AppleTalk Phase 2 startup range.
+		hasNetStart := port.NetStart != 0
+		hasNetEnd := port.NetEnd != 0
+		if hasNetStart != hasNetEnd {
+			validationErrs = append(validationErrs, fmt.Errorf(
+				"port %q must configure both net_start and net_end, or neither",
+				port.Device,
+			))
 		}
-		if port.NetStart == 0 || port.NetEnd == 0 {
-			validationErrs = append(validationErrs, fmt.Errorf("invalid network number 0 used for port %q", port.Device))
+		if port.SeedMode != SeedModeNone && !hasNetStart && !hasNetEnd {
+			validationErrs = append(validationErrs, fmt.Errorf(
+				"seed_mode %q on port %q requires net_start and net_end",
+				port.SeedMode, port.Device,
+			))
 		}
-		if port.NetStart == 0xffff || port.NetEnd == 0xffff {
-			validationErrs = append(validationErrs, fmt.Errorf("invalid network number 65535 used for port %q", port.Device))
-		}
-		if (port.NetStart >= 0xff00 && port.NetStart <= 0xfffe) || (port.NetEnd >= 0xff00 && port.NetEnd <= 0xfffe) {
-			validationErrs = append(validationErrs, fmt.Errorf("invalid network number range (%d - %d) used for port %q; it must not overlap the startup range (65280 - 65534)", port.NetStart, port.NetEnd, port.Device))
+		if hasNetStart && hasNetEnd {
+			// Invalid configured network numbers are:
+			//
+			// 	0x0000 (0) - unknown / local network
+			// 	0xff00 - 0xfffe - Phase 2 startup range
+			// 	0xffff (65535) - reserved/invalid
+			if port.NetStart > port.NetEnd {
+				validationErrs = append(validationErrs, fmt.Errorf("the network number range used for port %q is backwards (start %d > end %d)", port.Device, port.NetStart, port.NetEnd))
+			}
+			if port.NetStart == 0xffff || port.NetEnd == 0xffff {
+				validationErrs = append(validationErrs, fmt.Errorf("invalid network number 65535 used for port %q", port.Device))
+			}
+			if (port.NetStart >= 0xff00 && port.NetStart <= 0xfffe) || (port.NetEnd >= 0xff00 && port.NetEnd <= 0xfffe) {
+				validationErrs = append(validationErrs, fmt.Errorf("invalid network number range (%d - %d) used for port %q; it must not overlap the startup range (65280 - 65534)", port.NetStart, port.NetEnd, port.Device))
+			}
 		}
 
 		// 255 is the limit on available zones for a network.
