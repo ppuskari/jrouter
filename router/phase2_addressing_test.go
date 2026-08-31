@@ -74,6 +74,29 @@ func TestSet24SoftStillRequiresFallbackCableRange(t *testing.T) {
 	}
 }
 
+func TestSet24NumericSoftSeedDelayIsSeconds(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jrouter.yaml")
+	cfg := `ethertalk:
+  device: enp0s3
+  seed_mode: soft
+  soft_seed_delay: 15
+  zone_name: Petar's Place
+  net_start: 1000
+  net_end: 1009
+`
+	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if gotDelay := time.Duration(got.EtherTalk[0].SoftSeedDelay); gotDelay != 15*time.Second {
+		t.Fatalf("soft seed delay = %v, want 15s", gotDelay)
+	}
+}
+
 func TestSet24CableRangeAtomics(t *testing.T) {
 	port := new(EtherTalkPort)
 	port.setCableRange(1000, 1009)
