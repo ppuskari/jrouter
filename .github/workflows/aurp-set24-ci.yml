@@ -1,0 +1,76 @@
+name: AURP Set24 Phase2 Addressing
+
+on:
+  push:
+    branches:
+      - petar/aurp-set24-phase2-addressing-20260831
+  workflow_dispatch:
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Global gofmt gate
+        shell: bash
+        run: |
+          mapfile -t gofiles < <(git ls-files '*.go')
+          if [ "${#gofiles[@]}" -eq 0 ]; then
+            exit 0
+          fi
+          files="$(gofmt -l "${gofiles[@]}")"
+          if [ -n "$files" ]; then
+            echo "Tracked Go files requiring gofmt:"
+            echo "$files"
+            echo
+            echo "=== gofmt diff ==="
+            while IFS= read -r file; do
+              [ -n "$file" ] && gofmt -d "$file"
+            done <<< "$files"
+            exit 1
+          fi
+
+  test:
+    needs: format
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install libpcap headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpcap-dev
+      - name: Unit tests
+        run: go test ./...
+      - name: Race tests
+        run: go test -race ./router ./aurp ./atalk/zip ./status
+      - name: Phase2/AURP stress x100
+        run: go test ./router ./aurp ./atalk/zip -count=100
+      - name: Build all packages
+        run: go build ./...
+      - name: Build Linux amd64 binary with exact commit identity
+        shell: bash
+        run: |
+          mkdir -p dist
+          GOOS=linux GOARCH=amd64 go build \
+            -ldflags "-X drjosh.dev/jrouter/meta.Build=${GITHUB_SHA}" \
+            -o dist/jrouter-set24-linux-amd64 .
+          sha256sum dist/jrouter-set24-linux-amd64 \
+            | tee dist/jrouter-set24-linux-amd64.sha256
+      - name: Upload Linux amd64 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: jrouter-set24-linux-amd64
+          path: |
+            dist/jrouter-set24-linux-amd64
+            dist/jrouter-set24-linux-amd64.sha256
+          if-no-files-found: error
