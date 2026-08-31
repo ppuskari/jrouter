@@ -268,7 +268,7 @@ func createEtherTalkPorts(logger *slog.Logger, rooter *router.Router) {
 			etcfg.DefaultZoneName,
 			zones,
 			etcfg.SeedMode,
-			etcfg.SoftSeedDelay,
+			time.Duration(etcfg.SoftSeedDelay),
 			handle,
 		)
 	}
