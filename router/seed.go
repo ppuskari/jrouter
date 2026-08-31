@@ -85,9 +85,10 @@ func (s *seedController) observeRange(
 		s.lastAuthorityObservation = now
 	}
 
-	if start != s.configuredStart ||
-		end != s.configuredEnd ||
-		(zone != "" && zone != s.configuredZone) {
+	hasConfiguredRange := s.configuredStart != 0 && s.configuredEnd != 0
+	if (hasConfiguredRange &&
+		(start != s.configuredStart || end != s.configuredEnd)) ||
+		(zone != "" && s.configuredZone != "" && zone != s.configuredZone) {
 		s.conflict = true
 		s.active = false
 		return
@@ -226,8 +227,12 @@ func (port *EtherTalkPort) observeCableConfig(
 }
 
 func (port *EtherTalkPort) activateConfiguredZones() error {
+	start, _ := port.cableRange()
+	if start == 0 || start >= phase2StartupStart {
+		return nil
+	}
 	if err := port.router.RouteTable.AddZonesToNetwork(
-		port.netStart,
+		start,
 		port.availableZones.ToSlice()...,
 	); err != nil {
 		return err
@@ -293,7 +298,7 @@ func (port *EtherTalkPort) RunSeedState(ctx context.Context) error {
 		port.logger.Warn("AppleTalk seed discovery probe failed", "error", err)
 	}
 
-	if port.seed.mode != SeedModeSoft {
+	if port.seed.mode == SeedModeHard {
 		return nil
 	}
 
@@ -302,6 +307,8 @@ func (port *EtherTalkPort) RunSeedState(ctx context.Context) error {
 
 	promotionEligibleAt := time.Now().Add(port.seed.delay)
 	authorityTimeout := max(3*port.seed.delay, 90*time.Second)
+	promotionRequested := false
+	operationalHandled := false
 
 	for {
 		select {
@@ -311,10 +318,11 @@ func (port *EtherTalkPort) RunSeedState(ctx context.Context) error {
 		case <-probe.C:
 			now := time.Now()
 			if err := port.sendSeedDiscovery(); err != nil {
-				port.logger.Warn("AppleTalk soft-seed discovery probe failed", "error", err)
+				port.logger.Warn("AppleTalk seed discovery probe failed", "error", err)
 			}
 
-			if port.seed.expireExternalAuthority(now, authorityTimeout) {
+			if port.seed.mode == SeedModeSoft &&
+				port.seed.expireExternalAuthority(now, authorityTimeout) {
 				promotionEligibleAt = now.Add(port.seed.delay)
 				port.logger.Warn(
 					"AppleTalk external seed authority expired; entering soft-seed takeover delay",
@@ -327,11 +335,67 @@ func (port *EtherTalkPort) RunSeedState(ctx context.Context) error {
 			if state.Conflict {
 				continue
 			}
+
+			// A valid external ZIP authority gives soft/none ports their real
+			// Phase 2 cable range. AARP performs the final address selection in
+			// that range before we publish the direct route.
+			if state.ExternalAuthority &&
+				state.ObservedStart != 0 &&
+				state.ObservedEnd != 0 {
+				port.aarpMachine.Rebind(state.ObservedStart, state.ObservedEnd)
+				promotionRequested = false
+				promotionEligibleAt = time.Time{}
+			}
+
+			if !operationalHandled {
+				select {
+				case <-port.aarpMachine.Operational():
+					state = port.seed.snapshot()
+					var start, end ddp.Network
+					switch {
+					case state.ExternalAuthority:
+						start, end = state.ObservedStart, state.ObservedEnd
+					case port.seed.mode == SeedModeSoft && promotionRequested:
+						start, end = state.ConfiguredStart, state.ConfiguredEnd
+					default:
+						continue
+					}
+					if err := port.activateCableRange(start, end); err != nil {
+						return err
+					}
+					if port.seed.mode == SeedModeSoft &&
+						promotionRequested &&
+						!state.ExternalAuthority {
+						if port.seed.promoteSoft() {
+							if err := port.activateConfiguredZones(); err != nil {
+								return err
+							}
+							port.logger.Warn(
+								"AppleTalk soft seed promoted after discovery interval",
+								"delay", port.seed.delay,
+								"range", fmt.Sprintf("%d-%d", start, end),
+								"default-zone", port.defaultZoneName,
+							)
+						}
+					}
+					operationalHandled = true
+				default:
+				}
+			}
+
+			state = port.seed.snapshot()
+			if port.seed.mode != SeedModeSoft {
+				continue
+			}
 			if state.ExternalAuthority {
 				promotionEligibleAt = time.Time{}
+				promotionRequested = false
 				continue
 			}
 			if state.Effective == "soft-seed-active" {
+				continue
+			}
+			if promotionRequested {
 				continue
 			}
 			if promotionEligibleAt.IsZero() {
@@ -342,19 +406,16 @@ func (port *EtherTalkPort) RunSeedState(ctx context.Context) error {
 				continue
 			}
 
-			if !port.seed.promoteSoft() {
+			// No external seed answered. Move out of the startup range first;
+			// seed authority becomes active only after AARP owns the configured
+			// cable-range address.
+			if state.ConfiguredStart == 0 || state.ConfiguredEnd == 0 {
 				continue
 			}
-			if err := port.activateConfiguredZones(); err != nil {
-				return err
-			}
-			port.logger.Warn(
-				"AppleTalk soft seed promoted after discovery interval",
-				"delay", port.seed.delay,
-				"range", fmt.Sprintf("%d-%d", port.netStart, port.netEnd),
-				"default-zone", port.defaultZoneName,
-			)
+			port.aarpMachine.Rebind(state.ConfiguredStart, state.ConfiguredEnd)
+			promotionRequested = true
 			promotionEligibleAt = time.Time{}
 		}
 	}
 }
+
