@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -93,6 +94,28 @@ func (cs *EtherTalkConfigs) UnmarshalYAML(n *yaml.Node) error {
 	}
 }
 
+type YAMLDuration time.Duration
+
+func (d *YAMLDuration) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind != yaml.ScalarNode {
+		return fmt.Errorf("duration must be a scalar, got YAML kind %v", n.Kind)
+	}
+	if n.Tag == "!!int" {
+		seconds, err := strconv.ParseInt(n.Value, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid duration seconds %q: %w", n.Value, err)
+		}
+		*d = YAMLDuration(time.Duration(seconds) * time.Second)
+		return nil
+	}
+	v, err := time.ParseDuration(n.Value)
+	if err != nil {
+		return fmt.Errorf("invalid duration %q: %w", n.Value, err)
+	}
+	*d = YAMLDuration(v)
+	return nil
+}
+
 type SeedMode string
 
 const (
@@ -112,7 +135,7 @@ type EtherTalkConfig struct {
 	// SoftSeedDelay is how long a soft seed waits for another router to
 	// establish the configured cable range before promoting itself.
 	// Optional; defaults to 30 seconds. Ignored for hard/none.
-	SoftSeedDelay time.Duration `yaml:"soft_seed_delay"`
+	SoftSeedDelay YAMLDuration `yaml:"soft_seed_delay"`
 
 	// EthAddr overrides the hardware address used by jrouter. Optional.
 	EthAddr string `yaml:"ethernet_addr"`
@@ -170,7 +193,7 @@ func LoadConfig(cfgPath string) (*Config, error) {
 			))
 		}
 		if port.SoftSeedDelay == 0 {
-			port.SoftSeedDelay = 30 * time.Second
+			port.SoftSeedDelay = YAMLDuration(30 * time.Second)
 		}
 		if port.SoftSeedDelay < 0 {
 			validationErrs = append(validationErrs, fmt.Errorf(
