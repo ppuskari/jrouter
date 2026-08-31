@@ -42,11 +42,12 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 		switch req.Function {
 		case rtmp.FunctionRequest:
 			// Respond with RTMP Response
+			cableStart, cableEnd := port.cableRange()
 			respPkt := &rtmp.ResponsePacket{
 				SenderAddr: port.myAddr,
 				Extended:   true,
-				RangeStart: port.netStart,
-				RangeEnd:   port.netEnd,
+				RangeStart: cableStart,
+				RangeEnd:   cableEnd,
 			}
 			respPktRaw, err := respPkt.Marshal()
 			if err != nil {
@@ -183,8 +184,9 @@ func (port *EtherTalkPort) RunRTMP(ctx context.Context) (err error) {
 
 	setStatus("Awaiting DDP address assignment")
 
-	// Await local address assignment before doing anything
-	<-port.aarpMachine.Assigned()
+	// A soft/non-seed port may first own only a provisional startup-range
+	// address. RTMP must not advertise until the real cable range is adopted.
+	<-port.aarpMachine.Operational()
 
 	setStatus("Starting broadcast loop")
 
@@ -267,10 +269,11 @@ func (port *EtherTalkPort) rtmpDataPackets(splitHorizon bool) []*rtmp.DataPacket
 	// networks ... indicates the network number range assigned
 	// to that network."
 	// TODO: support non-extended local networks (LocalTalk)
+	cableStart, cableEnd := port.cableRange()
 	first := rtmp.NetworkTuple{
 		Extended:   true,
-		RangeStart: port.netStart,
-		RangeEnd:   port.netEnd,
+		RangeStart: cableStart,
+		RangeEnd:   cableEnd,
 		Distance:   0,
 	}
 
