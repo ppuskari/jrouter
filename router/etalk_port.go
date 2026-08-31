@@ -85,6 +85,12 @@ type EtherTalkPort struct {
 	availableZones  Set[string]
 	seed            *seedController
 
+	// The configured range remains immutable. cableStart/cableEnd track the
+	// currently adopted Phase 2 cable range. Soft/none ports begin in the
+	// startup range and adopt a real range before becoming operational.
+	cableStart atomic.Uint32
+	cableEnd   atomic.Uint32
+
 	// Outbound packet queueing
 	outboxesMu        sync.Mutex
 	outboxes          map[<-chan struct{}]*outbox
@@ -123,21 +129,58 @@ func (router *Router) NewEtherTalkPort(
 	// Add port to router
 	router.Ports = append(router.Ports, port)
 
+	// Hard seeds know their cable range immediately. Soft and non-seed ports
+	// begin with a Phase 2 startup-range address and adopt the cable range
+	// after ZIP seed discovery.
+	if seedMode == SeedModeHard {
+		port.setCableRange(netStart, netEnd)
+	} else {
+		port.setCableRange(phase2StartupStart, phase2StartupEnd)
+	}
+
 	// Add AARP to port
 	port.aarpMachine = NewAARPMachine(port.logger, port, ethernetAddr)
 
-	// Add port to routing table
-	if _, err := router.RouteTable.UpsertRoute(port, true /* extended */, netStart, netEnd, 0); err != nil {
-		port.logger.Error("Couldn't create route for EtherTalk port", "error", err)
-		os.Exit(1)
-	}
-	if port.seedAuthorityActive() {
-		if err := port.activateConfiguredZones(); err != nil {
-			port.logger.Error("Couldn't add zones to route that was just created", "error", err)
+	// Only a hard seed installs the direct route before address discovery.
+	// Soft/none install it after a non-startup cable range is operational.
+	if seedMode == SeedModeHard {
+		if err := port.activateCableRange(netStart, netEnd); err != nil {
+			port.logger.Error("Couldn't create route for EtherTalk port", "error", err)
 			os.Exit(1)
 		}
 	}
 	return port
+}
+
+func (port *EtherTalkPort) setCableRange(start, end ddp.Network) {
+	port.cableStart.Store(uint32(start))
+	port.cableEnd.Store(uint32(end))
+}
+
+func (port *EtherTalkPort) cableRange() (ddp.Network, ddp.Network) {
+	return ddp.Network(port.cableStart.Load()), ddp.Network(port.cableEnd.Load())
+}
+
+// activateCableRange publishes a real, non-startup local cable range into the
+// routing table after AARP has selected an address in that range.
+func (port *EtherTalkPort) activateCableRange(start, end ddp.Network) error {
+	if start == 0 || end == 0 || isPhase2StartupRange(start, end) {
+		return fmt.Errorf("refusing to activate invalid/startup cable range %d-%d", start, end)
+	}
+	port.setCableRange(start, end)
+	if _, err := port.router.RouteTable.UpsertRoute(
+		port,
+		true,
+		start,
+		end,
+		0,
+	); err != nil {
+		return err
+	}
+	if port.seedAuthorityActive() {
+		return port.activateConfiguredZones()
+	}
+	return nil
 }
 
 // Outbox runs a loop that waits for AARP resolutions to complete, and once they
@@ -307,7 +350,8 @@ func (port *EtherTalkPort) Serve(ctx context.Context) {
 			// Glean address info for AMT, but only if SrcNet is our net
 			// (If it's not our net, then it was routed from elsewhere, and
 			// we'd be filling the AMT with entries for a router.)
-			if ddpkt.SrcNet >= port.netStart && ddpkt.SrcNet <= port.netEnd {
+			cableStart, cableEnd := port.cableRange()
+			if ddpkt.SrcNet >= cableStart && ddpkt.SrcNet <= cableEnd {
 				srcAddr := ddp.Addr{Network: ddpkt.SrcNet, Node: ddpkt.SrcNode}
 				port.aarpMachine.learn(srcAddr, ethFrame.Src)
 				// port.Logger.Debug(fmt.Sprintf("DDP: Gleaned that %d.%d -> %v", srcAddr.Network, srcAddr.Node, ethFrame.Src))
@@ -326,7 +370,7 @@ func (port *EtherTalkPort) Serve(ctx context.Context) {
 			// connected. Packets whose destination network number is 0 are
 			// addressed to a node on the local network."
 			// TODO: more generic routing
-			if ddpkt.DstNet != 0 && !(ddpkt.DstNet >= port.netStart && ddpkt.DstNet <= port.netEnd) {
+			if ddpkt.DstNet != 0 && !(ddpkt.DstNet >= cableStart && ddpkt.DstNet <= cableEnd) {
 				// Is it for a network in the routing table?
 				if err := port.router.Forward(ctx, ddpkt); err != nil {
 					port.logger.Error("DDP: Couldn't forward packet", "error", err)
@@ -433,6 +477,7 @@ func (port *EtherTalkPort) String() string {
 const portStatusTmpl = `Device: {{.Device}}<br/>
 Ethernet address: {{.EthernetAddr}}<br/>
 AppleTalk network: {{.NetStart}}{{if ne .NetStart .NetEnd}}-{{.NetEnd}}{{end}} (extended)<br/>
+{{if .HasConfiguredRange}}Configured cable range: {{.ConfiguredStart}}{{if ne .ConfiguredStart .ConfiguredEnd}}-{{.ConfiguredEnd}}{{end}}<br/>{{else}}Configured cable range: dynamic discovery<br/>{{end}}
 Seed mode: {{.Seed.Mode}}<br/>
 Seed effective state: {{.Seed.Effective}}<br/>
 {{if .Seed.ObservedStart}}Observed cable range: {{.Seed.ObservedStart}}{{if ne .Seed.ObservedStart .Seed.ObservedEnd}}-{{.Seed.ObservedEnd}}{{end}}<br/>{{end}}
@@ -445,14 +490,18 @@ Available configured zones (default zone in bold): <ul>{{range .AvailZones}}<li{
 // port.
 func (port *EtherTalkPort) StatusCtx(ctx context.Context) context.Context {
 	ctx, _ = status.AddItem(ctx, "EtherTalk on "+port.device, portStatusTmpl, func(context.Context) (any, error) {
+		cableStart, cableEnd := port.cableRange()
 		return map[string]any{
-			"Device":       port.device,
-			"EthernetAddr": port.ethernetAddr,
-			"NetStart":     port.netStart,
-			"NetEnd":       port.netEnd,
-			"DefaultZone":  port.defaultZoneName,
-			"AvailZones":   port.availableZones.ToSlice(),
-			"Seed":         port.seed.snapshot(),
+			"Device":             port.device,
+			"EthernetAddr":       port.ethernetAddr,
+			"NetStart":           cableStart,
+			"NetEnd":             cableEnd,
+			"ConfiguredStart":    port.netStart,
+			"ConfiguredEnd":      port.netEnd,
+			"HasConfiguredRange": port.netStart != 0 && port.netEnd != 0,
+			"DefaultZone":        port.defaultZoneName,
+			"AvailZones":         port.availableZones.ToSlice(),
+			"Seed":               port.seed.snapshot(),
 		}, nil
 	},
 	)
