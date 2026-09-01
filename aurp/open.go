@@ -186,7 +186,7 @@ func (o Options) WriteTo(w io.Writer) (int64, error) {
 
 func parseOptions(p []byte) (Options, error) {
 	if len(p) < 1 {
-		return nil, fmt.Errorf("insufficint input length %d for options", len(p))
+		return nil, fmt.Errorf("insufficient input length %d for options", len(p))
 	}
 	optc := p[0]
 	p = p[1:]
@@ -199,6 +199,8 @@ func parseOptions(p []byte) (Options, error) {
 		opts[i] = ot
 		p = np
 	}
-	// TODO: warn about trailing data?
+	if len(p) != 0 {
+		return nil, fmt.Errorf("unexpected trailing option data length %d", len(p))
+	}
 	return opts, nil
 }

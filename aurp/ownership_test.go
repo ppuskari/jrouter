@@ -62,3 +62,30 @@ func TestSet27OptionTupleRejectsZeroRemainderLength(t *testing.T) {
 		t.Fatal("zero-length option tuple remainder was accepted")
 	}
 }
+
+func TestSet27OptionsRejectTrailingAndTruncatedData(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  []byte
+	}{
+		{
+			name: "trailing after zero options",
+			raw:  []byte{0, 0xff},
+		},
+		{
+			name: "truncated option remainder",
+			raw:  []byte{1, 2, byte(OptionTypeAuthentication)},
+		},
+		{
+			name: "zero tuple remainder",
+			raw:  []byte{1, 0, byte(OptionTypeAuthentication)},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := parseOptions(tc.raw); err == nil {
+				t.Fatalf("parseOptions(%x) unexpectedly succeeded", tc.raw)
+			}
+		})
+	}
+}
