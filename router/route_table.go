@@ -124,17 +124,63 @@ func (rt *RouteTable) Dump() (allRoutes []Route) {
 	return allRoutes
 }
 
+func routePreferenceClass(route Route) int {
+	if route.Target == nil {
+		return 3
+	}
+	switch route.Target.Class() {
+	case TargetClassDirect:
+		return 0
+	case TargetClassAppleTalkPeer:
+		return 1
+	case TargetClassAURPPeer:
+		return 2
+	default:
+		return 3
+	}
+}
+
+func compareRoutePreference(a, b Route) int {
+	return cmp.Or(
+		cmp.Compare(a.Distance, b.Distance),
+		cmp.Compare(routePreferenceClass(a), routePreferenceClass(b)),
+		cmp.Compare(a.RouteOrigin().ID, b.RouteOrigin().ID),
+		cmp.Compare(a.TargetKey, b.TargetKey),
+	)
+}
+
 // Lookup returns the best valid route for the network number. If there is no
 // valid route, the zero Route is returned (it will have nil Target).
 func (rt *RouteTable) Lookup(network ddp.Network) Route {
 	rt.byNetwork[network].RLock()
 	defer rt.byNetwork[network].RUnlock()
 
-	// Routes are sorted by distance, so we can return the first valid route.
 	for _, r := range rt.byNetwork[network].Routes {
 		if r.Valid() {
 			return r
 		}
+	}
+	return Route{}
+}
+
+func (rt *RouteTable) LookupAvoidingAURPTunnel(
+	network ddp.Network,
+	tunnelID string,
+) Route {
+	rt.byNetwork[network].RLock()
+	defer rt.byNetwork[network].RUnlock()
+
+	for _, route := range rt.byNetwork[network].Routes {
+		if !route.Valid() {
+			continue
+		}
+		origin := route.RouteOrigin()
+		if tunnelID != "" &&
+			origin.Kind == RouteOriginAURP &&
+			origin.ID == tunnelID {
+			continue
+		}
+		return route
 	}
 	return Route{}
 }
@@ -386,9 +432,7 @@ func (rt *RouteTable) UpdateDistance(target RouteTarget, netStart ddp.Network, d
 					rt.byNetwork[n].Routes[i] = newRoute
 				}
 			}
-			slices.SortFunc(rt.byNetwork[n].Routes, func(a, b Route) int {
-				return cmp.Compare(a.Distance, b.Distance)
-			})
+			slices.SortFunc(rt.byNetwork[n].Routes, compareRoutePreference)
 		}()
 	}
 
@@ -458,9 +502,7 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 			defer rt.byNetwork[n].Unlock()
 
 			rt.byNetwork[n].Routes = append(rt.byNetwork[n].Routes, newRoute)
-			slices.SortFunc(rt.byNetwork[n].Routes, func(a, b Route) int {
-				return cmp.Compare(a.Distance, b.Distance)
-			})
+			slices.SortFunc(rt.byNetwork[n].Routes, compareRoutePreference)
 		}()
 	}
 

@@ -92,24 +92,37 @@ func (rtr *Router) outputRoute(
 	ddpkt *ddp.ExtPacket,
 	ingressAURPID string,
 ) (Route, error) {
-	route := rtr.RouteTable.Lookup(ddpkt.DstNet)
-	if route.Zero() {
+	if ingressAURPID == "" {
+		route := rtr.RouteTable.Lookup(ddpkt.DstNet)
+		if route.Zero() {
+			return Route{}, fmt.Errorf(
+				"no route for packet (dstnet %d); dropping packet",
+				ddpkt.DstNet,
+			)
+		}
+		return route, nil
+	}
+
+	route := rtr.RouteTable.LookupAvoidingAURPTunnel(
+		ddpkt.DstNet,
+		ingressAURPID,
+	)
+	if !route.Zero() {
+		return route, nil
+	}
+
+	best := rtr.RouteTable.Lookup(ddpkt.DstNet)
+	if best.Zero() {
 		return Route{}, fmt.Errorf(
 			"no route for packet (dstnet %d); dropping packet",
 			ddpkt.DstNet,
 		)
 	}
-	origin := route.RouteOrigin()
-	if ingressAURPID != "" &&
-		origin.Kind == RouteOriginAURP &&
-		origin.ID == ingressAURPID {
-		return Route{}, fmt.Errorf(
-			"AURP reflection to ingress tunnel %q for dstnet %d; dropping packet",
-			ingressAURPID,
-			ddpkt.DstNet,
-		)
-	}
-	return route, nil
+	return Route{}, fmt.Errorf(
+		"AURP reflection to ingress tunnel %q for dstnet %d; no alternative path",
+		ingressAURPID,
+		ddpkt.DstNet,
+	)
 }
 
 // Output outputs the packet in the direction of the destination.

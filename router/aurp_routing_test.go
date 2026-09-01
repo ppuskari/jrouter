@@ -462,3 +462,57 @@ func TestSet26HopCountWeightAppliesToOutboundDDPWithoutMutatingInput(t *testing.
 		t.Fatalf("input packet was mutated: hop count = %d, want 4", got)
 	}
 }
+
+func TestSet26AlternativePathAvoidsIngressAURPTunnel(t *testing.T) {
+	rt := NewRouteTable(t.Context())
+	ingress := &AURPPeer{tunnelID: "cfg:ingress.example", RouteTable: rt}
+	alternate := fakeTarget{key: "alternate-local", class: TargetClassAppleTalkPeer}
+
+	if _, err := rt.UpsertRoute(ingress, true, 3300, 3300, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.UpsertRoute(alternate, true, 3300, 3300, 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.ReplaceZonesForNetwork(3300, "Alt Zone"); err != nil {
+		t.Fatal(err)
+	}
+
+	if best := rt.Lookup(3300); best.Target != ingress {
+		t.Fatalf("ordinary best route target = %v, want ingress AURP peer", best.Target)
+	}
+	got := rt.LookupAvoidingAURPTunnel(3300, ingress.TunnelID())
+	if got.Zero() || got.Target.RouteTargetKey() != alternate.RouteTargetKey() {
+		t.Fatalf("alternative route = %v, want %v", got, alternate)
+	}
+
+	rtr := &Router{RouteTable: rt}
+	pkt := new(ddp.ExtPacket)
+	pkt.DstNet = 3300
+	route, err := rtr.outputRoute(pkt, ingress.TunnelID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if route.Target.RouteTargetKey() != alternate.RouteTargetKey() {
+		t.Fatalf("output route = %v, want alternate", route)
+	}
+}
+
+func TestSet26EqualDistanceRoutePreferenceIsDeterministic(t *testing.T) {
+	rt := NewRouteTable(t.Context())
+	aurpTarget := fakeTarget{key: "z-aurp", class: TargetClassAURPPeer}
+	localTarget := fakeTarget{key: "y-local", class: TargetClassAppleTalkPeer}
+	directTarget := fakeTarget{key: "x-direct", class: TargetClassDirect}
+
+	for _, target := range []fakeTarget{aurpTarget, localTarget, directTarget} {
+		if _, err := rt.UpsertRoute(target, true, 3310, 3310, 2); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := rt.ReplaceZonesForNetwork(3310, "Tie Zone"); err != nil {
+		t.Fatal(err)
+	}
+	if got := rt.Lookup(3310); got.Target.RouteTargetKey() != directTarget.RouteTargetKey() {
+		t.Fatalf("equal-distance best route = %v, want direct target", got)
+	}
+}
