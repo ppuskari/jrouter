@@ -77,9 +77,9 @@ Status: {{.Status}}<br/>
 `
 
 // AARPMachine maintains both an Address Mapping Table and handles AARP packets
-// (sending and receiving requests, responses, and probes). This process assumes
-// a particular network range rather than using the startup range, since this
-// program is a seed router.
+// (sending and receiving requests, responses, and probes). Hard seeds begin in
+// their configured cable range; soft/non-seed ports use the Phase 2 startup
+// range until a real cable range is adopted.
 type AARPMachine struct {
 	*addressMappingTable
 
@@ -359,7 +359,7 @@ func (a *AARPMachine) reroll() {
 
 	// Can't use: 0x00, 0xff, 0xfe, and should avoid the existing node number
 	newNode := rand.N[ddp.Node](0xfd) + 1
-	for newNode != a.myAddr.Proto.Node {
+	for newNode == a.myAddr.Proto.Node {
 		newNode = rand.N[ddp.Node](0xfd) + 1
 	}
 	a.myAddr.Proto.Node = newNode
