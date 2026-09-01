@@ -253,7 +253,7 @@ func routeRangeSize(route Route) uint32 {
 	if route.Zero() || route.NetEnd < route.NetStart {
 		return 0
 	}
-	return uint32(route.NetEnd)-uint32(route.NetStart)+1
+	return uint32(route.NetEnd) - uint32(route.NetStart) + 1
 }
 
 func (p *AURPPeer) loopIndicativeNetwork(network ddp.Network) bool {
