@@ -358,16 +358,16 @@ type aurpPeerStatusRow struct {
 	HasPeer        bool
 	Running        bool
 
-	ReceiverConnected bool
-	SenderConnected   bool
-	ReceiverState          string
-	SenderState            string
-	ReceiveChLen           int
-	ReceiveQueueHighWater  uint64
-	DDPPacketsIn           uint64
-	DDPPacketsOut          uint64
-	DDPBytesIn             uint64
-	DDPBytesOut            uint64
+	ReceiverConnected     bool
+	SenderConnected       bool
+	ReceiverState         string
+	SenderState           string
+	ReceiveChLen          int
+	ReceiveQueueHighWater uint64
+	DDPPacketsIn          uint64
+	DDPPacketsOut         uint64
+	DDPBytesIn            uint64
+	DDPBytesOut           uint64
 
 	LocalConnID  uint16
 	RemoteConnID uint16
