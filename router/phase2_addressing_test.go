@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
 func TestSet24Phase2StartupRange(t *testing.T) {
@@ -179,6 +181,37 @@ func TestSet24AARPRerollChangesNodeOnSingleNetwork(t *testing.T) {
 	}
 	if a.myAddr.Proto.Node == 1 {
 		t.Fatal("reroll retained colliding node number")
+	}
+}
+
+func TestSet24RTMPAdvertisesLocalTupleWhenNoOtherRoutesExist(t *testing.T) {
+	rtr := &Router{
+		Logger:     slog.Default(),
+		RouteTable: NewRouteTable(context.Background()),
+	}
+	port := &EtherTalkPort{
+		router: rtr,
+		device: "test0",
+		myAddr: ddp.Addr{Network: 1000, Node: 1},
+	}
+	port.setCableRange(1000, 1009)
+	if _, err := rtr.RouteTable.UpsertRoute(port, true, 1000, 1009, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := rtr.RouteTable.AddZonesToNetwork(1000, "Petar's Place"); err != nil {
+		t.Fatal(err)
+	}
+
+	packets := port.rtmpDataPackets(true)
+	if len(packets) != 1 {
+		t.Fatalf("RTMP packet count = %d, want 1", len(packets))
+	}
+	if len(packets[0].NetworkTuples) != 1 {
+		t.Fatalf("RTMP tuple count = %d, want 1", len(packets[0].NetworkTuples))
+	}
+	first := packets[0].NetworkTuples[0]
+	if first.RangeStart != 1000 || first.RangeEnd != 1009 || first.Distance != 0 {
+		t.Fatalf("first RTMP tuple = %+v, want local 1000-1009 distance 0", first)
 	}
 }
 
