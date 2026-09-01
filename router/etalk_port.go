@@ -167,6 +167,18 @@ func (port *EtherTalkPort) activateCableRange(start, end ddp.Network) error {
 	if start == 0 || end == 0 || isPhase2StartupRange(start, end) {
 		return fmt.Errorf("refusing to activate invalid/startup cable range %d-%d", start, end)
 	}
+
+	oldStart, oldEnd := port.cableRange()
+	if oldStart != 0 &&
+		!isPhase2StartupRange(oldStart, oldEnd) &&
+		(oldStart != start || oldEnd != end) {
+		if oldRoute := port.router.RouteTable.find(port, oldStart); !oldRoute.Zero() {
+			if err := port.router.RouteTable.DeleteRoute(port, oldStart); err != nil {
+				return err
+			}
+		}
+	}
+
 	port.setCableRange(start, end)
 	if _, err := port.router.RouteTable.UpsertRoute(
 		port,
@@ -177,8 +189,21 @@ func (port *EtherTalkPort) activateCableRange(start, end ddp.Network) error {
 	); err != nil {
 		return err
 	}
+
 	if port.seedAuthorityActive() {
 		return port.activateConfiguredZones()
+	}
+
+	// A non-seed/standby route still needs at least the externally learned
+	// default zone to become a valid routable entry.
+	if port.seed != nil {
+		state := port.seed.snapshot()
+		if state.ObservedZone != "" {
+			return port.router.RouteTable.AddZonesToNetwork(
+				start,
+				state.ObservedZone,
+			)
+		}
 	}
 	return nil
 }
