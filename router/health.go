@@ -8,13 +8,13 @@ import (
 )
 
 type AURPPolicySummary struct {
-	HiddenNetworks       int  `json:"hidden_networks"`
-	HiddenImportNetworks int  `json:"hidden_import_networks"`
-	HiddenDevices        int  `json:"hidden_devices"`
-	RemapRules           int  `json:"remap_rules"`
-	Clusters             int  `json:"clusters"`
-	BackupPeers          int  `json:"backup_peers"`
-	HopCountReduction    bool `json:"hop_count_reduction"`
+	HiddenNetworks       int   `json:"hidden_networks"`
+	HiddenImportNetworks int   `json:"hidden_import_networks"`
+	HiddenDevices        int   `json:"hidden_devices"`
+	RemapRules           int   `json:"remap_rules"`
+	Clusters             int   `json:"clusters"`
+	BackupPeers          int   `json:"backup_peers"`
+	HopCountReduction    bool  `json:"hop_count_reduction"`
 	HopCountWeight       uint8 `json:"hop_count_weight"`
 }
 

@@ -525,19 +525,19 @@ func TestSet26StaticRemapMapsImportedRouteAndOutboundDestination(t *testing.T) {
 		tunnelID:   "cfg:remote.example",
 		RouteTable: rt,
 		timing: AURPConfig{RemapRules: []AURPRemapRule{{
-			Peer: "cfg:remote.example",
+			Peer:        "cfg:remote.example",
 			RemoteStart: 100,
-			RemoteEnd: 109,
-			LocalStart: 5000,
-			LocalEnd: 5009,
+			RemoteEnd:   109,
+			LocalStart:  5000,
+			LocalEnd:    5009,
 		}}},
 	}
 
 	accepted, err := peer.applyRIRspNetworkTuple(aurp.NetworkTuple{
-		Extended: true,
+		Extended:   true,
 		RangeStart: 100,
-		RangeEnd: 109,
-		Distance: 1,
+		RangeEnd:   109,
+		Distance:   1,
 	})
 	if err != nil || !accepted {
 		t.Fatalf("remapped route accepted=%v err=%v", accepted, err)
@@ -564,23 +564,23 @@ func TestSet26StaticRemapMapsInboundDDPAndNBPTuple(t *testing.T) {
 	peer := &AURPPeer{
 		tunnelID: "cfg:remote.example",
 		timing: AURPConfig{RemapRules: []AURPRemapRule{{
-			Peer: "cfg:remote.example",
+			Peer:        "cfg:remote.example",
 			RemoteStart: 100,
-			RemoteEnd: 109,
-			LocalStart: 5000,
-			LocalEnd: 5009,
+			RemoteEnd:   109,
+			LocalStart:  5000,
+			LocalEnd:    5009,
 		}}},
 	}
 	nbpRaw, err := (&nbp.Packet{
 		Function: nbp.FunctionLkUpReply,
-		NBPID: 1,
+		NBPID:    1,
 		Tuples: []nbp.Tuple{{
 			Network: 103,
-			Node: 42,
-			Socket: 2,
-			Object: "Printer",
-			Type: "LaserWriter",
-			Zone: "Remote",
+			Node:    42,
+			Socket:  2,
+			Object:  "Printer",
+			Type:    "LaserWriter",
+			Zone:    "Remote",
 		}},
 	}).Marshal()
 	if err != nil {
@@ -589,8 +589,8 @@ func TestSet26StaticRemapMapsInboundDDPAndNBPTuple(t *testing.T) {
 	pkt := &ddp.ExtPacket{
 		ExtHeader: ddp.ExtHeader{
 			SrcNet: 102,
-			Proto: ddp.ProtoNBP,
-			Cksum: 1234,
+			Proto:  ddp.ProtoNBP,
+			Cksum:  1234,
 		},
 		Data: nbpRaw,
 	}
@@ -613,14 +613,14 @@ func TestSet26DeviceHidingFiltersOnlyMatchingNBPTuples(t *testing.T) {
 	peer := &AURPPeer{
 		tunnelID: "cfg:remote.example",
 		timing: AURPConfig{HiddenDevices: []AURPDeviceHideRule{{
-			Peer: "cfg:remote.example",
-			Type: "LaserWriter",
+			Peer:      "cfg:remote.example",
+			Type:      "LaserWriter",
 			Direction: "import",
 		}}},
 	}
 	raw, err := (&nbp.Packet{
 		Function: nbp.FunctionLkUpReply,
-		NBPID: 9,
+		NBPID:    9,
 		Tuples: []nbp.Tuple{
 			{Network: 1, Node: 1, Socket: 2, Object: "Printer", Type: "LaserWriter", Zone: "Z"},
 			{Network: 2, Node: 2, Socket: 2, Object: "Server", Type: "AFPServer", Zone: "Z"},
@@ -631,7 +631,7 @@ func TestSet26DeviceHidingFiltersOnlyMatchingNBPTuples(t *testing.T) {
 	}
 	pkt := &ddp.ExtPacket{
 		ExtHeader: ddp.ExtHeader{Proto: ddp.ProtoNBP},
-		Data: raw,
+		Data:      raw,
 	}
 	filtered, drop, err := peer.filterDeviceNBP(pkt, "import")
 	if err != nil {
@@ -653,20 +653,20 @@ func TestSet26DeviceHidingDropsAllHiddenReply(t *testing.T) {
 	peer := &AURPPeer{
 		tunnelID: "cfg:remote.example",
 		timing: AURPConfig{HiddenDevices: []AURPDeviceHideRule{{
-			Type: "*",
+			Type:      "*",
 			Direction: "both",
 		}}},
 	}
 	raw, err := (&nbp.Packet{
 		Function: nbp.FunctionLkUpReply,
-		NBPID: 1,
+		NBPID:    1,
 		Tuples: []nbp.Tuple{{
 			Network: 1,
-			Node: 1,
-			Socket: 2,
-			Object: "Anything",
-			Type: "AnyType",
-			Zone: "Z",
+			Node:    1,
+			Socket:  2,
+			Object:  "Anything",
+			Type:    "AnyType",
+			Zone:    "Z",
 		}},
 	}).Marshal()
 	if err != nil {
@@ -674,7 +674,7 @@ func TestSet26DeviceHidingDropsAllHiddenReply(t *testing.T) {
 	}
 	_, drop, err := peer.filterDeviceNBP(&ddp.ExtPacket{
 		ExtHeader: ddp.ExtHeader{Proto: ddp.ProtoNBP},
-		Data: raw,
+		Data:      raw,
 	}, "export")
 	if err != nil {
 		t.Fatal(err)
@@ -695,7 +695,7 @@ func TestSet26ClusterCollapsesRemappedRoutesForRTMP(t *testing.T) {
 		routes,
 		AURPConfig{Clusters: []AURPClusterRule{{
 			Start: 5000,
-			End: 5009,
+			End:   5009,
 		}}},
 		false,
 	)
@@ -719,24 +719,24 @@ func TestSet26BackupPeerPenaltyRetainsButDeprioritizesRoute(t *testing.T) {
 		tunnelID:   "cfg:backup.example",
 		RouteTable: rt,
 		timing: AURPConfig{BackupPeers: []AURPBackupPeerRule{{
-			Peer: "cfg:backup.example",
+			Peer:    "cfg:backup.example",
 			Penalty: 6,
 		}}},
 	}
 
 	if ok, err := primary.applyRIRspNetworkTuple(aurp.NetworkTuple{
-		Extended: true,
+		Extended:   true,
 		RangeStart: 3600,
-		RangeEnd: 3600,
-		Distance: 1,
+		RangeEnd:   3600,
+		Distance:   1,
 	}); err != nil || !ok {
 		t.Fatalf("primary route accepted=%v err=%v", ok, err)
 	}
 	if ok, err := backup.applyRIRspNetworkTuple(aurp.NetworkTuple{
-		Extended: true,
+		Extended:   true,
 		RangeStart: 3600,
-		RangeEnd: 3600,
-		Distance: 1,
+		RangeEnd:   3600,
+		Distance:   1,
 	}); err != nil || !ok {
 		t.Fatalf("backup route accepted=%v err=%v", ok, err)
 	}
@@ -790,22 +790,22 @@ func TestSet26ImportHidingSuppressesOnlyMatchingPeerRoutes(t *testing.T) {
 		tunnelID:   "cfg:hidden.example",
 		RouteTable: rt,
 		timing: AURPConfig{HiddenImportNetworks: []AURPImportHideRule{{
-			Peer: "cfg:hidden.example",
+			Peer:  "cfg:hidden.example",
 			Start: 200,
-			End: 209,
+			End:   209,
 		}}},
 	}
 	otherPeer := &AURPPeer{
 		tunnelID:   "cfg:other.example",
 		RouteTable: rt,
-		timing: hiddenPeer.timing,
+		timing:     hiddenPeer.timing,
 	}
 
 	accepted, err := hiddenPeer.applyRIRspNetworkTuple(aurp.NetworkTuple{
-		Extended: true,
+		Extended:   true,
 		RangeStart: 200,
-		RangeEnd: 209,
-		Distance: 1,
+		RangeEnd:   209,
+		Distance:   1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -815,10 +815,10 @@ func TestSet26ImportHidingSuppressesOnlyMatchingPeerRoutes(t *testing.T) {
 	}
 
 	accepted, err = otherPeer.applyRIRspNetworkTuple(aurp.NetworkTuple{
-		Extended: true,
+		Extended:   true,
 		RangeStart: 200,
-		RangeEnd: 209,
-		Distance: 1,
+		RangeEnd:   209,
+		Distance:   1,
 	})
 	if err != nil || !accepted {
 		t.Fatalf("nonmatching peer route accepted=%v err=%v", accepted, err)
@@ -832,23 +832,23 @@ func TestSet26DDPChecksumVerificationBeforeRemap(t *testing.T) {
 	peer := &AURPPeer{
 		tunnelID: "cfg:checksum.example",
 		timing: AURPConfig{RemapRules: []AURPRemapRule{{
-			Peer: "cfg:checksum.example",
+			Peer:        "cfg:checksum.example",
 			RemoteStart: 100,
-			RemoteEnd: 109,
-			LocalStart: 5000,
-			LocalEnd: 5009,
+			RemoteEnd:   109,
+			LocalStart:  5000,
+			LocalEnd:    5009,
 		}}},
 	}
 	pkt := &ddp.ExtPacket{
 		ExtHeader: ddp.ExtHeader{
-			Size: 13 + 3,
-			SrcNet: 102,
-			DstNet: 900,
-			SrcNode: 1,
-			DstNode: 2,
+			Size:      13 + 3,
+			SrcNet:    102,
+			DstNet:    900,
+			SrcNode:   1,
+			DstNode:   2,
 			SrcSocket: 4,
 			DstSocket: 4,
-			Proto: ddp.ProtoAEP,
+			Proto:     ddp.ProtoAEP,
 		},
 		Data: []byte{1, 2, 3},
 	}
@@ -866,14 +866,14 @@ func TestSet26DDPChecksumVerificationBeforeRemap(t *testing.T) {
 
 	bad := &ddp.ExtPacket{
 		ExtHeader: ddp.ExtHeader{
-			Size: 13 + 3,
-			SrcNet: 103,
-			DstNet: 900,
-			SrcNode: 1,
-			DstNode: 2,
+			Size:      13 + 3,
+			SrcNet:    103,
+			DstNet:    900,
+			SrcNode:   1,
+			DstNode:   2,
 			SrcSocket: 4,
 			DstSocket: 4,
-			Proto: ddp.ProtoAEP,
+			Proto:     ddp.ProtoAEP,
 		},
 		Data: []byte{4, 5, 6},
 	}

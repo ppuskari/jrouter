@@ -215,19 +215,19 @@ type AURPBackupPeerRule struct {
 }
 
 type AURPConfig struct {
-	LastHeardFromTimeout  time.Duration      `yaml:"-"`
-	RetryInterval         time.Duration      `yaml:"-"`
-	SendRetryLimit        int                `yaml:"send_retry_limit"`
-	TickleRetryLimit      int                `yaml:"tickle_retry_limit"`
-	ZoneInfoRetryInterval time.Duration      `yaml:"-"`
-	HiddenNetworks        []AURPNetworkRange `yaml:"hidden_networks"`
-	HopCountReduction     bool               `yaml:"hop_count_reduction"`
-	HopCountWeight        uint8              `yaml:"hop_count_weight"`
-	RemapRules            []AURPRemapRule    `yaml:"remap"`
+	LastHeardFromTimeout  time.Duration        `yaml:"-"`
+	RetryInterval         time.Duration        `yaml:"-"`
+	SendRetryLimit        int                  `yaml:"send_retry_limit"`
+	TickleRetryLimit      int                  `yaml:"tickle_retry_limit"`
+	ZoneInfoRetryInterval time.Duration        `yaml:"-"`
+	HiddenNetworks        []AURPNetworkRange   `yaml:"hidden_networks"`
+	HopCountReduction     bool                 `yaml:"hop_count_reduction"`
+	HopCountWeight        uint8                `yaml:"hop_count_weight"`
+	RemapRules            []AURPRemapRule      `yaml:"remap"`
 	HiddenDevices         []AURPDeviceHideRule `yaml:"hidden_devices"`
 	Clusters              []AURPClusterRule    `yaml:"clusters"`
 	BackupPeers           []AURPBackupPeerRule `yaml:"backup_peers"`
-	HiddenImportNetworks  []AURPImportHideRule  `yaml:"hidden_import_networks"`
+	HiddenImportNetworks  []AURPImportHideRule `yaml:"hidden_import_networks"`
 }
 
 func (c AURPConfig) networkHidden(network ddp.Network) bool {
@@ -250,19 +250,19 @@ func (c AURPConfig) rangeHidden(start, end ddp.Network) bool {
 
 func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
 	var raw struct {
-		LastHeardFromTimeout  YAMLDuration       `yaml:"last_heard_from_timeout"`
-		RetryInterval         YAMLDuration       `yaml:"retry_interval"`
-		SendRetryLimit        int                `yaml:"send_retry_limit"`
-		TickleRetryLimit      int                `yaml:"tickle_retry_limit"`
-		ZoneInfoRetryInterval YAMLDuration       `yaml:"zone_info_retry_interval"`
-		HiddenNetworks        []AURPNetworkRange `yaml:"hidden_networks"`
-		HopCountReduction     bool               `yaml:"hop_count_reduction"`
-		HopCountWeight        uint8              `yaml:"hop_count_weight"`
-		RemapRules            []AURPRemapRule     `yaml:"remap"`
+		LastHeardFromTimeout  YAMLDuration         `yaml:"last_heard_from_timeout"`
+		RetryInterval         YAMLDuration         `yaml:"retry_interval"`
+		SendRetryLimit        int                  `yaml:"send_retry_limit"`
+		TickleRetryLimit      int                  `yaml:"tickle_retry_limit"`
+		ZoneInfoRetryInterval YAMLDuration         `yaml:"zone_info_retry_interval"`
+		HiddenNetworks        []AURPNetworkRange   `yaml:"hidden_networks"`
+		HopCountReduction     bool                 `yaml:"hop_count_reduction"`
+		HopCountWeight        uint8                `yaml:"hop_count_weight"`
+		RemapRules            []AURPRemapRule      `yaml:"remap"`
 		HiddenDevices         []AURPDeviceHideRule `yaml:"hidden_devices"`
-		Clusters              []AURPClusterRule     `yaml:"clusters"`
-		BackupPeers           []AURPBackupPeerRule  `yaml:"backup_peers"`
-		HiddenImportNetworks  []AURPImportHideRule   `yaml:"hidden_import_networks"`
+		Clusters              []AURPClusterRule    `yaml:"clusters"`
+		BackupPeers           []AURPBackupPeerRule `yaml:"backup_peers"`
+		HiddenImportNetworks  []AURPImportHideRule `yaml:"hidden_import_networks"`
 	}
 	if err := n.Decode(&raw); err != nil {
 		return err
@@ -532,9 +532,9 @@ func LoadConfig(cfgPath string) (*Config, error) {
 					j,
 				))
 			}
+		}
 	}
 
-	}
 	for i, rule := range c.AURP.HiddenDevices {
 		direction := strings.ToLower(strings.TrimSpace(rule.Direction))
 		switch direction {

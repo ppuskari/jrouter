@@ -11,16 +11,16 @@ func TestSet26HealthEndpointCarriesBuildAndPolicySummary(t *testing.T) {
 	rtr := &Router{
 		Config: &Config{AURP: AURPConfig{
 			HopCountReduction: true,
-			HopCountWeight: 2,
-			RemapRules: []AURPRemapRule{{}},
-			Clusters: []AURPClusterRule{{}},
-			BackupPeers: []AURPBackupPeerRule{{}},
+			HopCountWeight:    2,
+			RemapRules:        []AURPRemapRule{{}},
+			Clusters:          []AURPClusterRule{{}},
+			BackupPeers:       []AURPBackupPeerRule{{}},
 		}},
 		RouteTable: NewRouteTable(t.Context()),
 		AURPPeers: &AURPPeerTable{
-			peersByIP: make(map[[4]byte]*AURPPeer),
+			peersByIP:         make(map[[4]byte]*AURPPeer),
 			peersByConfigured: make(map[string]*AURPPeer),
-			dnsByConfigured: make(map[string]configuredDNSState),
+			dnsByConfigured:   make(map[string]configuredDNSState),
 		},
 	}
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
@@ -47,12 +47,12 @@ func TestSet26HealthEndpointCarriesBuildAndPolicySummary(t *testing.T) {
 
 func TestSet26ReadyEndpointFailsWithoutOperationalEtherTalk(t *testing.T) {
 	rtr := &Router{
-		Config: &Config{},
+		Config:     &Config{},
 		RouteTable: NewRouteTable(t.Context()),
 		AURPPeers: &AURPPeerTable{
-			peersByIP: make(map[[4]byte]*AURPPeer),
+			peersByIP:         make(map[[4]byte]*AURPPeer),
 			peersByConfigured: make(map[string]*AURPPeer),
-			dnsByConfigured: make(map[string]configuredDNSState),
+			dnsByConfigured:   make(map[string]configuredDNSState),
 		},
 	}
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)

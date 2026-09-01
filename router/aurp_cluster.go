@@ -27,9 +27,9 @@ func buildRTMPTuplesWithClusters(
 	hopCountReduction bool,
 ) []rtmp.NetworkTuple {
 	type clusterState struct {
-		rule    AURPClusterRule
-		members []Route
-		zones   Set[string]
+		rule     AURPClusterRule
+		members  []Route
+		zones    Set[string]
 		distance uint8
 	}
 	clusters := make(map[ddp.Network]*clusterState)
@@ -45,7 +45,7 @@ func buildRTMPTuplesWithClusters(
 				state := clusters[rule.Start]
 				if state == nil {
 					state = &clusterState{
-						rule: rule,
+						rule:  rule,
 						zones: make(Set[string]),
 						distance: rtmpAdvertisedDistance(
 							route,
@@ -87,14 +87,14 @@ func buildRTMPTuplesWithClusters(
 		if len(state.zones) > 255 {
 			for _, route := range state.members {
 				tuples = append(tuples, rtmp.NetworkTuple{
-						Extended:   route.Extended,
-						RangeStart: route.NetStart,
-						RangeEnd:   route.NetEnd,
-						Distance: rtmpAdvertisedDistance(
-							route,
-							hopCountReduction,
-						),
-					})
+					Extended:   route.Extended,
+					RangeStart: route.NetStart,
+					RangeEnd:   route.NetEnd,
+					Distance: rtmpAdvertisedDistance(
+						route,
+						hopCountReduction,
+					),
+				})
 			}
 			continue
 		}
