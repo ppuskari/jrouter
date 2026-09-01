@@ -534,6 +534,7 @@ func LoadConfig(cfgPath string) (*Config, error) {
 			}
 	}
 
+	}
 	for i, rule := range c.AURP.HiddenDevices {
 		direction := strings.ToLower(strings.TrimSpace(rule.Direction))
 		switch direction {
