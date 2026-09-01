@@ -299,6 +299,13 @@ func (port *EtherTalkPort) rtmpDataPackets(splitHorizon bool) []*rtmp.DataPacket
 
 	var packets []*rtmp.DataPacket
 	rem := tuples
+	if len(rem) == 0 {
+		return []*rtmp.DataPacket{{
+			RouterAddr:    port.myAddr,
+			Extended:      true,
+			NetworkTuples: []rtmp.NetworkTuple{first},
+		}}
+	}
 	for len(rem) > 0 {
 		chunk := []rtmp.NetworkTuple{first}
 
