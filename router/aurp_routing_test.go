@@ -827,3 +827,66 @@ func TestSet26ImportHidingSuppressesOnlyMatchingPeerRoutes(t *testing.T) {
 		t.Fatal("nonmatching peer route was incorrectly hidden")
 	}
 }
+
+func TestSet26DDPChecksumVerificationBeforeRemap(t *testing.T) {
+	peer := &AURPPeer{
+		tunnelID: "cfg:checksum.example",
+		timing: AURPConfig{RemapRules: []AURPRemapRule{{
+			Peer: "cfg:checksum.example",
+			RemoteStart: 100,
+			RemoteEnd: 109,
+			LocalStart: 5000,
+			LocalEnd: 5009,
+		}}},
+	}
+	pkt := &ddp.ExtPacket{
+		ExtHeader: ddp.ExtHeader{
+			Size: 13 + 3,
+			SrcNet: 102,
+			DstNet: 900,
+			SrcNode: 1,
+			DstNode: 2,
+			SrcSocket: 4,
+			DstSocket: 4,
+			Proto: ddp.ProtoAEP,
+		},
+		Data: []byte{1, 2, 3},
+	}
+	checksum, err := computeDDPChecksum(pkt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkt.Cksum = checksum
+	if err := peer.remapInboundDDP(pkt); err != nil {
+		t.Fatal(err)
+	}
+	if pkt.SrcNet != 5002 || pkt.Cksum != 0 {
+		t.Fatalf("valid remap source/checksum = %d/0x%04x, want 5002/0", pkt.SrcNet, pkt.Cksum)
+	}
+
+	bad := &ddp.ExtPacket{
+		ExtHeader: ddp.ExtHeader{
+			Size: 13 + 3,
+			SrcNet: 103,
+			DstNet: 900,
+			SrcNode: 1,
+			DstNode: 2,
+			SrcSocket: 4,
+			DstSocket: 4,
+			Proto: ddp.ProtoAEP,
+		},
+		Data: []byte{4, 5, 6},
+	}
+	checksum, err = computeDDPChecksum(bad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad.Cksum = checksum
+	bad.Data[0] ^= 0xff
+	if err := peer.remapInboundDDP(bad); err == nil {
+		t.Fatal("remapping accepted packet with corrupt original checksum")
+	}
+	if bad.SrcNet != 103 {
+		t.Fatalf("failed checksum remap mutated source network to %d", bad.SrcNet)
+	}
+}

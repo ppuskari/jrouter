@@ -140,14 +140,16 @@ func (p *AURPPeer) remapInboundEvent(
 }
 
 func (p *AURPPeer) remapInboundDDP(packet *ddp.ExtPacket) error {
+	working := *packet
+	working.Data = append([]byte(nil), packet.Data...)
 	changed := false
-	if mapped, ok := p.remapInboundNetwork(packet.SrcNet); ok {
-		packet.SrcNet = mapped
+	if mapped, ok := p.remapInboundNetwork(working.SrcNet); ok {
+		working.SrcNet = mapped
 		changed = true
 	}
 
-	if packet.Proto == ddp.ProtoNBP {
-		nbpPacket, err := nbp.Unmarshal(packet.Data)
+	if working.Proto == ddp.ProtoNBP {
+		nbpPacket, err := nbp.Unmarshal(working.Data)
 		if err != nil {
 			return fmt.Errorf("unmarshal NBP for remapping: %w", err)
 		}
@@ -165,14 +167,20 @@ func (p *AURPPeer) remapInboundDDP(packet *ddp.ExtPacket) error {
 			if err != nil {
 				return fmt.Errorf("marshal remapped NBP: %w", err)
 			}
-			packet.Data = data
+			working.Data = data
+			setDDPDataSize(&working, len(data))
 			changed = true
 		}
 	}
 
-	if changed {
-		packet.Cksum = 0
+	if !changed {
+		return nil
 	}
+	if err := verifyDDPChecksum(packet); err != nil {
+		return err
+	}
+	working.Cksum = 0
+	*packet = working
 	return nil
 }
 
@@ -182,6 +190,9 @@ func (p *AURPPeer) remapOutboundDDP(
 	mapped, ok := p.remapOutboundNetwork(packet.DstNet)
 	if !ok {
 		return packet, nil
+	}
+	if err := verifyDDPChecksum(packet); err != nil {
+		return nil, err
 	}
 	clone := *packet
 	clone.DstNet = mapped

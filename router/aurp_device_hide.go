@@ -80,6 +80,9 @@ func (p *AURPPeer) filterDeviceNBP(
 		return nil, true, nil
 	}
 
+	if err := verifyDDPChecksum(packet); err != nil {
+		return nil, false, err
+	}
 	nbpPacket.Tuples = kept
 	data, err := nbpPacket.Marshal()
 	if err != nil {
