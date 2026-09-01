@@ -167,6 +167,14 @@ func (a *AARPMachine) Rebind(start, end ddp.Network) {
 	}
 }
 
+// OperationalRange reports the range currently owned by a fully probed,
+// non-startup address.
+func (a *AARPMachine) OperationalRange() (ddp.Network, ddp.Network, bool) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.rangeStart, a.rangeEnd, a.operational && a.assigned
+}
+
 func (a *AARPMachine) status(ctx context.Context) (any, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -220,6 +228,7 @@ func (a *AARPMachine) Run(ctx context.Context) error {
 			a.myAddr.Proto = ddp.Addr{Network: rng.start, Node: 1}
 			a.probes = 0
 			a.assigned = false
+			a.operational = false
 			a.mu.Unlock()
 			if ticker == nil {
 				probeTicker = time.NewTicker(200 * time.Millisecond)
