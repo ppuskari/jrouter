@@ -60,6 +60,26 @@ func TestSet24NoneConfigMayOmitCableRange(t *testing.T) {
 	}
 }
 
+func TestSet24TrueNonSeedMayDiscoverRangeAndZone(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jrouter.yaml")
+	cfg := `ethertalk:
+  device: enp0s3
+  seed_mode: none
+`
+	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	port := got.EtherTalk[0]
+	if port.NetStart != 0 || port.NetEnd != 0 || port.DefaultZoneName != "" {
+		t.Fatalf("dynamic non-seed unexpectedly retained configured cable data: %+v", port)
+	}
+}
+
 func TestSet24SoftStillRequiresFallbackCableRange(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "jrouter.yaml")
