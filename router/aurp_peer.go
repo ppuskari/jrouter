@@ -1332,7 +1332,7 @@ func (p *AURPPeer) applyRIRspNetworkTuple(nt aurp.NetworkTuple) (bool, error) {
 	if !reachable {
 		return false, nil
 	}
-	_, err := p.RouteTable.UpsertRoute(
+	_, err = p.RouteTable.UpsertRoute(
 		p,
 		nt.Extended,
 		nt.RangeStart,
