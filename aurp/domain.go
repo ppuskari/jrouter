@@ -197,7 +197,7 @@ func parseDomainIdentifier(b []byte) (DomainIdentifier, []byte, error) {
 		if lf != 7 {
 			return nil, b, fmt.Errorf("incorrect length %d for IP domain identifier", lf)
 		}
-		return IPDomainIdentifier(b[4:8]), b[8:], nil
+		return append(IPDomainIdentifier(nil), b[4:8]...), b[8:], nil
 
 	default:
 		return nil, b, fmt.Errorf("unknown domain identifier authority %d", b[1])

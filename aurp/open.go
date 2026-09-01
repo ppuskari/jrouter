@@ -135,14 +135,19 @@ func parseOptionTuple(p []byte) (OptionTuple, []byte, error) {
 	if len(p) < 2 {
 		return OptionTuple{}, p, fmt.Errorf("insufficient input length %d for option tuple", len(p))
 	}
-	olen := int(p[0]) + 1
+	// RFC 1504 defines the length byte as the length of the remainder of
+	// the tuple: one type byte plus any option data.
+	olen := int(p[0])
 	p = p[1:]
+	if olen < 1 {
+		return OptionTuple{}, p, fmt.Errorf("invalid option tuple length %d", olen)
+	}
 	if len(p) < olen {
-		return OptionTuple{}, p, fmt.Errorf("insufficient input for option tuple data length %d", olen)
+		return OptionTuple{}, p, fmt.Errorf("insufficient input for option tuple remainder length %d", olen)
 	}
 	return OptionTuple{
 		Type: OptionType(p[0]),
-		Data: p[1:olen],
+		Data: append([]byte(nil), p[1:olen]...),
 	}, p[olen:], nil
 }
 
