@@ -425,3 +425,40 @@ func TestSet26HopCountReductionAdvertisesAURPRouteAsOneHopToRTMP(t *testing.T) {
 		t.Fatalf("local route advertised distance = %d, want 8", got)
 	}
 }
+
+func TestSet26HopCountWeightAppliesToImportedAURPDistance(t *testing.T) {
+	rt := NewRouteTable(t.Context())
+	peer := &AURPPeer{
+		tunnelID:   "cfg:weighted.example",
+		RouteTable: rt,
+		timing:     AURPConfig{HopCountWeight: 2},
+	}
+
+	accepted, err := peer.applyRIRspNetworkTuple(aurp.NetworkTuple{
+		Extended: true, RangeStart: 3200, RangeEnd: 3200, Distance: 3,
+	})
+	if err != nil || !accepted {
+		t.Fatalf("weighted route accepted=%v err=%v", accepted, err)
+	}
+	route := rt.find(peer, 3200)
+	if got, want := route.Distance, uint8(6); got != want {
+		t.Fatalf("stored weighted route distance = %d, want %d", got, want)
+	}
+}
+
+func TestSet26HopCountWeightAppliesToOutboundDDPWithoutMutatingInput(t *testing.T) {
+	peer := &AURPPeer{timing: AURPConfig{HopCountWeight: 2}}
+	pkt := new(ddp.ExtPacket)
+	setDDPHopCount(pkt, 4)
+
+	weighted, err := peer.applyAURPHopWeight(pkt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ddpHopCount(weighted); got != 6 {
+		t.Fatalf("weighted hop count = %d, want 6", got)
+	}
+	if got := ddpHopCount(pkt); got != 4 {
+		t.Fatalf("input packet was mutated: hop count = %d, want 4", got)
+	}
+}

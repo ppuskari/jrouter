@@ -280,10 +280,43 @@ func (p *AURPPeer) BestNetworkChanged(oldBest, newBest Route) {
 	p.queueBestNetworkTransition(oldBest, newBest)
 }
 
+func (p *AURPPeer) weightedAURPDistance(advertised uint8) (uint8, bool) {
+	if advertised >= maxRouteDistance {
+		return 0, false
+	}
+	distance := uint16(advertised) + 1 + uint16(p.timing.HopCountWeight)
+	if distance > maxRouteDistance {
+		return 0, false
+	}
+	return uint8(distance), true
+}
+
+func (p *AURPPeer) applyAURPHopWeight(ddpkt *ddp.ExtPacket) (*ddp.ExtPacket, error) {
+	if p.timing.HopCountWeight == 0 {
+		return ddpkt, nil
+	}
+	weighted := *ddpkt
+	hopCount := ddpHopCount(&weighted)
+	newHopCount := hopCount + uint16(p.timing.HopCountWeight)
+	if newHopCount > maxRouteDistance {
+		return nil, fmt.Errorf(
+			"weighted AURP hop count exceeds limit (%d > %d)",
+			newHopCount,
+			maxRouteDistance,
+		)
+	}
+	setDDPHopCount(&weighted, newHopCount)
+	return &weighted, nil
+}
+
 // Forward encapsulates the DDP packet in an AURP AppleTalkPacket and sends it
 // to the remote peer router.
 func (p *AURPPeer) Forward(_ context.Context, ddpkt *ddp.ExtPacket) error {
-	outPkt, err := ddp.ExtMarshal(*ddpkt)
+	weighted, err := p.applyAURPHopWeight(ddpkt)
+	if err != nil {
+		return err
+	}
+	outPkt, err := ddp.ExtMarshal(*weighted)
 	if err != nil {
 		return err
 	}
@@ -1204,7 +1237,8 @@ func (p *AURPPeer) applyRIRspNetworkTuple(nt aurp.NetworkTuple) (bool, error) {
 	if err := validateAURPRouteTuple(nt.Extended, nt.RangeStart, nt.RangeEnd); err != nil {
 		return false, err
 	}
-	if nt.Distance >= maxRouteDistance {
+	distance, reachable := p.weightedAURPDistance(nt.Distance)
+	if !reachable {
 		return false, nil
 	}
 	_, err := p.RouteTable.UpsertRoute(
@@ -1212,7 +1246,7 @@ func (p *AURPPeer) applyRIRspNetworkTuple(nt aurp.NetworkTuple) (bool, error) {
 		nt.Extended,
 		nt.RangeStart,
 		nt.RangeEnd,
-		nt.Distance+1,
+		distance,
 	)
 	return err == nil, err
 }
@@ -1417,11 +1451,12 @@ func (p *AURPPeer) applyRIUpdEvent(et aurp.EventTuple) (bool, error) {
 		return false, nil
 
 	case aurp.EventCodeNA:
-		if et.Distance >= maxRouteDistance {
+		distance, reachable := p.weightedAURPDistance(et.Distance)
+		if !reachable {
 			return false, nil
 		}
 		_, err := p.RouteTable.UpsertRoute(
-			p, et.Extended, et.RangeStart, et.RangeEnd, et.Distance+1,
+			p, et.Extended, et.RangeStart, et.RangeEnd, distance,
 		)
 		if err != nil {
 			return false, err
@@ -1449,10 +1484,19 @@ func (p *AURPPeer) applyRIUpdEvent(et aurp.EventTuple) (bool, error) {
 			return false, p.RouteTable.DeleteRoute(p, et.RangeStart)
 		}
 
+		distance, reachable := p.weightedAURPDistance(et.Distance)
+		if !reachable {
+			p.clearPendingZoneInfo(et.RangeStart)
+			if existing.Zero() {
+				return false, nil
+			}
+			return false, p.RouteTable.DeleteRoute(p, et.RangeStart)
+		}
+
 		// RFC 1504 says an NDC for an unknown network is processed as an NA.
 		if existing.Zero() {
 			_, err := p.RouteTable.UpsertRoute(
-				p, et.Extended, et.RangeStart, et.RangeEnd, et.Distance+1,
+				p, et.Extended, et.RangeStart, et.RangeEnd, distance,
 			)
 			if err != nil {
 				return false, err
@@ -1466,7 +1510,7 @@ func (p *AURPPeer) applyRIUpdEvent(et aurp.EventTuple) (bool, error) {
 		if existing.Extended != et.Extended ||
 			existing.NetEnd != et.RangeEnd {
 			_, err := p.RouteTable.UpsertRoute(
-				p, et.Extended, et.RangeStart, et.RangeEnd, et.Distance+1,
+				p, et.Extended, et.RangeStart, et.RangeEnd, distance,
 			)
 			if err != nil {
 				return false, err
@@ -1475,7 +1519,7 @@ func (p *AURPPeer) applyRIUpdEvent(et aurp.EventTuple) (bool, error) {
 		}
 
 		return false, p.RouteTable.UpdateDistance(
-			p, et.RangeStart, et.Distance+1,
+			p, et.RangeStart, distance,
 		)
 	}
 	return false, nil

@@ -175,6 +175,7 @@ type AURPConfig struct {
 	ZoneInfoRetryInterval time.Duration      `yaml:"-"`
 	HiddenNetworks        []AURPNetworkRange `yaml:"hidden_networks"`
 	HopCountReduction     bool               `yaml:"hop_count_reduction"`
+	HopCountWeight        uint8              `yaml:"hop_count_weight"`
 }
 
 func (c AURPConfig) networkHidden(network ddp.Network) bool {
@@ -204,6 +205,7 @@ func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
 		ZoneInfoRetryInterval YAMLDuration       `yaml:"zone_info_retry_interval"`
 		HiddenNetworks        []AURPNetworkRange `yaml:"hidden_networks"`
 		HopCountReduction     bool               `yaml:"hop_count_reduction"`
+		HopCountWeight        uint8              `yaml:"hop_count_weight"`
 	}
 	if err := n.Decode(&raw); err != nil {
 		return err
@@ -216,6 +218,7 @@ func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
 		ZoneInfoRetryInterval: time.Duration(raw.ZoneInfoRetryInterval),
 		HiddenNetworks:        raw.HiddenNetworks,
 		HopCountReduction:     raw.HopCountReduction,
+		HopCountWeight:        raw.HopCountWeight,
 	}
 	return nil
 }
@@ -357,6 +360,13 @@ func LoadConfig(cfgPath string) (*Config, error) {
 	if c.AURP.HopCountReduction {
 		validationErrs = append(validationErrs, fmt.Errorf(
 			"aurp.hop_count_reduction is not yet safe to enable until Loop Probe enforcement is complete",
+		))
+	}
+	if c.AURP.HopCountWeight >= maxRouteDistance {
+		validationErrs = append(validationErrs, fmt.Errorf(
+			"aurp.hop_count_weight must be less than %d, got %d",
+			maxRouteDistance,
+			c.AURP.HopCountWeight,
 		))
 	}
 
