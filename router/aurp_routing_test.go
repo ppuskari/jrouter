@@ -783,3 +783,47 @@ func TestSet26ZIPQueryChunkingHandlesLargeRouteUpdates(t *testing.T) {
 		}
 	}
 }
+
+func TestSet26ImportHidingSuppressesOnlyMatchingPeerRoutes(t *testing.T) {
+	rt := NewRouteTable(t.Context())
+	hiddenPeer := &AURPPeer{
+		tunnelID:   "cfg:hidden.example",
+		RouteTable: rt,
+		timing: AURPConfig{HiddenImportNetworks: []AURPImportHideRule{{
+			Peer: "cfg:hidden.example",
+			Start: 200,
+			End: 209,
+		}}},
+	}
+	otherPeer := &AURPPeer{
+		tunnelID:   "cfg:other.example",
+		RouteTable: rt,
+		timing: hiddenPeer.timing,
+	}
+
+	accepted, err := hiddenPeer.applyRIRspNetworkTuple(aurp.NetworkTuple{
+		Extended: true,
+		RangeStart: 200,
+		RangeEnd: 209,
+		Distance: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accepted || !rt.find(hiddenPeer, 200).Zero() {
+		t.Fatal("peer-scoped hidden import route was installed")
+	}
+
+	accepted, err = otherPeer.applyRIRspNetworkTuple(aurp.NetworkTuple{
+		Extended: true,
+		RangeStart: 200,
+		RangeEnd: 209,
+		Distance: 1,
+	})
+	if err != nil || !accepted {
+		t.Fatalf("nonmatching peer route accepted=%v err=%v", accepted, err)
+	}
+	if rt.find(otherPeer, 200).Zero() {
+		t.Fatal("nonmatching peer route was incorrectly hidden")
+	}
+}

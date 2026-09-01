@@ -374,3 +374,29 @@ ethertalk:
 		t.Fatalf("backup policy = %+v, want one penalty-6 peer", cfg.AURP.BackupPeers)
 	}
 }
+
+func TestLoadConfigAcceptsPeerScopedImportHiding(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jrouter.yaml")
+	data := []byte(`aurp:
+  hidden_import_networks:
+    - peer: cfg:remote.example
+      start: 200
+      end: 209
+ethertalk:
+  - device: en0
+    zone_name: Test
+    net_start: 1000
+    net_end: 1009
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.AURP.HiddenImportNetworks) != 1 {
+		t.Fatalf("hidden import rules = %d, want 1", len(cfg.AURP.HiddenImportNetworks))
+	}
+}

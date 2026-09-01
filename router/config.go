@@ -203,6 +203,12 @@ func (c AURPClusterRule) containsRoute(route Route) bool {
 	return route.NetStart >= c.Start && route.NetEnd <= c.End
 }
 
+type AURPImportHideRule struct {
+	Peer  string      `yaml:"peer"`
+	Start ddp.Network `yaml:"start"`
+	End   ddp.Network `yaml:"end"`
+}
+
 type AURPBackupPeerRule struct {
 	Peer    string `yaml:"peer"`
 	Penalty uint8  `yaml:"penalty"`
@@ -221,6 +227,7 @@ type AURPConfig struct {
 	HiddenDevices         []AURPDeviceHideRule `yaml:"hidden_devices"`
 	Clusters              []AURPClusterRule    `yaml:"clusters"`
 	BackupPeers           []AURPBackupPeerRule `yaml:"backup_peers"`
+	HiddenImportNetworks  []AURPImportHideRule  `yaml:"hidden_import_networks"`
 }
 
 func (c AURPConfig) networkHidden(network ddp.Network) bool {
@@ -255,6 +262,7 @@ func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
 		HiddenDevices         []AURPDeviceHideRule `yaml:"hidden_devices"`
 		Clusters              []AURPClusterRule     `yaml:"clusters"`
 		BackupPeers           []AURPBackupPeerRule  `yaml:"backup_peers"`
+		HiddenImportNetworks  []AURPImportHideRule   `yaml:"hidden_import_networks"`
 	}
 	if err := n.Decode(&raw); err != nil {
 		return err
@@ -272,6 +280,7 @@ func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
 		HiddenDevices:         raw.HiddenDevices,
 		Clusters:              raw.Clusters,
 		BackupPeers:           raw.BackupPeers,
+		HiddenImportNetworks:  raw.HiddenImportNetworks,
 	}
 	return nil
 }
@@ -453,6 +462,19 @@ func LoadConfig(cfgPath string) (*Config, error) {
 			))
 		}
 	}
+	for i, hidden := range c.AURP.HiddenImportNetworks {
+		if hidden.Start == 0 ||
+			hidden.Start > hidden.End ||
+			hidden.End >= phase2StartupStart {
+			validationErrs = append(validationErrs, fmt.Errorf(
+				"aurp.hidden_import_networks[%d] has invalid range %d-%d",
+				i,
+				hidden.Start,
+				hidden.End,
+			))
+		}
+	}
+
 	for i, backup := range c.AURP.BackupPeers {
 		if strings.TrimSpace(backup.Peer) == "" {
 			validationErrs = append(validationErrs, fmt.Errorf(

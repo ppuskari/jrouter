@@ -138,6 +138,14 @@ func (r *Router) AURPInput(ctx context.Context, logger *slog.Logger, wg *sync.Wa
 				logger.Error("AURP: Couldn't unmarshal encapsulated DDP packet", "error", err)
 				continue
 			}
+			if peer.importNetworkHidden(ddpkt.SrcNet) {
+				logger.Info(
+					"DDP/AURP: dropping packet from hidden imported network",
+					"src-net", ddpkt.SrcNet,
+					"peer", peer.TunnelID(),
+				)
+				continue
+			}
 			if err := peer.remapInboundDDP(ddpkt); err != nil {
 				logger.Error("AURP: couldn't remap inbound DDP packet", "error", err)
 				continue

@@ -189,3 +189,34 @@ func (p *AURPPeer) remapOutboundDDP(
 	clone.Data = append([]byte(nil), packet.Data...)
 	return &clone, nil
 }
+
+func (r AURPImportHideRule) matchesPeer(peer *AURPPeer) bool {
+	return peerSelectorMatches(r.Peer, peer)
+}
+
+func (p *AURPPeer) importNetworkHidden(network ddp.Network) bool {
+	for _, rule := range p.timing.HiddenImportNetworks {
+		if !rule.matchesPeer(p) {
+			continue
+		}
+		if network >= rule.Start && network <= rule.End {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *AURPPeer) importRangeHidden(
+	start ddp.Network,
+	end ddp.Network,
+) bool {
+	for _, rule := range p.timing.HiddenImportNetworks {
+		if !rule.matchesPeer(p) {
+			continue
+		}
+		if start <= rule.End && end >= rule.Start {
+			return true
+		}
+	}
+	return false
+}

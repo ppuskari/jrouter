@@ -1320,6 +1320,9 @@ func (p *AURPPeer) applyRIRspNetworkTuple(nt aurp.NetworkTuple) (bool, error) {
 	if err := validateAURPRouteTuple(nt.Extended, nt.RangeStart, nt.RangeEnd); err != nil {
 		return false, err
 	}
+	if p.importRangeHidden(nt.RangeStart, nt.RangeEnd) {
+		return false, nil
+	}
 	var err error
 	nt, err = p.remapInboundNetworkTuple(nt)
 	if err != nil {
@@ -1520,6 +1523,17 @@ func (p *AURPPeer) handleRIAck(logger *slog.Logger, pkt *aurp.RIAckPacket) error
 }
 
 func (p *AURPPeer) applyRIUpdEvent(et aurp.EventTuple) (bool, error) {
+	switch et.EventCode {
+	case aurp.EventCodeNA, aurp.EventCodeNDC:
+		if p.importRangeHidden(et.RangeStart, et.RangeEnd) {
+			return false, nil
+		}
+	case aurp.EventCodeND, aurp.EventCodeNRC:
+		if p.importNetworkHidden(et.RangeStart) {
+			return false, nil
+		}
+	}
+
 	var err error
 	et, err = p.remapInboundEvent(et)
 	if err != nil {
