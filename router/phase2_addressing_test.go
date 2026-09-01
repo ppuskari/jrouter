@@ -146,6 +146,22 @@ func TestSet24SoftTakeoverCanUseAlreadyAdoptedRange(t *testing.T) {
 	}
 }
 
+func TestSet24AARPRerollChangesNodeOnSingleNetwork(t *testing.T) {
+	a := &AARPMachine{
+		rangeStart: 1000,
+		rangeEnd:   1000,
+	}
+	a.myAddr.Proto.Network = 1000
+	a.myAddr.Proto.Node = 1
+	a.reroll()
+	if a.myAddr.Proto.Network != 1000 {
+		t.Fatalf("reroll changed single-network range to %d", a.myAddr.Proto.Network)
+	}
+	if a.myAddr.Proto.Node == 1 {
+		t.Fatal("reroll retained colliding node number")
+	}
+}
+
 func TestSet24CableRangeAtomics(t *testing.T) {
 	port := new(EtherTalkPort)
 	port.setCableRange(1000, 1009)
