@@ -104,8 +104,9 @@ type AARPMachine struct {
 
 	assignedSignaled bool
 	assignedCh       chan struct{}
-	operational      bool
-	operationalCh    chan struct{}
+	operational         bool
+	operationalSignaled bool
+	operationalCh       chan struct{}
 }
 
 // NewAARPMachine creates a new AARPMachine.
@@ -208,7 +209,11 @@ func (a *AARPMachine) Run(ctx context.Context) error {
 	a.mu.Unlock()
 
 	probeTicker := time.NewTicker(200 * time.Millisecond)
-	defer probeTicker.Stop()
+	defer func() {
+		if probeTicker != nil {
+			probeTicker.Stop()
+		}
+	}()
 	var ticker <-chan time.Time = probeTicker.C
 
 	for {
@@ -246,7 +251,10 @@ func (a *AARPMachine) Run(ctx context.Context) error {
 				}
 				if !isPhase2StartupRange(a.rangeStart, a.rangeEnd) && !a.operational {
 					a.operational = true
-					close(a.operationalCh)
+					if !a.operationalSignaled {
+						close(a.operationalCh)
+						a.operationalSignaled = true
+					}
 				}
 				a.mu.Unlock()
 				probeTicker.Stop()
