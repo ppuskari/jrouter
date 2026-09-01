@@ -113,6 +113,72 @@ var (
 		[]string{"peer"},
 		nil,
 	)
+	aurpPeerReceiveQueueDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_receive_queue_length",
+		"current queued routing packets waiting for the peer handler",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerLateTickleAcksDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_late_tickle_acks_total",
+		"late or duplicate Tickle-Ack packets received",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerSenderRouterDownsDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_sender_router_downs_total",
+		"sender-originated Router Down packets received",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerReceiverRouterDownsDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_receiver_router_downs_total",
+		"receiver-originated Router Down packets received",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerRouterDownAcksDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_router_down_acks_total",
+		"RI-Acks sent for sender-originated Router Down packets",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerEarlyRIUpdatesDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_early_ri_updates_total",
+		"RI-Upd packets received before the routing baseline was ready",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerEarlyRIUpdateAcksDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_early_ri_update_acks_total",
+		"early RI-Upd packets acknowledged during RI-Rsp synchronization",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerExtendedZIFragmentsDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_extended_zi_fragments_total",
+		"extended ZI-Rsp fragments received",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerExtendedZICompletedDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_extended_zi_completed_total",
+		"extended zone lists completed and published",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerZoneTuplesAcceptedDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_zone_tuples_accepted_total",
+		"zone tuples accepted for routes owned by this peer",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerZoneTuplesIgnoredDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_zone_tuples_ignored_total",
+		"zone tuples ignored because they were invalid or not owned by this peer",
+		[]string{"peer"},
+		nil,
+	)
 	aurpConfiguredPeerDNSFailuresDesc = prometheus.NewDesc(
 		"jrouter_aurp_configured_peer_dns_failures",
 		"consecutive DNS resolution failures for a configured peer",
@@ -143,6 +209,17 @@ func (t *AURPPeerTable) Describe(ch chan<- *prometheus.Desc) {
 	ch <- aurpPeerStaleRoutingDesc
 	ch <- aurpPeerFutureRoutingDesc
 	ch <- aurpPeerConnIDMismatchDesc
+	ch <- aurpPeerReceiveQueueDesc
+	ch <- aurpPeerLateTickleAcksDesc
+	ch <- aurpPeerSenderRouterDownsDesc
+	ch <- aurpPeerReceiverRouterDownsDesc
+	ch <- aurpPeerRouterDownAcksDesc
+	ch <- aurpPeerEarlyRIUpdatesDesc
+	ch <- aurpPeerEarlyRIUpdateAcksDesc
+	ch <- aurpPeerExtendedZIFragmentsDesc
+	ch <- aurpPeerExtendedZICompletedDesc
+	ch <- aurpPeerZoneTuplesAcceptedDesc
+	ch <- aurpPeerZoneTuplesIgnoredDesc
 	ch <- aurpConfiguredPeerDNSFailuresDesc
 	ch <- aurpConfiguredPeerNextDNSDesc
 }
@@ -255,6 +332,72 @@ func (t *AURPPeerTable) Collect(ch chan<- prometheus.Metric) {
 			aurpPeerConnIDMismatchDesc,
 			prometheus.CounterValue,
 			float64(p.ConnectionIDMismatches()),
+			peerLabel,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerReceiveQueueDesc,
+			prometheus.GaugeValue,
+			float64(p.ReceiveChLen()),
+			peerLabel,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerLateTickleAcksDesc,
+			prometheus.CounterValue,
+			float64(p.LateTickleAcks()),
+			peerLabel,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerSenderRouterDownsDesc,
+			prometheus.CounterValue,
+			float64(p.SenderRouterDowns()),
+			peerLabel,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerReceiverRouterDownsDesc,
+			prometheus.CounterValue,
+			float64(p.ReceiverRouterDowns()),
+			peerLabel,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerRouterDownAcksDesc,
+			prometheus.CounterValue,
+			float64(p.RouterDownAcks()),
+			peerLabel,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerEarlyRIUpdatesDesc,
+			prometheus.CounterValue,
+			float64(p.EarlyRIUpdates()),
+			peerLabel,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerEarlyRIUpdateAcksDesc,
+			prometheus.CounterValue,
+			float64(p.EarlyRIUpdateAcks()),
+			peerLabel,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerExtendedZIFragmentsDesc,
+			prometheus.CounterValue,
+			float64(p.ExtendedZIFragments()),
+			peerLabel,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerExtendedZICompletedDesc,
+			prometheus.CounterValue,
+			float64(p.ExtendedZICompleted()),
+			peerLabel,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerZoneTuplesAcceptedDesc,
+			prometheus.CounterValue,
+			float64(p.ZoneTuplesAccepted()),
+			peerLabel,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerZoneTuplesIgnoredDesc,
+			prometheus.CounterValue,
+			float64(p.ZoneTuplesIgnored()),
 			peerLabel,
 		)
 	}
