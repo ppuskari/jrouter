@@ -167,6 +167,22 @@ func (r AURPNetworkRange) overlaps(start, end ddp.Network) bool {
 	return start <= r.End && end >= r.Start
 }
 
+type AURPRemapRule struct {
+	Peer        string      `yaml:"peer"`
+	RemoteStart ddp.Network `yaml:"remote_start"`
+	RemoteEnd   ddp.Network `yaml:"remote_end"`
+	LocalStart  ddp.Network `yaml:"local_start"`
+	LocalEnd    ddp.Network `yaml:"local_end"`
+}
+
+func (r AURPRemapRule) remoteRange() AURPNetworkRange {
+	return AURPNetworkRange{Start: r.RemoteStart, End: r.RemoteEnd}
+}
+
+func (r AURPRemapRule) localRange() AURPNetworkRange {
+	return AURPNetworkRange{Start: r.LocalStart, End: r.LocalEnd}
+}
+
 type AURPConfig struct {
 	LastHeardFromTimeout  time.Duration      `yaml:"-"`
 	RetryInterval         time.Duration      `yaml:"-"`
@@ -176,6 +192,7 @@ type AURPConfig struct {
 	HiddenNetworks        []AURPNetworkRange `yaml:"hidden_networks"`
 	HopCountReduction     bool               `yaml:"hop_count_reduction"`
 	HopCountWeight        uint8              `yaml:"hop_count_weight"`
+	RemapRules            []AURPRemapRule    `yaml:"remap"`
 }
 
 func (c AURPConfig) networkHidden(network ddp.Network) bool {
@@ -206,6 +223,7 @@ func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
 		HiddenNetworks        []AURPNetworkRange `yaml:"hidden_networks"`
 		HopCountReduction     bool               `yaml:"hop_count_reduction"`
 		HopCountWeight        uint8              `yaml:"hop_count_weight"`
+		RemapRules            []AURPRemapRule    `yaml:"remap"`
 	}
 	if err := n.Decode(&raw); err != nil {
 		return err
@@ -219,6 +237,7 @@ func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
 		HiddenNetworks:        raw.HiddenNetworks,
 		HopCountReduction:     raw.HopCountReduction,
 		HopCountWeight:        raw.HopCountWeight,
+		RemapRules:            raw.RemapRules,
 	}
 	return nil
 }
@@ -364,6 +383,64 @@ func LoadConfig(cfgPath string) (*Config, error) {
 			c.AURP.HopCountWeight,
 		))
 	}
+	for i, rule := range c.AURP.RemapRules {
+		remoteSize := int(rule.RemoteEnd) - int(rule.RemoteStart)
+		localSize := int(rule.LocalEnd) - int(rule.LocalStart)
+		switch {
+		case rule.RemoteStart == 0 || rule.LocalStart == 0:
+			validationErrs = append(validationErrs, fmt.Errorf(
+				"aurp.remap[%d] may not use network 0",
+				i,
+			))
+		case rule.RemoteStart > rule.RemoteEnd:
+			validationErrs = append(validationErrs, fmt.Errorf(
+				"aurp.remap[%d] remote range is reversed (%d-%d)",
+				i,
+				rule.RemoteStart,
+				rule.RemoteEnd,
+			))
+		case rule.LocalStart > rule.LocalEnd:
+			validationErrs = append(validationErrs, fmt.Errorf(
+				"aurp.remap[%d] local range is reversed (%d-%d)",
+				i,
+				rule.LocalStart,
+				rule.LocalEnd,
+			))
+		case remoteSize != localSize:
+			validationErrs = append(validationErrs, fmt.Errorf(
+				"aurp.remap[%d] ranges have different sizes",
+				i,
+			))
+		case rule.LocalStart >= phase2StartupStart ||
+			rule.LocalEnd >= phase2StartupStart:
+			validationErrs = append(validationErrs, fmt.Errorf(
+				"aurp.remap[%d] local range overlaps the Phase 2 startup range",
+				i,
+			))
+		}
+	}
+	for i := range c.AURP.RemapRules {
+		for j := i + 1; j < len(c.AURP.RemapRules); j++ {
+			a := c.AURP.RemapRules[i]
+			b := c.AURP.RemapRules[j]
+			if a.localRange().overlaps(b.LocalStart, b.LocalEnd) {
+				validationErrs = append(validationErrs, fmt.Errorf(
+					"aurp.remap[%d] and aurp.remap[%d] local ranges overlap",
+					i,
+					j,
+				))
+			}
+			if strings.EqualFold(a.Peer, b.Peer) &&
+				a.remoteRange().overlaps(b.RemoteStart, b.RemoteEnd) {
+				validationErrs = append(validationErrs, fmt.Errorf(
+					"aurp.remap[%d] and aurp.remap[%d] remote ranges overlap for peer %q",
+					i,
+					j,
+					a.Peer,
+				))
+			}
+		}
+	}
 
 	// Check EtherTalk port configuration.
 	for _, port := range c.EtherTalk {
@@ -447,6 +524,25 @@ func LoadConfig(cfgPath string) (*Config, error) {
 			}
 			if zn == "" || zn == "*" {
 				validationErrs = append(validationErrs, fmt.Errorf("port %q zone name %q is invalid; cannot be empty or *", port.Device, port.DefaultZoneName))
+			}
+		}
+	}
+
+	for i, rule := range c.AURP.RemapRules {
+		for _, port := range c.EtherTalk {
+			if port.NetStart == 0 || port.NetEnd == 0 {
+				continue
+			}
+			if rule.localRange().overlaps(port.NetStart, port.NetEnd) {
+				validationErrs = append(validationErrs, fmt.Errorf(
+					"aurp.remap[%d] local range %d-%d overlaps EtherTalk port %q range %d-%d",
+					i,
+					rule.LocalStart,
+					rule.LocalEnd,
+					port.Device,
+					port.NetStart,
+					port.NetEnd,
+				))
 			}
 		}
 	}

@@ -246,3 +246,54 @@ ethertalk:
 		t.Fatalf("hop-count weight = %d, want 3", cfg.AURP.HopCountWeight)
 	}
 }
+
+func TestLoadConfigAcceptsStaticAURPRemap(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jrouter.yaml")
+	data := []byte(`aurp:
+  remap:
+    - peer: cfg:remote.example
+      remote_start: 100
+      remote_end: 109
+      local_start: 5000
+      local_end: 5009
+ethertalk:
+  - device: en0
+    zone_name: Test
+    net_start: 1000
+    net_end: 1009
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.AURP.RemapRules) != 1 {
+		t.Fatalf("remap rules = %d, want 1", len(cfg.AURP.RemapRules))
+	}
+}
+
+func TestLoadConfigRejectsOverlappingStaticAURPRemap(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jrouter.yaml")
+	data := []byte(`aurp:
+  remap:
+    - remote_start: 100
+      remote_end: 109
+      local_start: 1000
+      local_end: 1009
+ethertalk:
+  - device: en0
+    zone_name: Test
+    net_start: 1000
+    net_end: 1009
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadConfig(path); err == nil {
+		t.Fatal("remap range overlapping local EtherTalk range was accepted")
+	}
+}

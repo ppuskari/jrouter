@@ -516,3 +516,93 @@ func TestSet26EqualDistanceRoutePreferenceIsDeterministic(t *testing.T) {
 		t.Fatalf("equal-distance best route = %v, want direct target", got)
 	}
 }
+
+func TestSet26StaticRemapMapsImportedRouteAndOutboundDestination(t *testing.T) {
+	rt := NewRouteTable(t.Context())
+	peer := &AURPPeer{
+		tunnelID:   "cfg:remote.example",
+		RouteTable: rt,
+		timing: AURPConfig{RemapRules: []AURPRemapRule{{
+			Peer: "cfg:remote.example",
+			RemoteStart: 100,
+			RemoteEnd: 109,
+			LocalStart: 5000,
+			LocalEnd: 5009,
+		}}},
+	}
+
+	accepted, err := peer.applyRIRspNetworkTuple(aurp.NetworkTuple{
+		Extended: true,
+		RangeStart: 100,
+		RangeEnd: 109,
+		Distance: 1,
+	})
+	if err != nil || !accepted {
+		t.Fatalf("remapped route accepted=%v err=%v", accepted, err)
+	}
+	if got := rt.find(peer, 5000); got.Zero() || got.NetEnd != 5009 {
+		t.Fatalf("remapped route = %v, want 5000-5009", got)
+	}
+
+	pkt := new(ddp.ExtPacket)
+	pkt.DstNet = 5004
+	mapped, err := peer.remapOutboundDDP(pkt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mapped.DstNet != 104 {
+		t.Fatalf("outbound remapped destination = %d, want 104", mapped.DstNet)
+	}
+	if pkt.DstNet != 5004 {
+		t.Fatal("outbound remap mutated caller packet")
+	}
+}
+
+func TestSet26StaticRemapMapsInboundDDPAndNBPTuple(t *testing.T) {
+	peer := &AURPPeer{
+		tunnelID: "cfg:remote.example",
+		timing: AURPConfig{RemapRules: []AURPRemapRule{{
+			Peer: "cfg:remote.example",
+			RemoteStart: 100,
+			RemoteEnd: 109,
+			LocalStart: 5000,
+			LocalEnd: 5009,
+		}}},
+	}
+	nbpRaw, err := (&nbp.Packet{
+		Function: nbp.FunctionLkUpReply,
+		NBPID: 1,
+		Tuples: []nbp.Tuple{{
+			Network: 103,
+			Node: 42,
+			Socket: 2,
+			Object: "Printer",
+			Type: "LaserWriter",
+			Zone: "Remote",
+		}},
+	}).Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkt := &ddp.ExtPacket{
+		ExtHeader: ddp.ExtHeader{
+			SrcNet: 102,
+			Proto: ddp.ProtoNBP,
+			Cksum: 1234,
+		},
+		Data: nbpRaw,
+	}
+	if err := peer.remapInboundDDP(pkt); err != nil {
+		t.Fatal(err)
+	}
+	if pkt.SrcNet != 5002 || pkt.Cksum != 0 {
+		t.Fatalf("inbound DDP source/checksum = %d/%d, want 5002/0", pkt.SrcNet, pkt.Cksum)
+	}
+	parsed, err := nbp.Unmarshal(pkt.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Tuples[0].Network != 5003 {
+		t.Fatalf("remapped NBP tuple network = %d, want 5003", parsed.Tuples[0].Network)
+	}
+}

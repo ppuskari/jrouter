@@ -320,7 +320,11 @@ func (p *AURPPeer) applyAURPHopWeight(ddpkt *ddp.ExtPacket) (*ddp.ExtPacket, err
 // Forward encapsulates the DDP packet in an AURP AppleTalkPacket and sends it
 // to the remote peer router.
 func (p *AURPPeer) Forward(_ context.Context, ddpkt *ddp.ExtPacket) error {
-	weighted, err := p.applyAURPHopWeight(ddpkt)
+	remapped, err := p.remapOutboundDDP(ddpkt)
+	if err != nil {
+		return err
+	}
+	weighted, err := p.applyAURPHopWeight(remapped)
 	if err != nil {
 		return err
 	}
@@ -1297,6 +1301,11 @@ func (p *AURPPeer) applyRIRspNetworkTuple(nt aurp.NetworkTuple) (bool, error) {
 	if err := validateAURPRouteTuple(nt.Extended, nt.RangeStart, nt.RangeEnd); err != nil {
 		return false, err
 	}
+	var err error
+	nt, err = p.remapInboundNetworkTuple(nt)
+	if err != nil {
+		return false, err
+	}
 	distance, reachable := p.weightedAURPDistance(nt.Distance)
 	if !reachable {
 		return false, nil
@@ -1492,6 +1501,12 @@ func (p *AURPPeer) handleRIAck(logger *slog.Logger, pkt *aurp.RIAckPacket) error
 }
 
 func (p *AURPPeer) applyRIUpdEvent(et aurp.EventTuple) (bool, error) {
+	var err error
+	et, err = p.remapInboundEvent(et)
+	if err != nil {
+		return false, err
+	}
+
 	// ND/NRC identify the route by RangeStart only; their range end is not
 	// consumed and older peers/tests may leave it at zero. Validate the
 	// range shape for events that actually carry a replacement route.

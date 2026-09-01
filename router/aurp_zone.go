@@ -77,6 +77,7 @@ func (p *AURPPeer) retryIncompleteZoneInfo(now time.Time) error {
 	}
 
 	var networks []ddp.Network
+	var localNetworks []ddp.Network
 	for network, pending := range p.pendingZoneInfo {
 		if !p.ownsAURPNetwork(network) {
 			delete(p.pendingZoneInfo, network)
@@ -89,7 +90,9 @@ func (p *AURPPeer) retryIncompleteZoneInfo(now time.Time) error {
 		if !pending.lastActivity.IsZero() && now.Sub(pending.lastActivity) < p.zoneInfoRetryInterval() {
 			continue
 		}
-		networks = append(networks, network)
+		remoteNetwork, _ := p.remapOutboundNetwork(network)
+		networks = append(networks, remoteNetwork)
+		localNetworks = append(localNetworks, network)
 	}
 	if len(networks) == 0 {
 		return nil
@@ -104,7 +107,7 @@ func (p *AURPPeer) retryIncompleteZoneInfo(now time.Time) error {
 			return err
 		}
 	}
-	for _, network := range networks {
+	for _, network := range localNetworks {
 		if pending := p.pendingZoneInfo[network]; pending != nil {
 			pending.lastActivity = now
 		}
@@ -307,11 +310,12 @@ func (p *AURPPeer) applyNonExtendedZIRsp(
 ) (accepted, ignored int) {
 	grouped := make(map[ddp.Network][]string)
 	for _, zt := range pkt.Zones {
-		if !p.ownsAURPNetwork(zt.Network) {
+		network, _ := p.remapInboundNetwork(zt.Network)
+		if !p.ownsAURPNetwork(network) {
 			ignored++
 			continue
 		}
-		grouped[zt.Network] = append(grouped[zt.Network], zt.Name)
+		grouped[network] = append(grouped[network], zt.Name)
 	}
 
 	for network, zones := range grouped {
@@ -335,7 +339,8 @@ func (p *AURPPeer) applyExtendedZIRsp(
 	if len(pkt.Zones) == 0 {
 		return false, 0, nil
 	}
-	network = pkt.Zones[0].Network
+	remoteNetwork := pkt.Zones[0].Network
+	network, _ = p.remapInboundNetwork(remoteNetwork)
 	if !p.ownsAURPNetwork(network) {
 		return false, network, nil
 	}
@@ -365,11 +370,12 @@ func (p *AURPPeer) applyExtendedZIRsp(
 	}
 
 	for _, zt := range pkt.Zones {
-		if zt.Network != network {
+		mappedNetwork, _ := p.remapInboundNetwork(zt.Network)
+		if mappedNetwork != network {
 			return false, network, fmt.Errorf(
 				"extended ZI-Rsp mixed network %d with %d",
 				network,
-				zt.Network,
+				mappedNetwork,
 			)
 		}
 		if zt.Name != "" {

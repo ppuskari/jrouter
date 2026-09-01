@@ -138,6 +138,10 @@ func (r *Router) AURPInput(ctx context.Context, logger *slog.Logger, wg *sync.Wa
 				logger.Error("AURP: Couldn't unmarshal encapsulated DDP packet", "error", err)
 				continue
 			}
+			if err := peer.remapInboundDDP(ddpkt); err != nil {
+				logger.Error("AURP: couldn't remap inbound DDP packet", "error", err)
+				continue
+			}
 			if r.Config.AURP.networkHidden(ddpkt.DstNet) {
 				logger.Info(
 					"DDP/AURP: dropping packet to hidden local network",
