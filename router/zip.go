@@ -204,12 +204,13 @@ func (port *EtherTalkPort) handleZIPGetNetInfo(ctx context.Context, ddpkt *ddp.E
 		mcastAddr = atalk.MulticastAddr(port.defaultZoneName)
 	}
 
+	cableStart, cableEnd := port.cableRange()
 	resp := &zip.GetNetInfoReplyPacket{
 		ZoneInvalid:   !zoneValid,
 		UseBroadcast:  false,
 		OnlyOneZone:   len(port.availableZones) == 1,
-		NetStart:      port.netStart,
-		NetEnd:        port.netEnd,
+		NetStart:      cableStart,
+		NetEnd:        cableEnd,
 		ZoneName:      zipkt.ZoneName, // has to match request
 		MulticastAddr: mcastAddr,
 	}

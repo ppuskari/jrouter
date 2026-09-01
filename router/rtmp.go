@@ -33,6 +33,12 @@ import (
 func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) error {
 	switch pkt.Proto {
 	case ddp.ProtoRTMPReq:
+		// A soft/non-seed router must not advertise provisional startup-range
+		// routing information before it owns a real cable-range address.
+		if _, _, operational := port.aarpMachine.OperationalRange(); !operational {
+			return nil
+		}
+
 		// I can answer RTMP requests!
 		req, err := rtmp.UnmarshalRequestPacket(pkt.Data)
 		if err != nil {
@@ -42,11 +48,12 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 		switch req.Function {
 		case rtmp.FunctionRequest:
 			// Respond with RTMP Response
+			cableStart, cableEnd := port.cableRange()
 			respPkt := &rtmp.ResponsePacket{
 				SenderAddr: port.myAddr,
 				Extended:   true,
-				RangeStart: port.netStart,
-				RangeEnd:   port.netEnd,
+				RangeStart: cableStart,
+				RangeEnd:   cableEnd,
 			}
 			respPktRaw, err := respPkt.Marshal()
 			if err != nil {
@@ -183,8 +190,16 @@ func (port *EtherTalkPort) RunRTMP(ctx context.Context) (err error) {
 
 	setStatus("Awaiting DDP address assignment")
 
-	// Await local address assignment before doing anything
-	<-port.aarpMachine.Assigned()
+	// A soft/non-seed port may first own only a provisional startup-range
+	// address. RTMP must not advertise until the real cable range is adopted.
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-port.aarpMachine.Operational():
+	}
+	if addr, ok := port.aarpMachine.Address(); ok {
+		port.myAddr = addr.Proto
+	}
 
 	setStatus("Starting broadcast loop")
 
@@ -212,6 +227,17 @@ func (port *EtherTalkPort) RunRTMP(ctx context.Context) (err error) {
 }
 
 func (port *EtherTalkPort) broadcastRTMPData() error {
+	start, end, operational := port.aarpMachine.OperationalRange()
+	if !operational {
+		// A dynamic non-seed may be rebinding to a newly learned range. Do not
+		// advertise stale cable information during the provisional interval.
+		return nil
+	}
+	if addr, ok := port.aarpMachine.Address(); ok {
+		port.myAddr = addr.Proto
+	}
+	port.setCableRange(start, end)
+
 	for _, dataPkt := range port.rtmpDataPackets(true) {
 		dataPktRaw, err := dataPkt.Marshal()
 		if err != nil {
@@ -267,15 +293,23 @@ func (port *EtherTalkPort) rtmpDataPackets(splitHorizon bool) []*rtmp.DataPacket
 	// networks ... indicates the network number range assigned
 	// to that network."
 	// TODO: support non-extended local networks (LocalTalk)
+	cableStart, cableEnd := port.cableRange()
 	first := rtmp.NetworkTuple{
 		Extended:   true,
-		RangeStart: port.netStart,
-		RangeEnd:   port.netEnd,
+		RangeStart: cableStart,
+		RangeEnd:   cableEnd,
 		Distance:   0,
 	}
 
 	var packets []*rtmp.DataPacket
 	rem := tuples
+	if len(rem) == 0 {
+		return []*rtmp.DataPacket{{
+			RouterAddr:    port.myAddr,
+			Extended:      true,
+			NetworkTuples: []rtmp.NetworkTuple{first},
+		}}
+	}
 	for len(rem) > 0 {
 		chunk := []rtmp.NetworkTuple{first}
 

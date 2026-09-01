@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -93,6 +94,28 @@ func (cs *EtherTalkConfigs) UnmarshalYAML(n *yaml.Node) error {
 	}
 }
 
+type YAMLDuration time.Duration
+
+func (d *YAMLDuration) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind != yaml.ScalarNode {
+		return fmt.Errorf("duration must be a scalar, got YAML kind %v", n.Kind)
+	}
+	if n.Tag == "!!int" {
+		seconds, err := strconv.ParseInt(n.Value, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid duration seconds %q: %w", n.Value, err)
+		}
+		*d = YAMLDuration(time.Duration(seconds) * time.Second)
+		return nil
+	}
+	v, err := time.ParseDuration(n.Value)
+	if err != nil {
+		return fmt.Errorf("invalid duration %q: %w", n.Value, err)
+	}
+	*d = YAMLDuration(v)
+	return nil
+}
+
 type SeedMode string
 
 const (
@@ -121,7 +144,8 @@ type EtherTalkConfig struct {
 	Device string `yaml:"device"`
 
 	// DefaultZoneName is the AppleTalk zone name for the network on this
-	// interface. Required.
+	// interface. Required for hard/soft seeds. A true non-seed may leave it
+	// empty and discover the default zone through ZIP GetNetInfo.
 	DefaultZoneName string `yaml:"zone_name"`
 
 	// ExtraZones is a list of any additional zone names that are available
@@ -133,6 +157,33 @@ type EtherTalkConfig struct {
 	// network on this interface (inclusive). Required.
 	NetStart ddp.Network `yaml:"net_start"`
 	NetEnd   ddp.Network `yaml:"net_end"`
+}
+
+func (c *EtherTalkConfig) UnmarshalYAML(n *yaml.Node) error {
+	var raw struct {
+		SeedMode        SeedMode     `yaml:"seed_mode"`
+		SoftSeedDelay   YAMLDuration `yaml:"soft_seed_delay"`
+		EthAddr         string       `yaml:"ethernet_addr"`
+		Device          string       `yaml:"device"`
+		DefaultZoneName string       `yaml:"zone_name"`
+		ExtraZones      []string     `yaml:"extra_zones"`
+		NetStart        ddp.Network  `yaml:"net_start"`
+		NetEnd          ddp.Network  `yaml:"net_end"`
+	}
+	if err := n.Decode(&raw); err != nil {
+		return err
+	}
+	*c = EtherTalkConfig{
+		SeedMode:        raw.SeedMode,
+		SoftSeedDelay:   time.Duration(raw.SoftSeedDelay),
+		EthAddr:         raw.EthAddr,
+		Device:          raw.Device,
+		DefaultZoneName: raw.DefaultZoneName,
+		ExtraZones:      raw.ExtraZones,
+		NetStart:        raw.NetStart,
+		NetEnd:          raw.NetEnd,
+	}
+	return nil
 }
 
 // LoadConfig readand parses a configuration file, and sets some defaults.
@@ -178,23 +229,38 @@ func LoadConfig(cfgPath string) (*Config, error) {
 				port.Device,
 			))
 		}
-		// Invalid network numbers are:
-		//
-		// 	0x0000 (0) - used for unknown or the local network
-		// 	0xff00 - 0xfffe (65280 thru 65534) - the startup range
-		// 	0xffff (65535) - probably invalid? I couldn't find anything
-		// 		talking about it in Inside AppleTalk
-		if port.NetStart > port.NetEnd {
-			validationErrs = append(validationErrs, fmt.Errorf("the network number range used for port %q is backwards (start %d > end %d)", port.Device, port.NetStart, port.NetEnd))
+		// Hard and soft seeds need a configured cable range. A true non-seed
+		// may omit it and discover/adopt the cable range dynamically while
+		// using the AppleTalk Phase 2 startup range.
+		hasNetStart := port.NetStart != 0
+		hasNetEnd := port.NetEnd != 0
+		if hasNetStart != hasNetEnd {
+			validationErrs = append(validationErrs, fmt.Errorf(
+				"port %q must configure both net_start and net_end, or neither",
+				port.Device,
+			))
 		}
-		if port.NetStart == 0 || port.NetEnd == 0 {
-			validationErrs = append(validationErrs, fmt.Errorf("invalid network number 0 used for port %q", port.Device))
+		if port.SeedMode != SeedModeNone && !hasNetStart && !hasNetEnd {
+			validationErrs = append(validationErrs, fmt.Errorf(
+				"seed_mode %q on port %q requires net_start and net_end",
+				port.SeedMode, port.Device,
+			))
 		}
-		if port.NetStart == 0xffff || port.NetEnd == 0xffff {
-			validationErrs = append(validationErrs, fmt.Errorf("invalid network number 65535 used for port %q", port.Device))
-		}
-		if (port.NetStart >= 0xff00 && port.NetStart <= 0xfffe) || (port.NetEnd >= 0xff00 && port.NetEnd <= 0xfffe) {
-			validationErrs = append(validationErrs, fmt.Errorf("invalid network number range (%d - %d) used for port %q; it must not overlap the startup range (65280 - 65534)", port.NetStart, port.NetEnd, port.Device))
+		if hasNetStart && hasNetEnd {
+			// Invalid configured network numbers are:
+			//
+			// 	0x0000 (0) - unknown / local network
+			// 	0xff00 - 0xfffe - Phase 2 startup range
+			// 	0xffff (65535) - reserved/invalid
+			if port.NetStart > port.NetEnd {
+				validationErrs = append(validationErrs, fmt.Errorf("the network number range used for port %q is backwards (start %d > end %d)", port.Device, port.NetStart, port.NetEnd))
+			}
+			if port.NetStart == 0xffff || port.NetEnd == 0xffff {
+				validationErrs = append(validationErrs, fmt.Errorf("invalid network number 65535 used for port %q", port.Device))
+			}
+			if (port.NetStart >= 0xff00 && port.NetStart <= 0xfffe) || (port.NetEnd >= 0xff00 && port.NetEnd <= 0xfffe) {
+				validationErrs = append(validationErrs, fmt.Errorf("invalid network number range (%d - %d) used for port %q; it must not overlap the startup range (65280 - 65534)", port.NetStart, port.NetEnd, port.Device))
+			}
 		}
 
 		// 255 is the limit on available zones for a network.
@@ -205,9 +271,15 @@ func LoadConfig(cfgPath string) (*Config, error) {
 		if len(port.DefaultZoneName) > 32 {
 			validationErrs = append(validationErrs, fmt.Errorf("port %q zone name %q (length %d) is too long; cannot be more than 32 characters", port.Device, port.DefaultZoneName, len(port.DefaultZoneName)))
 		}
-		// Must not be empty or '*'
-		if port.DefaultZoneName == "" || port.DefaultZoneName == "*" {
-			validationErrs = append(validationErrs, fmt.Errorf("port %q zone name %q is invalid; cannot be empty or *", port.Device, port.DefaultZoneName))
+		// Hard/soft seeds must have an explicit default zone. A true
+		// non-seed may send a NIL zone in GetNetInfo and learn the cable's
+		// default zone from the reply.
+		if port.DefaultZoneName == "*" ||
+			(port.SeedMode != SeedModeNone && port.DefaultZoneName == "") {
+			validationErrs = append(validationErrs, fmt.Errorf(
+				"port %q zone name %q is invalid for seed_mode %q",
+				port.Device, port.DefaultZoneName, port.SeedMode,
+			))
 		}
 		// The above, but for all extra zones
 		for _, zn := range port.ExtraZones {
