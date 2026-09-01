@@ -581,3 +581,80 @@ func TestSet26LoopIndicativeRequiresExactRangeSizeAndZones(t *testing.T) {
 		t.Fatalf("different range size produced %d loop indication(s)", got)
 	}
 }
+
+func TestSet26LoopProbeDestinationMapsMatchingOffset(t *testing.T) {
+	local := Route{NetEnd: 109}
+	local.NetStart = 100
+	remote := Route{NetEnd: 509}
+	remote.NetStart = 500
+	dst, err := loopProbeDestination(
+		ddp.Addr{Network: 104, Node: 42},
+		local,
+		remote,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dst != 504 {
+		t.Fatalf("loop-probe destination = %d, want 504", dst)
+	}
+}
+
+func TestSet26LoopProbeReturnSignalsPeerOnlyOnMatchingPort(t *testing.T) {
+	peer := newRestartTestPeer(t)
+	peer.loopDetectedCh = make(chan struct{}, 1)
+	portA := &EtherTalkPort{device: "a"}
+	portB := &EtherTalkPort{device: "b"}
+	token := []byte("set26-loop-probe")
+	investigation := &loopProbeInvestigation{
+		key:   "cfg:test|500",
+		token: token,
+		peer:  peer,
+		port:  portA,
+	}
+	rtr := &Router{
+		Logger: testLogger(t),
+		loopProbes: map[string]*loopProbeInvestigation{
+			string(token): investigation,
+		},
+		loopProbeByKey: map[string]string{
+			investigation.key: string(token),
+		},
+	}
+
+	if rtr.handleLoopProbeReturn(portB, new(ddp.ExtPacket), token) {
+		t.Fatal("probe returning on wrong local port confirmed loop")
+	}
+	if !rtr.handleLoopProbeReturn(portA, new(ddp.ExtPacket), token) {
+		t.Fatal("matching returned probe did not confirm loop")
+	}
+	if got := peer.ConfirmedRoutingLoops(); got != 1 {
+		t.Fatalf("confirmed loop counter = %d, want 1", got)
+	}
+	select {
+	case <-peer.loopDetectedCh:
+	default:
+		t.Fatal("confirmed loop did not signal peer handler")
+	}
+}
+
+func TestSet26ConfirmedLoopDisablesPeerAndRemovesRoutes(t *testing.T) {
+	peer := newRestartTestPeer(t)
+	peer.disconnectSender()
+	if _, err := peer.RouteTable.UpsertRoute(
+		peer,
+		true,
+		3500,
+		3500,
+		2,
+	); err != nil {
+		t.Fatal(err)
+	}
+	peer.handleConfirmedRoutingLoop()
+	if !peer.LoopDisabled() {
+		t.Fatal("confirmed loop did not disable peer")
+	}
+	if got := peer.RouteTable.find(peer, 3500); !got.Zero() {
+		t.Fatalf("route survived confirmed loop: %v", got)
+	}
+}

@@ -111,6 +111,7 @@ type AURPPeerTable struct {
 	dnsByConfigured   map[string]configuredDNSState
 	nextConnID        uint16
 	timing            AURPConfig
+	router            *Router
 }
 
 // NewAURPPeerTable creates a new AURP peer table.
@@ -133,6 +134,15 @@ func NewAURPPeerTable(ctx context.Context, logger *slog.Logger, configs ...AURPC
 	status.AddItem(ctx, "AURP Peers", peerTableTemplate, t.status)
 	prometheus.MustRegister(t)
 	return t
+}
+
+func (t *AURPPeerTable) AttachRouter(router *Router) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.router = router
+	for _, peer := range t.uniquePeersLocked() {
+		peer.router = router
+	}
 }
 
 // TrackConfiguredAddress records a configured peer even if its DNS lookup
@@ -289,10 +299,12 @@ func (t *AURPPeerTable) LookupOrCreate(
 		tunnelID:       tunnelID,
 		ReceiveCh:      make(chan aurp.RoutingPacket, 1024),
 		RouteTable:     routes,
+		router:         t.router,
 		timing:         t.timing,
 
-		logger:      logger.With("raddr", raddr4, "remote-di", aurp.DomainIdentifierDisplay(remoteDI)),
-		reconnectCh: make(chan struct{}, 1),
+		logger:         logger.With("raddr", raddr4, "remote-di", aurp.DomainIdentifierDisplay(remoteDI)),
+		reconnectCh:    make(chan struct{}, 1),
+		loopDetectedCh: make(chan struct{}, 1),
 	}
 	peer.setRemoteAddr(raddr4)
 

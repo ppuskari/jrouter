@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"drjosh.dev/jrouter/aurp"
 
@@ -39,6 +40,10 @@ type Router struct {
 	RouteTable *RouteTable
 	Ports      []*EtherTalkPort
 	AURPPeers  *AURPPeerTable
+
+	loopProbeMu    sync.Mutex
+	loopProbes     map[string]*loopProbeInvestigation
+	loopProbeByKey map[string]string
 }
 
 func ddpHopCount(ddpkt *ddp.ExtPacket) uint16 {

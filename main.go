@@ -124,6 +124,7 @@ func main() {
 		AURPPeers:  router.NewAURPPeerTable(ctx, logger, cfg.AURP),
 		Identity:   localDI,
 	}
+	rooter.AURPPeers.AttachRouter(rooter)
 
 	// --------------------------------- HTTP ---------------------------------
 	//

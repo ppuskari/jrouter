@@ -256,20 +256,22 @@ func routeRangeSize(route Route) uint32 {
 	return uint32(route.NetEnd) - uint32(route.NetStart) + 1
 }
 
-func (p *AURPPeer) loopIndicativeNetwork(network ddp.Network) bool {
+func (p *AURPPeer) loopIndicativeMatch(
+	network ddp.Network,
+) (remote Route, local Route, ok bool) {
 	if p.RouteTable == nil {
-		return false
+		return Route{}, Route{}, false
 	}
-	remote := p.RouteTable.find(p, network)
+	remote = p.RouteTable.find(p, network)
 	if remote.Zero() || routeRangeSize(remote) == 0 {
-		return false
+		return Route{}, Route{}, false
 	}
 	remoteZones := dedupeSortedZones(remote.ZoneNames())
 	if len(remoteZones) == 0 {
-		return false
+		return Route{}, Route{}, false
 	}
 
-	for local := range p.RouteTable.ValidRoutesForClass(TargetClassDirect) {
+	for local = range p.RouteTable.ValidRoutesForClass(TargetClassDirect) {
 		if routeRangeSize(local) != routeRangeSize(remote) {
 			continue
 		}
@@ -277,17 +279,26 @@ func (p *AURPPeer) loopIndicativeNetwork(network ddp.Network) bool {
 			dedupeSortedZones(local.ZoneNames()),
 			remoteZones,
 		) {
-			return true
+			return remote, local, true
 		}
 	}
-	return false
+	return Route{}, Route{}, false
+}
+
+func (p *AURPPeer) loopIndicativeNetwork(network ddp.Network) bool {
+	_, _, ok := p.loopIndicativeMatch(network)
+	return ok
 }
 
 func (p *AURPPeer) noteLoopIndicativeNetwork(network ddp.Network) bool {
-	if !p.loopIndicativeNetwork(network) {
+	remote, local, ok := p.loopIndicativeMatch(network)
+	if !ok {
 		return false
 	}
 	p.loopIndicativeRoutes.Add(1)
+	if p.router != nil {
+		p.router.startLoopInvestigation(p, remote, local)
+	}
 	return true
 }
 

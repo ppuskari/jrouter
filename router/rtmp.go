@@ -108,7 +108,14 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 			}
 
 		case rtmp.FunctionLoopProbe:
-			return fmt.Errorf("TODO: handle Loop Probes")
+			if port.router.handleLoopProbeReturn(port, pkt, req.Data) {
+				return nil
+			}
+			port.logger.Debug(
+				"RTMP: received foreign or stale Loop Probe",
+				"source", fmt.Sprintf("%d.%d", pkt.SrcNet, pkt.SrcNode),
+			)
+			return nil
 		}
 
 	case ddp.ProtoRTMPResp:

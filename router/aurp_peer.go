@@ -76,9 +76,11 @@ type AURPPeer struct {
 
 	// Route table (the peer will add/remove/update routes and zones)
 	RouteTable *RouteTable
+	router     *Router
 
 	// Used to signal that the peer handler loop should attempt to reconnect.
-	reconnectCh chan struct{}
+	reconnectCh    chan struct{}
+	loopDetectedCh chan struct{}
 
 	// Best-route changes waiting to be advertised in an RI-Upd.
 	// They are coalesced by network so a peer sees at most one event for a
@@ -129,6 +131,8 @@ type AURPPeer struct {
 	hopCountWeightedPackets atomic.Uint64
 	alternativePathForwards atomic.Uint64
 	reflectionDrops         atomic.Uint64
+	confirmedRoutingLoops   atomic.Uint64
+	loopDisabled            atomic.Bool
 
 	// SUI flags requested by the remote data receiver. These control which
 	// incremental routing events we send after the initial RI-Rsp exchange.
@@ -532,6 +536,29 @@ func (p *AURPPeer) ReflectionDrops() uint64 {
 	return p.reflectionDrops.Load()
 }
 
+func (p *AURPPeer) ConfirmedRoutingLoops() uint64 {
+	return p.confirmedRoutingLoops.Load()
+}
+
+func (p *AURPPeer) LoopDisabled() bool {
+	return p.loopDisabled.Load()
+}
+
+func (p *AURPPeer) handleConfirmedRoutingLoop() {
+	if !p.loopDisabled.CompareAndSwap(false, true) {
+		return
+	}
+	p.logger.Error("AURP Peer: confirmed routing loop; deactivating tunnel")
+	if p.SenderState() != SenderUnconnected && p.UDPConn != nil {
+		p.Transport.IncLocalSeq()
+		rd := p.Transport.NewSenderRDPacket(aurp.ErrCodeRoutingLoop)
+		if _, err := p.send(rd); err != nil {
+			p.logger.Warn("AURP Peer: couldn't send routing-loop RD", "error", err)
+		}
+	}
+	p.disconnect()
+}
+
 // ReconnectFailures returns the number of consecutive failed receiver
 // connection attempts since the last fully established routing connection.
 func (p *AURPPeer) ReconnectFailures() int {
@@ -608,6 +635,10 @@ func (p *AURPPeer) DumpChatLog() []ChatLogEntry {
 // tasks for this peer. It is safe to call multiple times concurrently - only
 // one will run.
 func (p *AURPPeer) Handle(ctx context.Context) {
+	if p.loopDisabled.Load() {
+		p.logger.Error("AURP: refusing to run loop-disabled peer", "tunnel-id", p.TunnelID())
+		return
+	}
 	if !p.running.CompareAndSwap(false, true) {
 		p.logger.Debug("AURP: handle loop for peer already running", "raddr", p.RemoteAddr())
 		return
@@ -644,9 +675,15 @@ func (p *AURPPeer) Handle(ctx context.Context) {
 			}
 			return
 
+		case <-p.loopDetectedCh:
+			p.handleConfirmedRoutingLoop()
+			return
+
 		case <-p.reconnectCh:
 			now := time.Now()
-			if p.ReceiverState() != ReceiverUnconnected || !p.reconnectReady(now) {
+			if p.loopDisabled.Load() ||
+				p.ReceiverState() != ReceiverUnconnected ||
+				!p.reconnectReady(now) {
 				continue
 			}
 			p.lastReconnect.Store(now)
