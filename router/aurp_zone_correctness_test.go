@@ -613,7 +613,7 @@ func TestSet26LoopProbeReturnSignalsPeerOnlyOnMatchingPort(t *testing.T) {
 		port:  portA,
 	}
 	rtr := &Router{
-		Logger: testLogger(t),
+		Logger: peer.logger,
 		loopProbes: map[string]*loopProbeInvestigation{
 			string(token): investigation,
 		},
