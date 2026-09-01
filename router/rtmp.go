@@ -192,7 +192,11 @@ func (port *EtherTalkPort) RunRTMP(ctx context.Context) (err error) {
 
 	// A soft/non-seed port may first own only a provisional startup-range
 	// address. RTMP must not advertise until the real cable range is adopted.
-	<-port.aarpMachine.Operational()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-port.aarpMachine.Operational():
+	}
 	if addr, ok := port.aarpMachine.Address(); ok {
 		port.myAddr = addr.Proto
 	}
