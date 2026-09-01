@@ -1,6 +1,8 @@
 package router
 
 import (
+	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -94,6 +96,53 @@ func TestSet24NumericSoftSeedDelayIsSeconds(t *testing.T) {
 	}
 	if gotDelay := time.Duration(got.EtherTalk[0].SoftSeedDelay); gotDelay != 15*time.Second {
 		t.Fatalf("soft seed delay = %v, want 15s", gotDelay)
+	}
+}
+
+func TestSet24DynamicRangeReplacementRemovesOldDirectRoute(t *testing.T) {
+	rtr := &Router{
+		Logger:     slog.Default(),
+		RouteTable: NewRouteTable(context.Background()),
+	}
+	port := &EtherTalkPort{
+		router: rtr,
+		device: "test0",
+		seed:   newSeedController(SeedModeNone, 30*time.Second, 0, 0, "Petar's Place"),
+	}
+	port.setCableRange(phase2StartupStart, phase2StartupEnd)
+
+	port.seed.observeRange(1000, 1009, true, "Petar's Place", time.Now())
+	if err := port.activateCableRange(1000, 1009); err != nil {
+		t.Fatal(err)
+	}
+	if route := rtr.RouteTable.Lookup(1000); route.Zero() {
+		t.Fatal("first learned direct route is not valid")
+	}
+
+	port.seed.observeRange(2000, 2009, true, "Petar's Place", time.Now())
+	if err := port.activateCableRange(2000, 2009); err != nil {
+		t.Fatal(err)
+	}
+	if route := rtr.RouteTable.find(port, 1000); !route.Zero() {
+		t.Fatalf("obsolete direct route remained after range replacement: %v", route)
+	}
+	if route := rtr.RouteTable.Lookup(2000); route.Zero() {
+		t.Fatal("replacement learned direct route is not valid")
+	}
+}
+
+func TestSet24SoftTakeoverCanUseAlreadyAdoptedRange(t *testing.T) {
+	s := newSeedController(SeedModeSoft, 30*time.Second, 1000, 1009, "Petar's Place")
+	now := time.Now()
+	s.observeRange(1000, 1009, true, "Petar's Place", now)
+	if !s.expireExternalAuthority(now.Add(91*time.Second), 90*time.Second) {
+		t.Fatal("external authority did not expire")
+	}
+	if !s.promoteSoft() {
+		t.Fatal("soft seed could not take over an already adopted cable range")
+	}
+	if got := s.snapshot().Effective; got != "soft-seed-active" {
+		t.Fatalf("effective state = %q, want soft-seed-active", got)
 	}
 }
 
