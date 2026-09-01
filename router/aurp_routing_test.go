@@ -890,3 +890,74 @@ func TestSet26DDPChecksumVerificationBeforeRemap(t *testing.T) {
 		t.Fatalf("failed checksum remap mutated source network to %d", bad.SrcNet)
 	}
 }
+
+func TestSet27RemapNoPolicyPreservesPayloadBacking(t *testing.T) {
+	data := []byte{1, 2, 3, 4}
+	packet := &ddp.ExtPacket{
+		ExtHeader: ddp.ExtHeader{
+			SrcNet: 101,
+			DstNet: 202,
+			Proto:  ddp.ProtoAEP,
+		},
+		Data: data,
+	}
+	before := &packet.Data[0]
+	peer := &AURPPeer{}
+	if err := peer.remapInboundDDP(packet); err != nil {
+		t.Fatal(err)
+	}
+	if &packet.Data[0] != before {
+		t.Fatal("no-policy inbound remap copied payload data")
+	}
+}
+
+func TestSet27HeaderOnlyRemapPreservesPayloadBacking(t *testing.T) {
+	data := []byte{5, 6, 7, 8}
+	packet := &ddp.ExtPacket{
+		ExtHeader: ddp.ExtHeader{
+			SrcNet: 102,
+			DstNet: 900,
+			Proto:  ddp.ProtoAEP,
+		},
+		Data: data,
+	}
+	before := &packet.Data[0]
+	peer := &AURPPeer{
+		tunnelID: "cfg:fast-remap.example",
+		timing: AURPConfig{RemapRules: []AURPRemapRule{{
+			Peer:        "cfg:fast-remap.example",
+			RemoteStart: 100,
+			RemoteEnd:   109,
+			LocalStart:  5000,
+			LocalEnd:    5009,
+		}}},
+	}
+	if err := peer.remapInboundDDP(packet); err != nil {
+		t.Fatal(err)
+	}
+	if packet.SrcNet != 5002 {
+		t.Fatalf("remapped source = %d, want 5002", packet.SrcNet)
+	}
+	if &packet.Data[0] != before {
+		t.Fatal("header-only inbound remap copied payload data")
+	}
+
+	outbound := &ddp.ExtPacket{
+		ExtHeader: ddp.ExtHeader{
+			DstNet: 5004,
+			Proto:  ddp.ProtoAEP,
+		},
+		Data: data,
+	}
+	outBefore := &outbound.Data[0]
+	mapped, err := peer.remapOutboundDDP(outbound)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mapped.DstNet != 104 {
+		t.Fatalf("outbound remapped destination = %d, want 104", mapped.DstNet)
+	}
+	if &mapped.Data[0] != outBefore {
+		t.Fatal("header-only outbound remap copied payload data")
+	}
+}

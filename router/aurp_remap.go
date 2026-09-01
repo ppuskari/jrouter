@@ -30,6 +30,15 @@ func (r AURPRemapRule) matchesPeer(peer *AURPPeer) bool {
 	return peerSelectorMatches(r.Peer, peer)
 }
 
+func (p *AURPPeer) hasRemapRuleForPeer() bool {
+	for _, rule := range p.timing.RemapRules {
+		if rule.matchesPeer(p) {
+			return true
+		}
+	}
+	return false
+}
+
 func remapNetworkNumber(
 	network ddp.Network,
 	fromStart ddp.Network,
@@ -140,8 +149,10 @@ func (p *AURPPeer) remapInboundEvent(
 }
 
 func (p *AURPPeer) remapInboundDDP(packet *ddp.ExtPacket) error {
+	if packet == nil || !p.hasRemapRuleForPeer() {
+		return nil
+	}
 	working := *packet
-	working.Data = append([]byte(nil), packet.Data...)
 	changed := false
 	if mapped, ok := p.remapInboundNetwork(working.SrcNet); ok {
 		working.SrcNet = mapped
@@ -197,7 +208,6 @@ func (p *AURPPeer) remapOutboundDDP(
 	clone := *packet
 	clone.DstNet = mapped
 	clone.Cksum = 0
-	clone.Data = append([]byte(nil), packet.Data...)
 	return &clone, nil
 }
 
