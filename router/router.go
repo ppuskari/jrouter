@@ -41,19 +41,50 @@ type Router struct {
 	AURPPeers  *AURPPeerTable
 }
 
+func ddpHopCount(ddpkt *ddp.ExtPacket) uint16 {
+	return (ddpkt.Size & 0x3C00) >> 10
+}
+
+func setDDPHopCount(ddpkt *ddp.ExtPacket, hopCount uint16) {
+	ddpkt.Size &^= 0x3C00
+	ddpkt.Size |= (hopCount & 0x0f) << 10
+}
+
+func reduceAURPHopCount(ddpkt *ddp.ExtPacket, route Route) (bool, error) {
+	hopCount := ddpHopCount(ddpkt)
+	if hopCount >= maxRouteDistance {
+		return false, fmt.Errorf(
+			"hop count exceeded limit (%d >= %d)",
+			hopCount,
+			maxRouteDistance,
+		)
+	}
+	remaining := uint16(route.Distance)
+	if remaining >= maxRouteDistance {
+		return false, fmt.Errorf(
+			"remaining route distance too high for hop-count reduction (%d)",
+			remaining,
+		)
+	}
+	if hopCount+remaining <= maxRouteDistance {
+		return false, nil
+	}
+	newHopCount := uint16(maxRouteDistance) - remaining
+	if newHopCount >= hopCount {
+		return false, nil
+	}
+	setDDPHopCount(ddpkt, newHopCount)
+	return true, nil
+}
+
 // Forward increments the hop count, then outputs the packet in the direction
 // of the destination.
 func (rtr *Router) Forward(ctx context.Context, ddpkt *ddp.ExtPacket) error {
-	// Check and adjust the Hop Count
-	// Note the ddp package doesn't make this simple
-	hopCount := (ddpkt.Size & 0x3C00) >> 10
+	hopCount := ddpHopCount(ddpkt)
 	if hopCount >= maxRouteDistance {
 		return fmt.Errorf("hop count exceeded limit (%d >= %d)", hopCount, maxRouteDistance)
 	}
-	hopCount++
-	ddpkt.Size &^= 0x3C00
-	ddpkt.Size |= hopCount << 10
-
+	setDDPHopCount(ddpkt, hopCount+1)
 	return rtr.Output(ctx, ddpkt)
 }
 
@@ -106,6 +137,13 @@ func (rtr *Router) OutputFromAURP(
 	route, err := rtr.outputRoute(ddpkt, ingress.TunnelID())
 	if err != nil {
 		return err
+	}
+	if rtr.Config != nil &&
+		rtr.Config.AURP.HopCountReduction &&
+		route.Target.Class() != TargetClassAURPPeer {
+		if _, err := reduceAURPHopCount(ddpkt, route); err != nil {
+			return err
+		}
 	}
 	return route.Target.Forward(ctx, ddpkt)
 }

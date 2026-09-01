@@ -388,3 +388,40 @@ func TestSet26OutputFromAURPDropsHiddenDestination(t *testing.T) {
 		t.Fatal("AURP packet to hidden local network was accepted")
 	}
 }
+
+func TestSet26HopCountReductionAdjustsOnlyWhenNecessary(t *testing.T) {
+	route := Route{Distance: 6}
+	pkt := new(ddp.ExtPacket)
+	setDDPHopCount(pkt, 12)
+
+	changed, err := reduceAURPHopCount(pkt, route)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("hop-count reduction did not adjust an over-limit path")
+	}
+	if got, want := ddpHopCount(pkt), uint16(9); got != want {
+		t.Fatalf("reduced hop count = %d, want %d", got, want)
+	}
+
+	setDDPHopCount(pkt, 4)
+	changed, err = reduceAURPHopCount(pkt, route)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed || ddpHopCount(pkt) != 4 {
+		t.Fatalf("safe path was unnecessarily reduced: changed=%v hop=%d", changed, ddpHopCount(pkt))
+	}
+}
+
+func TestSet26HopCountReductionAdvertisesAURPRouteAsOneHopToRTMP(t *testing.T) {
+	aurpTarget := fakeTarget{key: "aurp-hcr", class: TargetClassAURPPeer}
+	localTarget := fakeTarget{key: "local-hcr", class: TargetClassAppleTalkPeer}
+	if got := rtmpAdvertisedDistance(testAURPRoute(aurpTarget, 3100, 8), true); got != 1 {
+		t.Fatalf("AURP route advertised distance = %d, want 1", got)
+	}
+	if got := rtmpAdvertisedDistance(testAURPRoute(localTarget, 3101, 8), true); got != 8 {
+		t.Fatalf("local route advertised distance = %d, want 8", got)
+	}
+}

@@ -266,6 +266,13 @@ func (port *EtherTalkPort) broadcastRTMPData() error {
 	return nil
 }
 
+func rtmpAdvertisedDistance(route Route, hopCountReduction bool) uint8 {
+	if hopCountReduction && route.RouteOrigin().Kind == RouteOriginAURP {
+		return 1
+	}
+	return route.Distance
+}
+
 func (port *EtherTalkPort) rtmpDataPackets(splitHorizon bool) []*rtmp.DataPacket {
 	// Build up a slice of routing tuples.
 	var tuples []rtmp.NetworkTuple
@@ -282,11 +289,13 @@ func (port *EtherTalkPort) rtmpDataPackets(splitHorizon bool) []*rtmp.DataPacket
 			// include it.
 			continue
 		}
+		hopCountReduction := port.router.Config != nil &&
+			port.router.Config.AURP.HopCountReduction
 		tuples = append(tuples, rtmp.NetworkTuple{
 			Extended:   r.Extended,
 			RangeStart: r.NetStart,
 			RangeEnd:   r.NetEnd,
-			Distance:   r.Distance,
+			Distance:   rtmpAdvertisedDistance(r, hopCountReduction),
 		})
 	}
 	// "The first tuple in RTMP Data packets sent on extended

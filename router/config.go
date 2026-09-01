@@ -174,6 +174,7 @@ type AURPConfig struct {
 	TickleRetryLimit      int                `yaml:"tickle_retry_limit"`
 	ZoneInfoRetryInterval time.Duration      `yaml:"-"`
 	HiddenNetworks        []AURPNetworkRange `yaml:"hidden_networks"`
+	HopCountReduction     bool               `yaml:"hop_count_reduction"`
 }
 
 func (c AURPConfig) networkHidden(network ddp.Network) bool {
@@ -202,6 +203,7 @@ func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
 		TickleRetryLimit      int                `yaml:"tickle_retry_limit"`
 		ZoneInfoRetryInterval YAMLDuration       `yaml:"zone_info_retry_interval"`
 		HiddenNetworks        []AURPNetworkRange `yaml:"hidden_networks"`
+		HopCountReduction     bool               `yaml:"hop_count_reduction"`
 	}
 	if err := n.Decode(&raw); err != nil {
 		return err
@@ -213,6 +215,7 @@ func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
 		TickleRetryLimit:      raw.TickleRetryLimit,
 		ZoneInfoRetryInterval: time.Duration(raw.ZoneInfoRetryInterval),
 		HiddenNetworks:        raw.HiddenNetworks,
+		HopCountReduction:     raw.HopCountReduction,
 	}
 	return nil
 }
@@ -349,6 +352,11 @@ func LoadConfig(cfgPath string) (*Config, error) {
 	if c.AURP.ZoneInfoRetryInterval <= 0 {
 		validationErrs = append(validationErrs, fmt.Errorf(
 			"aurp.zone_info_retry_interval must be positive, got %v", c.AURP.ZoneInfoRetryInterval,
+		))
+	}
+	if c.AURP.HopCountReduction {
+		validationErrs = append(validationErrs, fmt.Errorf(
+			"aurp.hop_count_reduction is not yet safe to enable until Loop Probe enforcement is complete",
 		))
 	}
 

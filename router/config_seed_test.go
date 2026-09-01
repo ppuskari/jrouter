@@ -200,3 +200,22 @@ ethertalk:
 		t.Fatal("reversed AURP hidden network range was accepted")
 	}
 }
+
+func TestLoadConfigRejectsHopCountReductionUntilLoopProbeEnforcementExists(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jrouter.yaml")
+	data := []byte(`aurp:
+  hop_count_reduction: true
+ethertalk:
+  - device: en0
+    zone_name: Test
+    net_start: 100
+    net_end: 100
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadConfig(path); err == nil {
+		t.Fatal("hop-count reduction was enabled before Loop Probe enforcement")
+	}
+}
