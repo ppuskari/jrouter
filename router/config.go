@@ -357,11 +357,6 @@ func LoadConfig(cfgPath string) (*Config, error) {
 			"aurp.zone_info_retry_interval must be positive, got %v", c.AURP.ZoneInfoRetryInterval,
 		))
 	}
-	if c.AURP.HopCountReduction {
-		validationErrs = append(validationErrs, fmt.Errorf(
-			"aurp.hop_count_reduction is not yet safe to enable until Loop Probe enforcement is complete",
-		))
-	}
 	if c.AURP.HopCountWeight >= maxRouteDistance {
 		validationErrs = append(validationErrs, fmt.Errorf(
 			"aurp.hop_count_weight must be less than %d, got %d",

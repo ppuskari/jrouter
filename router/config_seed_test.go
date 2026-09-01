@@ -201,7 +201,7 @@ ethertalk:
 	}
 }
 
-func TestLoadConfigRejectsHopCountReductionUntilLoopProbeEnforcementExists(t *testing.T) {
+func TestLoadConfigAcceptsHopCountReductionWithLoopProbeEnforcement(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "jrouter.yaml")
 	data := []byte(`aurp:
@@ -215,8 +215,12 @@ ethertalk:
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadConfig(path); err == nil {
-		t.Fatal("hop-count reduction was enabled before Loop Probe enforcement")
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.AURP.HopCountReduction {
+		t.Fatal("hop-count reduction config was not enabled")
 	}
 }
 
