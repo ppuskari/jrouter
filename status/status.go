@@ -190,7 +190,7 @@ func (i *templatedItem) Eval(ctx context.Context) template.HTML {
 			Error:     err,
 			Item:      data,
 		})
-		return template.HTML(sb.String())
+		return template.HTML(cleanHTMLFragment(sb.String()))
 	}
 	if err := i.tmpl.Execute(&sb, data); err != nil {
 		errorTmpl.Execute(&sb, errorData{
@@ -199,7 +199,16 @@ func (i *templatedItem) Eval(ctx context.Context) template.HTML {
 			Item:      data,
 		})
 	}
-	return template.HTML(sb.String())
+	return template.HTML(cleanHTMLFragment(sb.String()))
+}
+
+// cleanHTMLFragment keeps embedded status templates from leaking formatting
+// control characters into the page. In particular, a tab can otherwise show
+// up as the literal HTML entity "&#x9;" in a table cell.
+func cleanHTMLFragment(s string) string {
+	s = strings.ReplaceAll(s, "&#x9;", " ")
+	s = strings.ReplaceAll(s, "\t", " ")
+	return strings.TrimSpace(s)
 }
 
 // Handle handles status page requests.
@@ -212,8 +221,15 @@ func Handle(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	rootItem.mu.RLock()
+	items := make(map[string]item, len(rootItem.items))
+	for title, item := range rootItem.items {
+		items[title] = item
+	}
+	rootItem.mu.RUnlock()
+
 	data := &statusData{
-		Items:        rootItem.items,
+		Items:        items,
 		Version:      meta.Version,
 		Build:        build,
 		Hostname:     hostname,
@@ -235,8 +251,6 @@ func Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The status template ranges over the items.
-	rootItem.mu.RLock()
-	defer rootItem.mu.RUnlock()
 	if err := statusTmpl.Execute(w, data); err != nil {
 		errorTmpl.Execute(w, errorData{
 			Operation: "Error while executing main template",

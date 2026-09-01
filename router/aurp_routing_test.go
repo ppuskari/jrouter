@@ -320,3 +320,24 @@ func TestAURPInconsistentUpdateHandling(t *testing.T) {
 		t.Fatalf("valid tuple after poison not installed: %v", r)
 	}
 }
+
+func TestAURPRouteTupleSafeguardsRejectInvalidRanges(t *testing.T) {
+	rt := NewRouteTable(t.Context())
+	peer := &AURPPeer{RouteTable: rt}
+
+	if accepted, err := peer.applyRIRspNetworkTuple(aurp.NetworkTuple{
+		RangeStart: 900, RangeEnd: 901,
+	}); err == nil || accepted {
+		t.Fatalf("non-extended RI-Rsp tuple accepted=%v err=%v", accepted, err)
+	}
+	if accepted, err := peer.applyRIRspNetworkTuple(aurp.NetworkTuple{
+		Extended: true, RangeStart: 901, RangeEnd: 900,
+	}); err == nil || accepted {
+		t.Fatalf("reversed RI-Rsp tuple accepted=%v err=%v", accepted, err)
+	}
+	if needZoneInfo, err := peer.applyRIUpdEvent(aurp.EventTuple{
+		EventCode: aurp.EventCodeNA, RangeStart: 902, RangeEnd: 903,
+	}); err == nil || needZoneInfo {
+		t.Fatalf("invalid RI-Upd tuple needZoneInfo=%v err=%v", needZoneInfo, err)
+	}
+}

@@ -125,6 +125,67 @@ func TestAURPRIUpdDuringRIRspSyncIsAckedButNotApplied(t *testing.T) {
 	}
 }
 
+func TestAURPRIRspLateAndDuplicateHandlingIsIdempotent(t *testing.T) {
+	peer := newRestartTestPeer(t)
+	peer.setRState(ReceiverWaitForRIRsp)
+	peer.Transport.ResetRemoteSeq()
+
+	first := &aurp.RIRspPacket{
+		Header: aurp.Header{
+			TrHeader: aurp.TrHeader{
+				ConnectionID: peer.Transport.LocalConnID(),
+				Sequence:     1,
+			},
+			CommandCode: aurp.CmdCodeRIRsp,
+			Flags:       aurp.RoutingFlagLast,
+		},
+		Networks: aurp.NetworkTuples{{
+			Extended: true, RangeStart: 4242, RangeEnd: 4242, Distance: 1,
+		}},
+	}
+	if err := peer.handleRIRsp(peer.logger, first); err != nil {
+		t.Fatal(err)
+	}
+	if got := peer.ReceiverState(); got != ReceiverConnected {
+		t.Fatalf("receiver state after RI-Rsp = %v, want connected", got)
+	}
+	if got := peer.Transport.RemoteSeq(); got != 2 {
+		t.Fatalf("remote sequence after RI-Rsp = %d, want 2", got)
+	}
+
+	// A valid refresh can arrive after the state has returned to connected.
+	late := &aurp.RIRspPacket{
+		Header: aurp.Header{
+			TrHeader: aurp.TrHeader{
+				ConnectionID: peer.Transport.LocalConnID(),
+				Sequence:     2,
+			},
+			CommandCode: aurp.CmdCodeRIRsp,
+		},
+		Networks: aurp.NetworkTuples{{
+			Extended: true, RangeStart: 4243, RangeEnd: 4243, Distance: 2,
+		}},
+	}
+	if err := peer.handleRIRsp(peer.logger, late); err != nil {
+		t.Fatal(err)
+	}
+	if got := peer.Transport.RemoteSeq(); got != 3 {
+		t.Fatalf("remote sequence after late RI-Rsp = %d, want 3", got)
+	}
+
+	// Replaying the same packet must only re-ACK and drop; it must not
+	// refresh sequence state or create another route candidate.
+	if err := peer.handleRIRsp(peer.logger, late); err != nil {
+		t.Fatal(err)
+	}
+	if got := peer.Transport.RemoteSeq(); got != 3 {
+		t.Fatalf("remote sequence after duplicate RI-Rsp = %d, want 3", got)
+	}
+	if route := peer.RouteTable.find(peer, 4243); route.Zero() || route.Distance != 3 {
+		t.Fatalf("late RI-Rsp route after duplicate = %v, want distance 3", route)
+	}
+}
+
 func TestAURPSUIFlagsFilterIncrementalEvents(t *testing.T) {
 	local := fakeTarget{key: "local", class: TargetClassAppleTalkPeer}
 	before := Route{}

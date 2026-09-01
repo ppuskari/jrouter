@@ -103,3 +103,10 @@ func TestSmokeHandle(t *testing.T) {
 		t.Errorf("Handle(rec, req): rec.Result().StatusCode = %v, want %v", got, want)
 	}
 }
+
+func TestCleanHTMLFragmentRemovesPresentationArtifacts(t *testing.T) {
+	got := cleanHTMLFragment("\n<td>extended&#x9;</td>\t\n")
+	if want := "<td>extended </td>"; got != want {
+		t.Fatalf("cleanHTMLFragment() = %q, want %q", got, want)
+	}
+}
