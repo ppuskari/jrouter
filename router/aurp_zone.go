@@ -4,14 +4,103 @@ import (
 	"bytes"
 	"fmt"
 	"slices"
+	"time"
 
 	"drjosh.dev/jrouter/aurp"
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
+const aurpZoneInfoRetryTimer = 10 * time.Second
+
 type pendingAURPZoneInfo struct {
-	total uint16
-	zones Set[string]
+	total        uint16
+	zones        Set[string]
+	lastActivity time.Time
+}
+
+func (p *AURPPeer) markZoneInfoPending(network ddp.Network) {
+	if p.pendingZoneInfo == nil {
+		p.pendingZoneInfo = make(map[ddp.Network]*pendingAURPZoneInfo)
+	}
+	p.pendingZoneInfo[network] = &pendingAURPZoneInfo{
+		zones:        make(Set[string]),
+		lastActivity: time.Now(),
+	}
+}
+
+func buildZIReqPackets(
+	tr *aurp.Transport,
+	networks []ddp.Network,
+) ([]*aurp.ZIReqPacket, error) {
+	if len(networks) == 0 {
+		return nil, nil
+	}
+
+	networks = append([]ddp.Network(nil), networks...)
+	slices.Sort(networks)
+	networks = slices.Compact(networks)
+
+	baseSize, err := aurpPacketSize(tr.NewZIReqPacket(nil))
+	if err != nil {
+		return nil, err
+	}
+	maxNetworks := (aurpRoutingDatagramBudget - baseSize) / 2
+	if maxNetworks <= 0 {
+		return nil, fmt.Errorf(
+			"ZI-Req header size %d exceeds datagram budget %d",
+			baseSize,
+			aurpRoutingDatagramBudget,
+		)
+	}
+
+	packets := make([]*aurp.ZIReqPacket, 0, (len(networks)+maxNetworks-1)/maxNetworks)
+	for len(networks) > 0 {
+		n := min(len(networks), maxNetworks)
+		packets = append(packets, tr.NewZIReqPacket(networks[:n]))
+		networks = networks[n:]
+	}
+	return packets, nil
+}
+
+func (p *AURPPeer) retryIncompleteZoneInfo(now time.Time) error {
+	if len(p.pendingZoneInfo) == 0 {
+		return nil
+	}
+
+	var networks []ddp.Network
+	for network, pending := range p.pendingZoneInfo {
+		if !p.ownsAURPNetwork(network) {
+			delete(p.pendingZoneInfo, network)
+			continue
+		}
+		if pending == nil {
+			p.markZoneInfoPending(network)
+			pending = p.pendingZoneInfo[network]
+		}
+		if !pending.lastActivity.IsZero() && now.Sub(pending.lastActivity) < aurpZoneInfoRetryTimer {
+			continue
+		}
+		networks = append(networks, network)
+	}
+	if len(networks) == 0 {
+		return nil
+	}
+
+	packets, err := buildZIReqPackets(p.Transport, networks)
+	if err != nil {
+		return err
+	}
+	for _, pkt := range packets {
+		if _, err := p.send(pkt); err != nil {
+			return err
+		}
+	}
+	for _, network := range networks {
+		if pending := p.pendingZoneInfo[network]; pending != nil {
+			pending.lastActivity = now
+		}
+	}
+	return nil
 }
 
 func dedupeSortedZones(zones []string) []string {
@@ -190,12 +279,18 @@ func (p *AURPPeer) applyExtendedZIRsp(
 		p.pendingZoneInfo = make(map[ddp.Network]*pendingAURPZoneInfo)
 	}
 	pending := p.pendingZoneInfo[network]
-	if pending == nil || pending.total != pkt.TotalTuples {
+	if pending == nil || (pending.total != 0 && pending.total != pkt.TotalTuples) {
 		pending = &pendingAURPZoneInfo{
-			total: pkt.TotalTuples,
-			zones: make(Set[string]),
+			total:        pkt.TotalTuples,
+			zones:        make(Set[string]),
+			lastActivity: time.Now(),
 		}
 		p.pendingZoneInfo[network] = pending
+	} else {
+		if pending.total == 0 {
+			pending.total = pkt.TotalTuples
+		}
+		pending.lastActivity = time.Now()
 	}
 
 	for _, zt := range pkt.Zones {

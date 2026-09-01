@@ -41,6 +41,41 @@ func TestAURPLastHeardOnlyAdvancesForReceiverLiveness(t *testing.T) {
 	}
 }
 
+func TestAURPOpenReqIgnoresUnsupportedOptions(t *testing.T) {
+	peer := newRestartTestPeer(t)
+	peer.disconnectSender()
+
+	req := newRestartOpenReq(3000)
+	req.Options = aurp.Options{
+		{Type: aurp.OptionTypeAuthentication, Data: []byte{1, 2, 3}},
+		{Type: aurp.OptionType(0xfe), Data: []byte{4, 5}},
+	}
+	if err := peer.handleOpenReq(peer.logger, req); err != nil {
+		t.Fatal(err)
+	}
+	if got := peer.SenderState(); got != SenderConnected {
+		t.Fatalf("sender state = %v, want connected", got)
+	}
+	if got := peer.Transport.RemoteConnID(); got != 3000 {
+		t.Fatalf("remote connection ID = %d, want 3000", got)
+	}
+
+	entries := peer.DumpChatLog()
+	if len(entries) == 0 {
+		t.Fatal("Open-Req produced no Open-Rsp")
+	}
+	rsp, ok := entries[len(entries)-1].Packet.(*aurp.OpenRspPacket)
+	if !ok {
+		t.Fatalf("last packet = %T, want *aurp.OpenRspPacket", entries[len(entries)-1].Packet)
+	}
+	if rsp.RateOrErrCode < 0 {
+		t.Fatalf("Open-Rsp rejected unsupported options with %d", rsp.RateOrErrCode)
+	}
+	if len(rsp.Options) != 0 {
+		t.Fatalf("unsupported options were echoed: %v", rsp.Options)
+	}
+}
+
 func TestAURPSenderRDPacketUsesSequence(t *testing.T) {
 	peer := newRestartTestPeer(t)
 	peer.setRState(ReceiverConnected)

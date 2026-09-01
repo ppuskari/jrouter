@@ -661,6 +661,14 @@ func (p *AURPPeer) rtickerTasks() error {
 			p.setSState(SenderWaitForRIUpdAck)
 		}
 	}
+
+	switch p.ReceiverState() {
+	case ReceiverConnected, ReceiverWaitForTickleAck:
+		if err := p.retryIncompleteZoneInfo(time.Now()); err != nil {
+			p.logger.Error("AURP Peer: Couldn't re-request incomplete zone information", "error", err)
+			return err
+		}
+	}
 	return nil
 }
 
@@ -949,6 +957,15 @@ func (p *AURPPeer) handleOpenReq(logger *slog.Logger, pkt *aurp.OpenReqPacket) e
 	p.Transport.SetRemoteConnID(pkt.ConnectionID)
 	p.setSUIFlags(pkt.Flags)
 
+	// RFC 1504 permits a sender that does not implement requested options to
+	// discard the option tuples and continue opening the connection.
+	if len(pkt.Options) > 0 {
+		logger.Info(
+			"AURP Peer: ignoring unsupported Open-Req option data",
+			"option-count", len(pkt.Options),
+		)
+	}
+
 	// Formulate a response.
 	var orsp *aurp.OpenRspPacket
 	switch {
@@ -956,12 +973,7 @@ func (p *AURPPeer) handleOpenReq(logger *slog.Logger, pkt *aurp.OpenReqPacket) e
 		// Respond with Open-Rsp with unknown version error.
 		orsp = p.Transport.NewOpenRspPacket(0, int16(aurp.ErrCodeInvalidVersion), nil)
 
-	case len(pkt.Options) > 0:
-		// Options? OPTIONS? We don't accept no stinkin' _options_
-		orsp = p.Transport.NewOpenRspPacket(0, int16(aurp.ErrCodeOptionNegotiation), nil)
-
 	default:
-		// Accept it I guess.
 		orsp = p.Transport.NewOpenRspPacket(0, 1, nil)
 	}
 
@@ -1144,6 +1156,7 @@ func (p *AURPPeer) handleRIRsp(logger *slog.Logger, pkt *aurp.RIRspPacket) error
 			)
 			continue
 		}
+		p.markZoneInfoPending(nt.RangeStart)
 	}
 
 	// TODO: track which networks we don't have zone info for, and
@@ -1476,6 +1489,7 @@ func (p *AURPPeer) handleRIUpd(logger *slog.Logger, pkt *aurp.RIUpdPacket) error
 			)
 		}
 		if needZoneInfo {
+			p.markZoneInfoPending(et.RangeStart)
 			ackFlag = aurp.RoutingFlagSendZoneInfo
 		}
 	}

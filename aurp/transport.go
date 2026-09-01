@@ -296,6 +296,21 @@ func (tr *Transport) NewRIUpdPacket(events EventTuples) *RIUpdPacket {
 	}
 }
 
+// NewZIReqPacket returns a ZI-Req transaction requesting complete zone
+// information for the supplied network numbers. For an extended network,
+// callers pass the first network number in the range, as required by RFC 1504.
+func (tr *Transport) NewZIReqPacket(networks []ddp.Network) *ZIReqPacket {
+	return &ZIReqPacket{
+		Header: Header{
+			TrHeader:    tr.transaction(tr.LocalConnID()),
+			CommandCode: CmdCodeZoneReq,
+			Flags:       0,
+		},
+		Subcode:  SubcodeZoneInfoReq,
+		Networks: append([]ddp.Network(nil), networks...),
+	}
+}
+
 // NewZIRspPacket returns a nonextended ZI-Rsp packet containing the given
 // complete zone lists. Extended responses are constructed explicitly when a
 // single network's zone list does not fit in one packet.

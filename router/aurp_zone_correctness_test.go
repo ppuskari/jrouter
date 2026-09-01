@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"testing"
+	"time"
 
 	"drjosh.dev/jrouter/aurp"
 	"github.com/sfiera/multitalk/pkg/ddp"
@@ -309,5 +310,93 @@ func TestSet9ZIRspSenderUsesExtendedPacketsWhenNeeded(t *testing.T) {
 				t.Fatalf("packet %d contains network %d, want 2500", i, zt.Network)
 			}
 		}
+	}
+}
+
+func TestSet26MissingZIResponseIsRetried(t *testing.T) {
+	peer := newRestartTestPeer(t)
+	if _, err := peer.RouteTable.UpsertRoute(peer, true, 2600, 2600, 2); err != nil {
+		t.Fatal(err)
+	}
+	peer.markZoneInfoPending(2600)
+	peer.pendingZoneInfo[2600].lastActivity = time.Now().Add(-2 * aurpZoneInfoRetryTimer)
+
+	before := len(peer.DumpChatLog())
+	if err := peer.retryIncompleteZoneInfo(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	entries := peer.DumpChatLog()
+	if len(entries) != before+1 {
+		t.Fatalf("chat log entries = %d, want %d", len(entries), before+1)
+	}
+	req, ok := entries[len(entries)-1].Packet.(*aurp.ZIReqPacket)
+	if !ok {
+		t.Fatalf("retry packet = %T, want *aurp.ZIReqPacket", entries[len(entries)-1].Packet)
+	}
+	if !slices.Equal(req.Networks, []ddp.Network{2600}) {
+		t.Fatalf("ZI-Req networks = %v, want [2600]", req.Networks)
+	}
+	if req.ConnectionID != peer.Transport.LocalConnID() || req.Sequence != 0 {
+		t.Fatalf("ZI-Req transport = conn %d seq %d, want conn %d seq 0", req.ConnectionID, req.Sequence, peer.Transport.LocalConnID())
+	}
+}
+
+func TestSet26PartialExtendedZIIsRetriedUntilComplete(t *testing.T) {
+	peer := newRestartTestPeer(t)
+	if _, err := peer.RouteTable.UpsertRoute(peer, true, 2700, 2700, 2); err != nil {
+		t.Fatal(err)
+	}
+	peer.markZoneInfoPending(2700)
+
+	complete, _, err := peer.applyExtendedZIRsp(&aurp.ZIRspPacket{
+		Subcode:     aurp.SubcodeZoneInfoExt,
+		TotalTuples: 2,
+		Zones: aurp.ZoneTuples{
+			{Network: 2700, Name: "Zone A"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if complete {
+		t.Fatal("partial extended response reported complete")
+	}
+	peer.pendingZoneInfo[2700].lastActivity = time.Now().Add(-2 * aurpZoneInfoRetryTimer)
+
+	before := len(peer.DumpChatLog())
+	if err := peer.retryIncompleteZoneInfo(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	entries := peer.DumpChatLog()
+	if len(entries) != before+1 {
+		t.Fatalf("partial extended response did not trigger one retry")
+	}
+	if _, ok := entries[len(entries)-1].Packet.(*aurp.ZIReqPacket); !ok {
+		t.Fatalf("retry packet = %T, want *aurp.ZIReqPacket", entries[len(entries)-1].Packet)
+	}
+
+	complete, _, err = peer.applyExtendedZIRsp(&aurp.ZIRspPacket{
+		Subcode:     aurp.SubcodeZoneInfoExt,
+		TotalTuples: 2,
+		Zones: aurp.ZoneTuples{
+			{Network: 2700, Name: "Zone B"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !complete {
+		t.Fatal("completed extended response remained incomplete")
+	}
+	if _, ok := peer.pendingZoneInfo[2700]; ok {
+		t.Fatal("completed zone list remained pending")
+	}
+
+	before = len(peer.DumpChatLog())
+	if err := peer.retryIncompleteZoneInfo(time.Now().Add(10 * aurpZoneInfoRetryTimer)); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(peer.DumpChatLog()); got != before {
+		t.Fatalf("completed zone list was retried: chat log %d -> %d", before, got)
 	}
 }
