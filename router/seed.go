@@ -416,4 +416,3 @@ func (port *EtherTalkPort) RunSeedState(ctx context.Context) error {
 		}
 	}
 }
-
