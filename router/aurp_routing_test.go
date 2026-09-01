@@ -760,6 +760,56 @@ func TestSet26BackupPeerPenaltyRetainsButDeprioritizesRoute(t *testing.T) {
 	}
 }
 
+func TestSet27BackupRouteReturnsToPrimaryWhenPrimaryRecovers(t *testing.T) {
+	rt := NewRouteTable(t.Context())
+	primary := &AURPPeer{
+		tunnelID:   "cfg:primary-return.example",
+		RouteTable: rt,
+	}
+	backup := &AURPPeer{
+		tunnelID:   "cfg:backup-return.example",
+		RouteTable: rt,
+		timing: AURPConfig{BackupPeers: []AURPBackupPeerRule{{
+			Peer:    "cfg:backup-return.example",
+			Penalty: 6,
+		}}},
+	}
+	tuple := aurp.NetworkTuple{
+		Extended:   true,
+		RangeStart: 3610,
+		RangeEnd:   3610,
+		Distance:   1,
+	}
+
+	if ok, err := primary.applyRIRspNetworkTuple(tuple); err != nil || !ok {
+		t.Fatalf("initial primary accepted=%v err=%v", ok, err)
+	}
+	if ok, err := backup.applyRIRspNetworkTuple(tuple); err != nil || !ok {
+		t.Fatalf("backup accepted=%v err=%v", ok, err)
+	}
+	if err := rt.ReplaceZonesForNetwork(3610, "Return Zone"); err != nil {
+		t.Fatal(err)
+	}
+	if best := rt.Lookup(3610); best.Target != primary || best.Distance != 2 {
+		t.Fatalf("initial best = %v distance %d, want primary distance 2", best.Target, best.Distance)
+	}
+
+	rt.DeleteTarget(primary)
+	if best := rt.Lookup(3610); best.Target != backup || best.Distance != 8 {
+		t.Fatalf("failover best = %v distance %d, want backup distance 8", best.Target, best.Distance)
+	}
+
+	if ok, err := primary.applyRIRspNetworkTuple(tuple); err != nil || !ok {
+		t.Fatalf("recovered primary accepted=%v err=%v", ok, err)
+	}
+	if best := rt.Lookup(3610); best.Target != primary || best.Distance != 2 {
+		t.Fatalf("recovery best = %v distance %d, want primary distance 2", best.Target, best.Distance)
+	}
+	if retained := rt.find(backup, 3610); retained.Zero() || retained.Distance != 8 {
+		t.Fatalf("backup route was not retained after primary recovery: %v", retained)
+	}
+}
+
 func TestSet26ZIPQueryChunkingHandlesLargeRouteUpdates(t *testing.T) {
 	var networks []ddp.Network
 	for n := ddp.Network(1); n <= 600; n++ {
