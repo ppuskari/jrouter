@@ -409,9 +409,17 @@ func (p *AURPPeer) setRemoteAddr(raddr net.IP) {
 	p.remoteAddr.Store(append(net.IP(nil), raddr4...))
 }
 
+// activeRemoteAddr returns the immutable internal IPv4 endpoint without
+// copying. Callers must never mutate the returned slice. setRemoteAddr always
+// publishes a newly allocated four-byte value, so readers can safely use this
+// for the duration of a synchronous send.
+func (p *AURPPeer) activeRemoteAddr() net.IP {
+	return nilToZero[net.IP](p.remoteAddr.Load())
+}
+
 // RemoteAddr returns a copy of the active resolved IPv4 endpoint.
 func (p *AURPPeer) RemoteAddr() net.IP {
-	raddr := nilToZero[net.IP](p.remoteAddr.Load())
+	raddr := p.activeRemoteAddr()
 	if raddr == nil {
 		return nil
 	}
@@ -2299,7 +2307,7 @@ func (p *AURPPeer) send(pkt aurp.Packet) (int, error) {
 
 	p.logger.Debug("AURP Peer: Sending", "pkt-type", reflect.TypeOf(pkt), "length", b.Len())
 	p.lastSend.Store(time.Now())
-	return p.UDPConn.WriteToUDP(b.Bytes(), &net.UDPAddr{IP: p.RemoteAddr(), Port: 387})
+	return p.UDPConn.WriteToUDP(b.Bytes(), &net.UDPAddr{IP: p.activeRemoteAddr(), Port: 387})
 }
 
 func (p *AURPPeer) addToChatLog(pkt aurp.RoutingPacket, sent bool) {
