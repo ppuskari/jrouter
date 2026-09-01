@@ -360,9 +360,14 @@ type aurpPeerStatusRow struct {
 
 	ReceiverConnected bool
 	SenderConnected   bool
-	ReceiverState     string
-	SenderState       string
-	ReceiveChLen      int
+	ReceiverState          string
+	SenderState            string
+	ReceiveChLen           int
+	ReceiveQueueHighWater  uint64
+	DDPPacketsIn           uint64
+	DDPPacketsOut          uint64
+	DDPBytesIn             uint64
+	DDPBytesOut            uint64
 
 	LocalConnID  uint16
 	RemoteConnID uint16
@@ -456,6 +461,11 @@ func newAURPPeerStatusRow(
 	row.ReceiverState = peer.ReceiverState().String()
 	row.SenderState = peer.SenderState().String()
 	row.ReceiveChLen = peer.ReceiveChLen()
+	row.ReceiveQueueHighWater = peer.ReceiveQueueHighWater()
+	row.DDPPacketsIn = peer.DDPPacketsIn()
+	row.DDPPacketsOut = peer.DDPPacketsOut()
+	row.DDPBytesIn = peer.DDPBytesIn()
+	row.DDPBytesOut = peer.DDPBytesOut()
 	row.LocalConnID = peer.Transport.LocalConnID()
 	row.RemoteConnID = peer.Transport.RemoteConnID()
 	row.TxSeq = peer.Transport.LocalSeq()
@@ -799,7 +809,9 @@ const peerTableTemplate = `
 		<th>Sender</th>
 		<th>Conn local/remote</th>
 		<th>Seq tx/rx</th>
-		<th>RecvQ</th>
+		<th>RecvQ now/high</th>
+		<th>DDP pkts in/out</th>
+		<th>DDP bytes in/out</th>
 		<th>Last success</th>
 		<th>Last heard</th>
 		<th>Last reconnect</th>
@@ -837,7 +849,9 @@ const peerTableTemplate = `
 		<td class="{{if $peer.SenderConnected}}green{{else}}red{{end}}">{{$peer.SenderState}}</td>
 		<td>{{$peer.LocalConnID}} / {{$peer.RemoteConnID}}</td>
 		<td>{{$peer.TxSeq}} / {{$peer.RxSeq}}</td>
-		<td>{{$peer.ReceiveChLen}}</td>
+		<td>{{$peer.ReceiveChLen}} / {{$peer.ReceiveQueueHighWater}}</td>
+		<td>{{$peer.DDPPacketsIn}} / {{$peer.DDPPacketsOut}}</td>
+		<td>{{$peer.DDPBytesIn}} / {{$peer.DDPBytesOut}}</td>
 		<td>{{if $peer.LastSuccess.IsZero}}-{{else}}{{$peer.LastSuccess | ago}}{{end}}</td>
 		<td>{{if $peer.LastHeardFrom.IsZero}}-{{else}}{{$peer.LastHeardFrom | ago}}{{end}}</td>
 		<td>{{if $peer.LastReconnect.IsZero}}-{{else}}{{$peer.LastReconnect | ago}}{{end}}</td>
