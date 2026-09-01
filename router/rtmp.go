@@ -281,8 +281,7 @@ func rtmpAdvertisedDistance(route Route, hopCountReduction bool) uint8 {
 }
 
 func (port *EtherTalkPort) rtmpDataPackets(splitHorizon bool) []*rtmp.DataPacket {
-	// Build up a slice of routing tuples.
-	var tuples []rtmp.NetworkTuple
+	var routes []Route
 	for r := range port.router.RouteTable.ValidRoutes {
 		if r.Target.RouteTargetKey() == port.RouteTargetKey() {
 			// If the route is actually a direct connection to this port,
@@ -296,15 +295,19 @@ func (port *EtherTalkPort) rtmpDataPackets(splitHorizon bool) []*rtmp.DataPacket
 			// include it.
 			continue
 		}
-		hopCountReduction := port.router.Config != nil &&
-			port.router.Config.AURP.HopCountReduction
-		tuples = append(tuples, rtmp.NetworkTuple{
-			Extended:   r.Extended,
-			RangeStart: r.NetStart,
-			RangeEnd:   r.NetEnd,
-			Distance:   rtmpAdvertisedDistance(r, hopCountReduction),
-		})
+		routes = append(routes, r)
 	}
+	hopCountReduction := port.router.Config != nil &&
+		port.router.Config.AURP.HopCountReduction
+	cfg := AURPConfig{}
+	if port.router.Config != nil {
+		cfg = port.router.Config.AURP
+	}
+	tuples := buildRTMPTuplesWithClusters(
+		routes,
+		cfg,
+		hopCountReduction,
+	)
 	// "The first tuple in RTMP Data packets sent on extended
 	// networks ... indicates the network number range assigned
 	// to that network."

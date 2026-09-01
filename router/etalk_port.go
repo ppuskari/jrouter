@@ -396,6 +396,16 @@ func (port *EtherTalkPort) Serve(ctx context.Context) {
 			// addressed to a node on the local network."
 			// TODO: more generic routing
 			if ddpkt.DstNet != 0 && !(ddpkt.DstNet >= cableStart && ddpkt.DstNet <= cableEnd) {
+				if ddpkt.Proto == ddp.ProtoNBP && ddpkt.DstSocket == 2 {
+					handled, err := port.router.handleClusteredNBPFwdReq(ctx, ddpkt)
+					if err != nil {
+						port.logger.Error("NBP: clustered FwdReq failed", "error", err)
+						continue
+					}
+					if handled {
+						continue
+					}
+				}
 				// Is it for a network in the routing table?
 				if err := port.router.Forward(ctx, ddpkt); err != nil {
 					port.logger.Error("DDP: Couldn't forward packet", "error", err)

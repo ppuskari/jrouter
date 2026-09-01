@@ -318,3 +318,33 @@ ethertalk:
 		t.Fatal("invalid device-hiding direction was accepted")
 	}
 }
+
+func TestLoadConfigAcceptsStaticAURPCluster(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jrouter.yaml")
+	data := []byte(`aurp:
+  remap:
+    - remote_start: 100
+      remote_end: 109
+      local_start: 5000
+      local_end: 5009
+  clusters:
+    - start: 5000
+      end: 5009
+ethertalk:
+  - device: en0
+    zone_name: Test
+    net_start: 1000
+    net_end: 1009
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.AURP.Clusters) != 1 {
+		t.Fatalf("clusters = %d, want 1", len(cfg.AURP.Clusters))
+	}
+}

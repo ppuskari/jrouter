@@ -77,7 +77,7 @@ func (port *EtherTalkPort) handleZIPZIP(ctx context.Context, ddpkt *ddp.ExtPacke
 
 func (port *EtherTalkPort) handleZIPQuery(ctx context.Context, ddpkt *ddp.ExtPacket, zipkt *zip.QueryPacket) error {
 	port.logger.Debug("ZIP: Got Query for networks", "networks", zipkt.Networks)
-	networks := port.router.RouteTable.ZonesForNetworks(zipkt.Networks)
+	networks := port.router.zonesForZIPNetworks(zipkt.Networks)
 
 	sendReply := func(resp *zip.ReplyPacket) error {
 		respRaw, err := resp.Marshal()

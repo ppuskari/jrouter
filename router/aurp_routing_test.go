@@ -682,3 +682,28 @@ func TestSet26DeviceHidingDropsAllHiddenReply(t *testing.T) {
 		t.Fatal("all-hidden NBP reply was not dropped")
 	}
 }
+
+func TestSet26ClusterCollapsesRemappedRoutesForRTMP(t *testing.T) {
+	a := fakeTarget{key: "cluster-a", class: TargetClassAURPPeer}
+	b := fakeTarget{key: "cluster-b", class: TargetClassAURPPeer}
+	routes := []Route{
+		testAURPRoute(a, 5000, 3),
+		testAURPRoute(b, 5001, 2),
+	}
+	tuples := buildRTMPTuplesWithClusters(
+		routes,
+		AURPConfig{Clusters: []AURPClusterRule{{
+			Start: 5000,
+			End: 5009,
+		}}},
+		false,
+	)
+	if len(tuples) != 1 {
+		t.Fatalf("clustered RTMP tuples = %v, want one tuple", tuples)
+	}
+	if tuples[0].RangeStart != 5000 ||
+		tuples[0].RangeEnd != 5009 ||
+		tuples[0].Distance != 2 {
+		t.Fatalf("clustered tuple = %+v, want 5000-5009 distance 2", tuples[0])
+	}
+}

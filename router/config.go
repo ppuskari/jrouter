@@ -190,6 +190,19 @@ type AURPDeviceHideRule struct {
 	Direction string `yaml:"direction"`
 }
 
+type AURPClusterRule struct {
+	Start ddp.Network `yaml:"start"`
+	End   ddp.Network `yaml:"end"`
+}
+
+func (c AURPClusterRule) contains(network ddp.Network) bool {
+	return network >= c.Start && network <= c.End
+}
+
+func (c AURPClusterRule) containsRoute(route Route) bool {
+	return route.NetStart >= c.Start && route.NetEnd <= c.End
+}
+
 type AURPConfig struct {
 	LastHeardFromTimeout  time.Duration      `yaml:"-"`
 	RetryInterval         time.Duration      `yaml:"-"`
@@ -201,6 +214,7 @@ type AURPConfig struct {
 	HopCountWeight        uint8              `yaml:"hop_count_weight"`
 	RemapRules            []AURPRemapRule    `yaml:"remap"`
 	HiddenDevices         []AURPDeviceHideRule `yaml:"hidden_devices"`
+	Clusters              []AURPClusterRule    `yaml:"clusters"`
 }
 
 func (c AURPConfig) networkHidden(network ddp.Network) bool {
@@ -233,6 +247,7 @@ func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
 		HopCountWeight        uint8              `yaml:"hop_count_weight"`
 		RemapRules            []AURPRemapRule     `yaml:"remap"`
 		HiddenDevices         []AURPDeviceHideRule `yaml:"hidden_devices"`
+		Clusters              []AURPClusterRule     `yaml:"clusters"`
 	}
 	if err := n.Decode(&raw); err != nil {
 		return err
@@ -248,6 +263,7 @@ func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
 		HopCountWeight:        raw.HopCountWeight,
 		RemapRules:            raw.RemapRules,
 		HiddenDevices:         raw.HiddenDevices,
+		Clusters:              raw.Clusters,
 	}
 	return nil
 }
@@ -429,6 +445,48 @@ func LoadConfig(cfgPath string) (*Config, error) {
 			))
 		}
 	}
+	for i, cluster := range c.AURP.Clusters {
+		if cluster.Start == 0 ||
+			cluster.Start > cluster.End ||
+			cluster.End >= phase2StartupStart {
+			validationErrs = append(validationErrs, fmt.Errorf(
+				"aurp.clusters[%d] has invalid range %d-%d",
+				i,
+				cluster.Start,
+				cluster.End,
+			))
+			continue
+		}
+		for n := cluster.Start; n <= cluster.End; n++ {
+			covered := false
+			for _, rule := range c.AURP.RemapRules {
+				if rule.localRange().contains(n) {
+					covered = true
+					break
+				}
+			}
+			if !covered {
+				validationErrs = append(validationErrs, fmt.Errorf(
+					"aurp.clusters[%d] network %d is not covered by a remap rule",
+					i,
+					n,
+				))
+				break
+			}
+		}
+	}
+	for i := range c.AURP.Clusters {
+		for j := i + 1; j < len(c.AURP.Clusters); j++ {
+			if c.AURP.Clusters[i].contains(c.AURP.Clusters[j].Start) ||
+				c.AURP.Clusters[j].contains(c.AURP.Clusters[i].Start) {
+				validationErrs = append(validationErrs, fmt.Errorf(
+					"aurp.clusters[%d] and aurp.clusters[%d] overlap",
+					i,
+					j,
+				))
+			}
+	}
+
 	for i, rule := range c.AURP.HiddenDevices {
 		direction := strings.ToLower(strings.TrimSpace(rule.Direction))
 		switch direction {
