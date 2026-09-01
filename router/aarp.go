@@ -56,6 +56,8 @@ type aarpRange struct {
 
 const aarpStatusTemplate = `
 Status: {{.Status}}<br/>
+Address range: {{.RangeStart}}{{if ne .RangeStart .RangeEnd}}-{{.RangeEnd}}{{end}}<br/>
+Address phase: {{if .Operational}}operational{{else if .Startup}}startup/provisional{{else}}rebinding{{end}}<br/>
 <table>
 	<thead><tr>
 		<th>DDP addr</th>
@@ -180,11 +182,19 @@ func (a *AARPMachine) status(ctx context.Context) (any, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return struct {
-		Status string
-		AMT    map[ddp.Addr]AMTEntry
+		Status      string
+		RangeStart  ddp.Network
+		RangeEnd    ddp.Network
+		Startup     bool
+		Operational bool
+		AMT         map[ddp.Addr]AMTEntry
 	}{
-		Status: a.statusMsg,
-		AMT:    a.addressMappingTable.Dump(),
+		Status:      a.statusMsg,
+		RangeStart:  a.rangeStart,
+		RangeEnd:    a.rangeEnd,
+		Startup:     isPhase2StartupRange(a.rangeStart, a.rangeEnd),
+		Operational: a.operational && a.assigned,
+		AMT:         a.addressMappingTable.Dump(),
 	}, nil
 }
 
