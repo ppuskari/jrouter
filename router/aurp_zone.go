@@ -77,7 +77,7 @@ func (p *AURPPeer) retryIncompleteZoneInfo(now time.Time) error {
 			p.markZoneInfoPending(network)
 			pending = p.pendingZoneInfo[network]
 		}
-		if !pending.lastActivity.IsZero() && now.Sub(pending.lastActivity) < aurpZoneInfoRetryTimer {
+		if !pending.lastActivity.IsZero() && now.Sub(pending.lastActivity) < p.zoneInfoRetryInterval() {
 			continue
 		}
 		networks = append(networks, network)

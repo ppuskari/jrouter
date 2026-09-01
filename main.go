@@ -121,7 +121,7 @@ func main() {
 		Logger:     logger,
 		Config:     cfg,
 		RouteTable: router.NewRouteTable(ctx),
-		AURPPeers:  router.NewAURPPeerTable(ctx, logger),
+		AURPPeers:  router.NewAURPPeerTable(ctx, logger, cfg.AURP),
 		Identity:   localDI,
 	}
 

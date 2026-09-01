@@ -110,12 +110,19 @@ type AURPPeerTable struct {
 	peersByConfigured map[string]*AURPPeer  // configured name -> logical peer
 	dnsByConfigured   map[string]configuredDNSState
 	nextConnID        uint16
+	timing            AURPConfig
 }
 
 // NewAURPPeerTable creates a new AURP peer table.
-func NewAURPPeerTable(ctx context.Context, logger *slog.Logger) *AURPPeerTable {
+func NewAURPPeerTable(ctx context.Context, logger *slog.Logger, configs ...AURPConfig) *AURPPeerTable {
+	timing := AURPConfig{}
+	if len(configs) > 0 {
+		timing = configs[0]
+	}
+	timing.applyDefaults()
 	t := &AURPPeerTable{
 		logger:            logger,
+		timing:            timing,
 		peersByIP:         make(map[[4]byte]*AURPPeer),
 		peersByConfigured: make(map[string]*AURPPeer),
 		dnsByConfigured:   make(map[string]configuredDNSState),
@@ -282,6 +289,7 @@ func (t *AURPPeerTable) LookupOrCreate(
 		tunnelID:       tunnelID,
 		ReceiveCh:      make(chan aurp.RoutingPacket, 1024),
 		RouteTable:     routes,
+		timing:         t.timing,
 
 		logger:      logger.With("raddr", raddr4, "remote-di", aurp.DomainIdentifierDisplay(remoteDI)),
 		reconnectCh: make(chan struct{}, 1),

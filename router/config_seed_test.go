@@ -83,3 +83,73 @@ func TestLoadConfigRejectsUnknownSeedMode(t *testing.T) {
 		t.Fatal("unknown seed mode was accepted")
 	}
 }
+
+func TestLoadConfigDefaultsAURPTiming(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jrouter.yaml")
+	data := []byte("ethertalk:\n  - device: en0\n    zone_name: Test\n    net_start: 100\n    net_end: 100\n")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AURP.LastHeardFromTimeout != 90*time.Second ||
+		cfg.AURP.RetryInterval != 10*time.Second ||
+		cfg.AURP.SendRetryLimit != 5 ||
+		cfg.AURP.TickleRetryLimit != 10 ||
+		cfg.AURP.ZoneInfoRetryInterval != 10*time.Second {
+		t.Fatalf("unexpected AURP defaults: %+v", cfg.AURP)
+	}
+}
+
+func TestLoadConfigAcceptsAURPTimingOverrides(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jrouter.yaml")
+	data := []byte(`aurp:
+  last_heard_from_timeout: 45s
+  retry_interval: 3s
+  send_retry_limit: 7
+  tickle_retry_limit: 12
+  zone_info_retry_interval: 4s
+ethertalk:
+  - device: en0
+    zone_name: Test
+    net_start: 100
+    net_end: 100
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AURP.LastHeardFromTimeout != 45*time.Second ||
+		cfg.AURP.RetryInterval != 3*time.Second ||
+		cfg.AURP.SendRetryLimit != 7 ||
+		cfg.AURP.TickleRetryLimit != 12 ||
+		cfg.AURP.ZoneInfoRetryInterval != 4*time.Second {
+		t.Fatalf("unexpected AURP overrides: %+v", cfg.AURP)
+	}
+}
+
+func TestLoadConfigRejectsAURPLHFTBelowRFCMinimum(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jrouter.yaml")
+	data := []byte(`aurp:
+  last_heard_from_timeout: 29s
+ethertalk:
+  - device: en0
+    zone_name: Test
+    net_start: 100
+    net_end: 100
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadConfig(path); err == nil {
+		t.Fatal("AURP LHFT below 30 seconds was accepted")
+	}
+}

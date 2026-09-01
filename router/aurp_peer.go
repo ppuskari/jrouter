@@ -133,6 +133,9 @@ type AURPPeer struct {
 	chatLogMu sync.RWMutex
 	chatLog   []ChatLogEntry
 
+	// Protocol timing copied from configuration when the peer is created.
+	timing AURPConfig
+
 	// Other bits of internal state
 	lastRISent   aurp.RoutingPacket
 	restartProbe bool
@@ -144,6 +147,41 @@ type ChatLogEntry struct {
 	Packet    aurp.RoutingPacket
 	Sent      bool // as opposed to Received
 	Timestamp time.Time
+}
+
+func (p *AURPPeer) lastHeardTimeout() time.Duration {
+	if p.timing.LastHeardFromTimeout > 0 {
+		return p.timing.LastHeardFromTimeout
+	}
+	return lastHeardFromTimer
+}
+
+func (p *AURPPeer) retryInterval() time.Duration {
+	if p.timing.RetryInterval > 0 {
+		return p.timing.RetryInterval
+	}
+	return sendRetryTimer
+}
+
+func (p *AURPPeer) routingRetryLimit() int {
+	if p.timing.SendRetryLimit > 0 {
+		return p.timing.SendRetryLimit
+	}
+	return sendRetryLimit
+}
+
+func (p *AURPPeer) tickleRetriesLimit() int {
+	if p.timing.TickleRetryLimit > 0 {
+		return p.timing.TickleRetryLimit
+	}
+	return tickleRetryLimit
+}
+
+func (p *AURPPeer) zoneInfoRetryInterval() time.Duration {
+	if p.timing.ZoneInfoRetryInterval > 0 {
+		return p.timing.ZoneInfoRetryInterval
+	}
+	return aurpZoneInfoRetryTimer
 }
 
 func (p *AURPPeer) setSUIFlags(flags aurp.RoutingFlag) {
@@ -603,10 +641,10 @@ func (p *AURPPeer) gracefulSenderShutdown() error {
 func (p *AURPPeer) rtickerTasks() error {
 	switch p.ReceiverState() {
 	case ReceiverWaitForOpenRsp:
-		if time.Since(p.LastSend()) <= sendRetryTimer {
+		if time.Since(p.LastSend()) <= p.retryInterval() {
 			break
 		}
-		if p.SendRetries() >= sendRetryLimit {
+		if p.SendRetries() >= p.routingRetryLimit() {
 			p.logger.Warn("AURP Peer: Send retry limit reached while waiting for Open-Rsp, closing connection")
 			p.disconnectReceiver()
 			p.noteReconnectFailure(time.Now())
@@ -623,7 +661,7 @@ func (p *AURPPeer) rtickerTasks() error {
 
 	case ReceiverConnected:
 		// Check LHFT, send tickle?
-		if time.Since(p.LastHeardFrom()) <= lastHeardFromTimer {
+		if time.Since(p.LastHeardFrom()) <= p.lastHeardTimeout() {
 			break
 		}
 		if _, err := p.send(p.Transport.NewTicklePacket()); err != nil {
@@ -635,10 +673,10 @@ func (p *AURPPeer) rtickerTasks() error {
 		p.lastSend.Store(time.Now())
 
 	case ReceiverWaitForTickleAck:
-		if time.Since(p.LastSend()) <= sendRetryTimer {
+		if time.Since(p.LastSend()) <= p.retryInterval() {
 			break
 		}
-		if p.SendRetries() >= tickleRetryLimit {
+		if p.SendRetries() >= p.tickleRetriesLimit() {
 			p.logger.Warn("AURP Peer: Send retry limit reached while waiting for Tickle-Ack, closing connection")
 			p.disconnectReceiver()
 			p.noteReconnectFailure(time.Now())
@@ -654,10 +692,10 @@ func (p *AURPPeer) rtickerTasks() error {
 		// still in Wait For Tickle-Ack
 
 	case ReceiverWaitForRIRsp:
-		if time.Since(p.LastSend()) <= sendRetryTimer {
+		if time.Since(p.LastSend()) <= p.retryInterval() {
 			break
 		}
-		if p.SendRetries() >= sendRetryLimit {
+		if p.SendRetries() >= p.routingRetryLimit() {
 			p.logger.Warn("AURP Peer: Send retry limit reached while waiting for RI-Rsp, closing connection")
 			p.disconnectReceiver()
 			p.RouteTable.DeleteTarget(p)
@@ -678,8 +716,8 @@ func (p *AURPPeer) rtickerTasks() error {
 	case ReceiverUnconnected:
 		// Data receiver is unconnected. If data sender is connected,
 		// send a null RI-Upd to check if the sender is also unconnected
-		if p.SenderState() == SenderConnected && time.Since(p.LastSend()) > sendRetryTimer {
-			if p.SendRetries() >= sendRetryLimit {
+		if p.SenderState() == SenderConnected && time.Since(p.LastSend()) > p.retryInterval() {
+			if p.SendRetries() >= p.routingRetryLimit() {
 				p.logger.Warn("AURP Peer: Send retry limit reached while probing sender connect, closing connection")
 			}
 			p.sendRetries.Add(1)
@@ -798,14 +836,14 @@ func (p *AURPPeer) stickerTasks() error {
 		}
 
 	case SenderWaitForRIRspAck, SenderWaitForRIUpdAck:
-		if time.Since(p.LastSend()) <= sendRetryTimer {
+		if time.Since(p.LastSend()) <= p.retryInterval() {
 			break
 		}
 		if p.lastRISent == nil {
 			p.logger.Error("AURP Peer: sender retry: lastRISent = nil?")
 			break
 		}
-		if p.SendRetries() >= sendRetryLimit {
+		if p.SendRetries() >= p.routingRetryLimit() {
 			if p.restartProbe {
 				p.logger.Warn(
 					"AURP Peer: restarted-peer probe failed; closing old sender connection",
@@ -829,7 +867,7 @@ func (p *AURPPeer) stickerTasks() error {
 		}
 
 	case SenderWaitForRDAck:
-		if time.Since(p.LastSend()) <= sendRetryTimer {
+		if time.Since(p.LastSend()) <= p.retryInterval() {
 			break
 		}
 		if p.lastRISent == nil {
@@ -838,7 +876,7 @@ func (p *AURPPeer) stickerTasks() error {
 			p.disconnectSender()
 			break
 		}
-		if p.SendRetries() >= sendRetryLimit {
+		if p.SendRetries() >= p.routingRetryLimit() {
 			p.logger.Warn("AURP Peer: RD acknowledgement retry limit reached; closing sender connection")
 			p.RouteTable.RemoveObserver(p)
 			p.disconnectSender()

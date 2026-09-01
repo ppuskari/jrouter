@@ -53,8 +53,12 @@ type Config struct {
 	// 	Network uint16 `yaml:"network"`
 	// } `yaml:"localtalk"`
 
-	// OpenPeering allowsrouters other than those listed under peers.
+	// OpenPeering allows routers other than those listed under peers.
 	OpenPeering bool `yaml:"open_peering"`
+
+	// AURP controls protocol liveness and retry timing. All fields are optional
+	// and default to the historical jrouter values when omitted.
+	AURP AURPConfig `yaml:"aurp"`
 
 	// TODO: ExtraAdvertisedZones is a set of extra zones that are not managed by
 	// jouter but that can be advertised over AURP if a valid route becomes
@@ -114,6 +118,53 @@ func (d *YAMLDuration) UnmarshalYAML(n *yaml.Node) error {
 	}
 	*d = YAMLDuration(v)
 	return nil
+}
+
+type AURPConfig struct {
+	LastHeardFromTimeout time.Duration `yaml:"-"`
+	RetryInterval        time.Duration `yaml:"-"`
+	SendRetryLimit       int           `yaml:"send_retry_limit"`
+	TickleRetryLimit     int           `yaml:"tickle_retry_limit"`
+	ZoneInfoRetryInterval time.Duration `yaml:"-"`
+}
+
+func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
+	var raw struct {
+		LastHeardFromTimeout YAMLDuration `yaml:"last_heard_from_timeout"`
+		RetryInterval        YAMLDuration `yaml:"retry_interval"`
+		SendRetryLimit       int          `yaml:"send_retry_limit"`
+		TickleRetryLimit     int          `yaml:"tickle_retry_limit"`
+		ZoneInfoRetryInterval YAMLDuration `yaml:"zone_info_retry_interval"`
+	}
+	if err := n.Decode(&raw); err != nil {
+		return err
+	}
+	*c = AURPConfig{
+		LastHeardFromTimeout: time.Duration(raw.LastHeardFromTimeout),
+		RetryInterval:        time.Duration(raw.RetryInterval),
+		SendRetryLimit:       raw.SendRetryLimit,
+		TickleRetryLimit:     raw.TickleRetryLimit,
+		ZoneInfoRetryInterval: time.Duration(raw.ZoneInfoRetryInterval),
+	}
+	return nil
+}
+
+func (c *AURPConfig) applyDefaults() {
+	if c.LastHeardFromTimeout == 0 {
+		c.LastHeardFromTimeout = lastHeardFromTimer
+	}
+	if c.RetryInterval == 0 {
+		c.RetryInterval = sendRetryTimer
+	}
+	if c.SendRetryLimit == 0 {
+		c.SendRetryLimit = sendRetryLimit
+	}
+	if c.TickleRetryLimit == 0 {
+		c.TickleRetryLimit = tickleRetryLimit
+	}
+	if c.ZoneInfoRetryInterval == 0 {
+		c.ZoneInfoRetryInterval = aurpZoneInfoRetryTimer
+	}
 }
 
 type SeedMode string
@@ -203,8 +254,35 @@ func LoadConfig(cfgPath string) (*Config, error) {
 	if c.ListenPort == 0 {
 		c.ListenPort = 387
 	}
+	c.AURP.applyDefaults()
 
 	var validationErrs []error
+	if c.AURP.LastHeardFromTimeout < 30*time.Second {
+		validationErrs = append(validationErrs, fmt.Errorf(
+			"aurp.last_heard_from_timeout must be at least 30s, got %v",
+			c.AURP.LastHeardFromTimeout,
+		))
+	}
+	if c.AURP.RetryInterval <= 0 {
+		validationErrs = append(validationErrs, fmt.Errorf(
+			"aurp.retry_interval must be positive, got %v", c.AURP.RetryInterval,
+		))
+	}
+	if c.AURP.SendRetryLimit <= 0 {
+		validationErrs = append(validationErrs, fmt.Errorf(
+			"aurp.send_retry_limit must be positive, got %d", c.AURP.SendRetryLimit,
+		))
+	}
+	if c.AURP.TickleRetryLimit <= 0 {
+		validationErrs = append(validationErrs, fmt.Errorf(
+			"aurp.tickle_retry_limit must be positive, got %d", c.AURP.TickleRetryLimit,
+		))
+	}
+	if c.AURP.ZoneInfoRetryInterval <= 0 {
+		validationErrs = append(validationErrs, fmt.Errorf(
+			"aurp.zone_info_retry_interval must be positive, got %v", c.AURP.ZoneInfoRetryInterval,
+		))
+	}
 
 	// Check EtherTalk port configuration.
 	for _, port := range c.EtherTalk {
