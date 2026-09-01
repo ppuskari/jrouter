@@ -520,16 +520,8 @@ func (p *AURPPeer) Handle(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			if p.SenderState() == SenderUnconnected {
-				// Return immediately
-				return
-			}
-			// Send a best-effort sender-originated Router Down before
-			// returning. RFC 1504 sequences sender RD packets.
-			p.Transport.IncLocalSeq()
-			p.lastRISent = p.Transport.NewSenderRDPacket(aurp.ErrCodeNormalClose)
-			if _, err := p.send(p.lastRISent); err != nil {
-				p.logger.Error("Couldn't send RD packet", "error", err)
+			if err := p.gracefulSenderShutdown(); err != nil {
+				p.logger.Warn("AURP Peer: graceful sender shutdown ended with error", "error", err)
 			}
 			return
 
@@ -560,6 +552,49 @@ func (p *AURPPeer) Handle(ctx context.Context) {
 		case pkt := <-p.ReceiveCh:
 			if err := p.handlePacket(pkt); err != nil {
 				return
+			}
+		}
+	}
+}
+
+func (p *AURPPeer) startSenderShutdown() error {
+	if p.SenderState() != SenderConnected {
+		return nil
+	}
+
+	p.Transport.IncLocalSeq()
+	p.lastRISent = p.Transport.NewSenderRDPacket(aurp.ErrCodeNormalClose)
+	p.sendRetries.Store(0)
+	if _, err := p.send(p.lastRISent); err != nil {
+		return err
+	}
+	p.setSState(SenderWaitForRDAck)
+	return nil
+}
+
+func (p *AURPPeer) gracefulSenderShutdown() error {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		switch p.SenderState() {
+		case SenderUnconnected:
+			return nil
+		case SenderConnected:
+			if err := p.startSenderShutdown(); err != nil {
+				p.disconnectSender()
+				return err
+			}
+		}
+
+		select {
+		case pkt := <-p.ReceiveCh:
+			if err := p.handlePacket(pkt); err != nil {
+				return err
+			}
+		case <-ticker.C:
+			if err := p.stickerTasks(); err != nil {
+				return err
 			}
 		}
 	}
@@ -797,8 +832,23 @@ func (p *AURPPeer) stickerTasks() error {
 		if time.Since(p.LastSend()) <= sendRetryTimer {
 			break
 		}
-		p.setSState(SenderUnconnected)
-		p.RouteTable.RemoveObserver(p)
+		if p.lastRISent == nil {
+			p.logger.Warn("AURP Peer: RD retry state has no cached RD; closing sender connection")
+			p.RouteTable.RemoveObserver(p)
+			p.disconnectSender()
+			break
+		}
+		if p.SendRetries() >= sendRetryLimit {
+			p.logger.Warn("AURP Peer: RD acknowledgement retry limit reached; closing sender connection")
+			p.RouteTable.RemoveObserver(p)
+			p.disconnectSender()
+			break
+		}
+		p.sendRetries.Add(1)
+		if _, err := p.send(p.lastRISent); err != nil {
+			p.logger.Error("AURP Peer: Couldn't re-send RD", "error", err)
+			return err
+		}
 	}
 
 	return nil
@@ -1212,6 +1262,10 @@ func (p *AURPPeer) handleRIAck(logger *slog.Logger, pkt *aurp.RIAckPacket) error
 			return nil
 		}
 	case SenderWaitForRDAck:
+		p.sendRetries.Store(0)
+		p.RouteTable.RemoveObserver(p)
+		p.disconnectSender()
+		logger.Info("AURP Peer: Router Down acknowledged; sender connection closed")
 		return nil
 	default:
 		logger.Warn("AURP Peer: Received RI-Ack but was not waiting for one")

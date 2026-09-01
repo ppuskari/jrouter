@@ -76,6 +76,74 @@ func TestAURPOpenReqIgnoresUnsupportedOptions(t *testing.T) {
 	}
 }
 
+func TestSet26SenderShutdownWaitsForMatchingRDAck(t *testing.T) {
+	peer := newRestartTestPeer(t)
+	oldConnID := peer.Transport.RemoteConnID()
+	oldSeq := peer.Transport.LocalSeq()
+
+	if err := peer.startSenderShutdown(); err != nil {
+		t.Fatal(err)
+	}
+	if got := peer.SenderState(); got != SenderWaitForRDAck {
+		t.Fatalf("sender state = %v, want waiting for RD ack", got)
+	}
+	if got := peer.Transport.LocalSeq(); got != aurp.Succ(oldSeq) {
+		t.Fatalf("RD sequence = %d, want %d", got, aurp.Succ(oldSeq))
+	}
+	if _, ok := peer.lastRISent.(*aurp.RDPacket); !ok {
+		t.Fatalf("last sent packet = %T, want *aurp.RDPacket", peer.lastRISent)
+	}
+
+	wrong := peer.Transport.NewRIAckPacket(oldConnID, aurp.Pred(peer.Transport.LocalSeq()), 0)
+	if err := peer.handleRIAck(peer.logger, wrong); err != nil {
+		t.Fatal(err)
+	}
+	if got := peer.SenderState(); got != SenderWaitForRDAck {
+		t.Fatalf("wrong RI-Ack closed sender: %v", got)
+	}
+
+	ack := peer.Transport.NewRIAckPacket(oldConnID, peer.Transport.LocalSeq(), 0)
+	if err := peer.handleRIAck(peer.logger, ack); err != nil {
+		t.Fatal(err)
+	}
+	if got := peer.SenderState(); got != SenderUnconnected {
+		t.Fatalf("sender state after RD ack = %v, want unconnected", got)
+	}
+	if got := peer.Transport.RemoteConnID(); got != 0 {
+		t.Fatalf("remote connection ID after RD ack = %d, want 0", got)
+	}
+}
+
+func TestSet26SenderRDRetriesAndEventuallyCloses(t *testing.T) {
+	peer := newRestartTestPeer(t)
+	if err := peer.startSenderShutdown(); err != nil {
+		t.Fatal(err)
+	}
+	before := len(peer.DumpChatLog())
+	peer.lastSend.Store(time.Now().Add(-2 * sendRetryTimer))
+	if err := peer.stickerTasks(); err != nil {
+		t.Fatal(err)
+	}
+	if got := peer.SenderState(); got != SenderWaitForRDAck {
+		t.Fatalf("sender state after first RD retry = %v, want waiting", got)
+	}
+	if got := peer.SendRetries(); got != 1 {
+		t.Fatalf("RD retries = %d, want 1", got)
+	}
+	if got := len(peer.DumpChatLog()); got != before+1 {
+		t.Fatalf("RD retry did not emit exactly one packet: %d -> %d", before, got)
+	}
+
+	peer.sendRetries.Store(sendRetryLimit)
+	peer.lastSend.Store(time.Now().Add(-2 * sendRetryTimer))
+	if err := peer.stickerTasks(); err != nil {
+		t.Fatal(err)
+	}
+	if got := peer.SenderState(); got != SenderUnconnected {
+		t.Fatalf("sender state after RD retry exhaustion = %v, want unconnected", got)
+	}
+}
+
 func TestAURPSenderRDPacketUsesSequence(t *testing.T) {
 	peer := newRestartTestPeer(t)
 	peer.setRState(ReceiverConnected)
