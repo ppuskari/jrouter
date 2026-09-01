@@ -336,15 +336,11 @@ func (port *EtherTalkPort) RunSeedState(ctx context.Context) error {
 				continue
 			}
 
-			// External ZIP authority wins for both soft and none. Rebind out of
-			// the Phase 2 startup range (or from an obsolete learned range) and
-			// publish the direct route only after AARP owns the learned range.
-			if state.ExternalAuthority &&
-				state.ObservedStart != 0 &&
-				state.ObservedEnd != 0 {
+			// Any RTMP/ZIP cable-range evidence can move a soft/non-seed
+			// router out of the Phase 2 startup range. Only a ZIP GetNetInfo
+			// reply counts as seed authority and suppresses soft promotion.
+			if state.ObservedStart != 0 && state.ObservedEnd != 0 {
 				port.aarpMachine.Rebind(state.ObservedStart, state.ObservedEnd)
-				promotionRequested = false
-				promotionEligibleAt = time.Time{}
 
 				start, end, operational := port.aarpMachine.OperationalRange()
 				if operational &&
@@ -357,7 +353,12 @@ func (port *EtherTalkPort) RunSeedState(ctx context.Context) error {
 						return err
 					}
 				}
-				continue
+
+				if state.ExternalAuthority {
+					promotionRequested = false
+					promotionEligibleAt = time.Time{}
+					continue
+				}
 			}
 
 			if port.seed.mode != SeedModeSoft {
@@ -405,9 +406,10 @@ func (port *EtherTalkPort) RunSeedState(ctx context.Context) error {
 				continue
 			}
 
-			// No external authority answered. Rebind into the configured
-			// fallback range first, and enable seed authority only after AARP
-			// successfully owns an address there.
+			// No external seed authority answered. If RTMP already supplied
+			// the matching cable range, AARP may already be operational there;
+			// otherwise rebind into the configured fallback range. Seed authority
+			// is enabled only after AARP owns that range.
 			port.aarpMachine.Rebind(state.ConfiguredStart, state.ConfiguredEnd)
 			promotionRequested = true
 			promotionEligibleAt = time.Time{}
