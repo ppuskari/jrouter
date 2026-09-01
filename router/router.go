@@ -147,15 +147,35 @@ func (rtr *Router) OutputFromAURP(
 	if rtr.Config != nil && rtr.Config.AURP.networkHidden(ddpkt.DstNet) {
 		return fmt.Errorf("AURP network %d is hidden by local policy; dropping packet", ddpkt.DstNet)
 	}
+	best := rtr.RouteTable.Lookup(ddpkt.DstNet)
 	route, err := rtr.outputRoute(ddpkt, ingress.TunnelID())
 	if err != nil {
+		if !best.Zero() {
+			origin := best.RouteOrigin()
+			if origin.Kind == RouteOriginAURP &&
+				origin.ID == ingress.TunnelID() {
+				ingress.reflectionDrops.Add(1)
+			}
+		}
 		return err
+	}
+	if !best.Zero() {
+		origin := best.RouteOrigin()
+		if origin.Kind == RouteOriginAURP &&
+			origin.ID == ingress.TunnelID() &&
+			route.Target.RouteTargetKey() != best.Target.RouteTargetKey() {
+			ingress.alternativePathForwards.Add(1)
+		}
 	}
 	if rtr.Config != nil &&
 		rtr.Config.AURP.HopCountReduction &&
 		route.Target.Class() != TargetClassAURPPeer {
-		if _, err := reduceAURPHopCount(ddpkt, route); err != nil {
+		changed, err := reduceAURPHopCount(ddpkt, route)
+		if err != nil {
 			return err
+		}
+		if changed {
+			ingress.hopCountReductions.Add(1)
 		}
 	}
 	return route.Target.Forward(ctx, ddpkt)

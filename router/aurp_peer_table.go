@@ -386,6 +386,13 @@ type aurpPeerStatusRow struct {
 	ExtendedZICompleted     uint64
 	ZoneTuplesAccepted      uint64
 	ZoneTuplesIgnored       uint64
+	LoopIndicativeRoutes    uint64
+	HopCountReductions      uint64
+	HopCountWeightedPackets uint64
+	AlternativePathForwards uint64
+	ReflectionDrops         uint64
+	HopCountReduction       bool
+	HopCountWeight          uint8
 }
 
 func (t *AURPPeerTable) candidateAddrsLocked(peer *AURPPeer) []string {
@@ -464,6 +471,13 @@ func newAURPPeerStatusRow(
 	row.ExtendedZICompleted = peer.ExtendedZICompleted()
 	row.ZoneTuplesAccepted = peer.ZoneTuplesAccepted()
 	row.ZoneTuplesIgnored = peer.ZoneTuplesIgnored()
+	row.LoopIndicativeRoutes = peer.LoopIndicativeRoutes()
+	row.HopCountReductions = peer.HopCountReductions()
+	row.HopCountWeightedPackets = peer.HopCountWeightedPackets()
+	row.AlternativePathForwards = peer.AlternativePathForwards()
+	row.ReflectionDrops = peer.ReflectionDrops()
+	row.HopCountReduction = peer.timing.HopCountReduction
+	row.HopCountWeight = peer.timing.HopCountWeight
 	return row
 }
 
@@ -791,6 +805,10 @@ const peerTableTemplate = `
 		<th>Early RI-Upd/acks</th>
 		<th>Ext ZI parts/done</th>
 		<th>ZI accepted/ignored</th>
+		<th>Loop indicative</th>
+		<th>HCR / weight</th>
+		<th>HCR adjusted / weighted</th>
+		<th>Alt path / reflect drop</th>
 	</tr></thead>
 	<tbody>
 {{range $peer := . }}
@@ -825,6 +843,10 @@ const peerTableTemplate = `
 		<td>{{$peer.EarlyRIUpdates}} / {{$peer.EarlyRIUpdateAcks}}</td>
 		<td>{{$peer.ExtendedZIFragments}} / {{$peer.ExtendedZICompleted}}</td>
 		<td>{{$peer.ZoneTuplesAccepted}} / {{$peer.ZoneTuplesIgnored}}</td>
+		<td>{{$peer.LoopIndicativeRoutes}}</td>
+		<td>{{if $peer.HopCountReduction}}on{{else}}off{{end}} / {{$peer.HopCountWeight}}</td>
+		<td>{{$peer.HopCountReductions}} / {{$peer.HopCountWeightedPackets}}</td>
+		<td>{{$peer.AlternativePathForwards}} / {{$peer.ReflectionDrops}}</td>
 	</tr>
 {{end}}
 	</tbody>

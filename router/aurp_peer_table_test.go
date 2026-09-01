@@ -761,3 +761,26 @@ func TestSet26MetricPeerLabelSurvivesDNSEndpointSwitch(t *testing.T) {
 		t.Fatalf("metric peer label changed after DNS failover: got %q want %q", got, want)
 	}
 }
+
+func TestSet26StatusRowIncludesChapter4PolicyAndCounters(t *testing.T) {
+	peer := newRestartTestPeer(t)
+	peer.timing.HopCountReduction = true
+	peer.timing.HopCountWeight = 3
+	peer.loopIndicativeRoutes.Store(2)
+	peer.hopCountReductions.Store(4)
+	peer.hopCountWeightedPackets.Store(5)
+	peer.alternativePathForwards.Store(6)
+	peer.reflectionDrops.Store(7)
+
+	row := newAURPPeerStatusRow(peer, peer.ConfiguredAddr, nil, configuredDNSState{})
+	if !row.HopCountReduction || row.HopCountWeight != 3 {
+		t.Fatalf("policy row = HCR %v weight %d, want true/3", row.HopCountReduction, row.HopCountWeight)
+	}
+	if row.LoopIndicativeRoutes != 2 ||
+		row.HopCountReductions != 4 ||
+		row.HopCountWeightedPackets != 5 ||
+		row.AlternativePathForwards != 6 ||
+		row.ReflectionDrops != 7 {
+		t.Fatalf("unexpected Chapter 4 counters in status row: %+v", row)
+	}
+}

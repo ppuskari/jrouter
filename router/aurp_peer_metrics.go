@@ -179,6 +179,48 @@ var (
 		[]string{"peer"},
 		nil,
 	)
+	aurpPeerLoopIndicativeDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_loop_indicative_routes_total",
+		"completed AURP route/zone sets matching a directly attached local range signature",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerHopCountReductionsDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_hop_count_reductions_total",
+		"DDP packets whose hop count was reduced after AURP ingress",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerHopCountWeightedPacketsDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_hop_count_weighted_packets_total",
+		"DDP packets sent through AURP with configured hop-count weighting",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerAlternativePathForwardsDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_alternative_path_forwards_total",
+		"packets forwarded over an alternative route to avoid reflection to the ingress AURP tunnel",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerReflectionDropsDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_reflection_drops_total",
+		"packets dropped because the only route would reflect to the ingress AURP tunnel",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerHopCountReductionEnabledDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_hop_count_reduction_enabled",
+		"1 when hop-count reduction is configured for this peer, 0 otherwise",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerHopCountWeightDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_hop_count_weight",
+		"configured additional AURP hop-count weight",
+		[]string{"peer"},
+		nil,
+	)
 	aurpConfiguredPeerDNSFailuresDesc = prometheus.NewDesc(
 		"jrouter_aurp_configured_peer_dns_failures",
 		"consecutive DNS resolution failures for a configured peer",
@@ -220,6 +262,13 @@ func (t *AURPPeerTable) Describe(ch chan<- *prometheus.Desc) {
 	ch <- aurpPeerExtendedZICompletedDesc
 	ch <- aurpPeerZoneTuplesAcceptedDesc
 	ch <- aurpPeerZoneTuplesIgnoredDesc
+	ch <- aurpPeerLoopIndicativeDesc
+	ch <- aurpPeerHopCountReductionsDesc
+	ch <- aurpPeerHopCountWeightedPacketsDesc
+	ch <- aurpPeerAlternativePathForwardsDesc
+	ch <- aurpPeerReflectionDropsDesc
+	ch <- aurpPeerHopCountReductionEnabledDesc
+	ch <- aurpPeerHopCountWeightDesc
 	ch <- aurpConfiguredPeerDNSFailuresDesc
 	ch <- aurpConfiguredPeerNextDNSDesc
 }
@@ -398,6 +447,52 @@ func (t *AURPPeerTable) Collect(ch chan<- prometheus.Metric) {
 			aurpPeerZoneTuplesIgnoredDesc,
 			prometheus.CounterValue,
 			float64(p.ZoneTuplesIgnored()),
+			peerLabel,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerLoopIndicativeDesc,
+			prometheus.CounterValue,
+			float64(p.LoopIndicativeRoutes()),
+			peerLabel,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerHopCountReductionsDesc,
+			prometheus.CounterValue,
+			float64(p.HopCountReductions()),
+			peerLabel,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerHopCountWeightedPacketsDesc,
+			prometheus.CounterValue,
+			float64(p.HopCountWeightedPackets()),
+			peerLabel,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerAlternativePathForwardsDesc,
+			prometheus.CounterValue,
+			float64(p.AlternativePathForwards()),
+			peerLabel,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerReflectionDropsDesc,
+			prometheus.CounterValue,
+			float64(p.ReflectionDrops()),
+			peerLabel,
+		)
+		hcrEnabled := 0.0
+		if p.timing.HopCountReduction {
+			hcrEnabled = 1
+		}
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerHopCountReductionEnabledDesc,
+			prometheus.GaugeValue,
+			hcrEnabled,
+			peerLabel,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerHopCountWeightDesc,
+			prometheus.GaugeValue,
+			float64(p.timing.HopCountWeight),
 			peerLabel,
 		)
 	}

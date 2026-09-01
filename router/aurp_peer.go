@@ -125,6 +125,10 @@ type AURPPeer struct {
 	zoneTuplesAccepted      atomic.Uint64
 	zoneTuplesIgnored       atomic.Uint64
 	loopIndicativeRoutes    atomic.Uint64
+	hopCountReductions      atomic.Uint64
+	hopCountWeightedPackets atomic.Uint64
+	alternativePathForwards atomic.Uint64
+	reflectionDrops         atomic.Uint64
 
 	// SUI flags requested by the remote data receiver. These control which
 	// incremental routing events we send after the initial RI-Rsp exchange.
@@ -321,6 +325,9 @@ func (p *AURPPeer) Forward(_ context.Context, ddpkt *ddp.ExtPacket) error {
 		return err
 	}
 	_, err = p.send(p.Transport.NewAppleTalkPacket(outPkt))
+	if err == nil && p.timing.HopCountWeight > 0 {
+		p.hopCountWeightedPackets.Add(1)
+	}
 	return err
 }
 
@@ -507,6 +514,22 @@ func (p *AURPPeer) ZoneTuplesIgnored() uint64 {
 
 func (p *AURPPeer) LoopIndicativeRoutes() uint64 {
 	return p.loopIndicativeRoutes.Load()
+}
+
+func (p *AURPPeer) HopCountReductions() uint64 {
+	return p.hopCountReductions.Load()
+}
+
+func (p *AURPPeer) HopCountWeightedPackets() uint64 {
+	return p.hopCountWeightedPackets.Load()
+}
+
+func (p *AURPPeer) AlternativePathForwards() uint64 {
+	return p.alternativePathForwards.Load()
+}
+
+func (p *AURPPeer) ReflectionDrops() uint64 {
+	return p.reflectionDrops.Load()
 }
 
 // ReconnectFailures returns the number of consecutive failed receiver
