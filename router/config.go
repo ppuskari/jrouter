@@ -135,7 +135,7 @@ type EtherTalkConfig struct {
 	// SoftSeedDelay is how long a soft seed waits for another router to
 	// establish the configured cable range before promoting itself.
 	// Optional; defaults to 30 seconds. Ignored for hard/none.
-	SoftSeedDelay YAMLDuration `yaml:"soft_seed_delay"`
+	SoftSeedDelay time.Duration `yaml:"soft_seed_delay"`
 
 	// EthAddr overrides the hardware address used by jrouter. Optional.
 	EthAddr string `yaml:"ethernet_addr"`
@@ -157,6 +157,33 @@ type EtherTalkConfig struct {
 	// network on this interface (inclusive). Required.
 	NetStart ddp.Network `yaml:"net_start"`
 	NetEnd   ddp.Network `yaml:"net_end"`
+}
+
+func (c *EtherTalkConfig) UnmarshalYAML(n *yaml.Node) error {
+	var raw struct {
+		SeedMode        SeedMode     `yaml:"seed_mode"`
+		SoftSeedDelay   YAMLDuration `yaml:"soft_seed_delay"`
+		EthAddr         string       `yaml:"ethernet_addr"`
+		Device          string       `yaml:"device"`
+		DefaultZoneName string       `yaml:"zone_name"`
+		ExtraZones      []string     `yaml:"extra_zones"`
+		NetStart        ddp.Network  `yaml:"net_start"`
+		NetEnd          ddp.Network  `yaml:"net_end"`
+	}
+	if err := n.Decode(&raw); err != nil {
+		return err
+	}
+	*c = EtherTalkConfig{
+		SeedMode:        raw.SeedMode,
+		SoftSeedDelay:   time.Duration(raw.SoftSeedDelay),
+		EthAddr:         raw.EthAddr,
+		Device:          raw.Device,
+		DefaultZoneName: raw.DefaultZoneName,
+		ExtraZones:      raw.ExtraZones,
+		NetStart:        raw.NetStart,
+		NetEnd:          raw.NetEnd,
+	}
+	return nil
 }
 
 // LoadConfig readand parses a configuration file, and sets some defaults.
@@ -194,7 +221,7 @@ func LoadConfig(cfgPath string) (*Config, error) {
 			))
 		}
 		if port.SoftSeedDelay == 0 {
-			port.SoftSeedDelay = YAMLDuration(30 * time.Second)
+			port.SoftSeedDelay = 30 * time.Second
 		}
 		if port.SoftSeedDelay < 0 {
 			validationErrs = append(validationErrs, fmt.Errorf(
