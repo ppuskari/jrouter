@@ -1804,7 +1804,7 @@ func (p *AURPPeer) handleGZNReq(logger *slog.Logger, pkt *aurp.GZNReqPacket) err
 		return err
 	}
 
-	if _, err := p.send(p.Transport.NewGZNRspPacket(pkt.ZoneName, false, nil)); err != nil {
+	if _, err := p.send(p.Transport.NewGZNRspPacket(pkt.ZoneName, true, nil)); err != nil {
 		logger.Error("AURP Peer: Couldn't send GZN-Rsp packet", "error", err)
 		return err
 	}

@@ -309,3 +309,38 @@ func TestAURPSUIFlagsFilterIncrementalEvents(t *testing.T) {
 		t.Fatalf("NA not emitted for NA SUI subscription: %v", got)
 	}
 }
+
+func TestSet26OptionalZoneQueriesReturnUnsupportedResponses(t *testing.T) {
+	peer := newRestartTestPeer(t)
+
+	gdzl := peer.Transport.NewGDZLReqPacket(1)
+	gdzl.ConnectionID = peer.Transport.RemoteConnID()
+	if err := peer.handleGDZLReq(peer.logger, gdzl); err != nil {
+		t.Fatal(err)
+	}
+	entries := peer.DumpChatLog()
+	if len(entries) == 0 {
+		t.Fatal("GDZL request produced no response")
+	}
+	gdzlRsp, ok := entries[len(entries)-1].Packet.(*aurp.GDZLRspPacket)
+	if !ok {
+		t.Fatalf("GDZL response = %T, want *aurp.GDZLRspPacket", entries[len(entries)-1].Packet)
+	}
+	if gdzlRsp.CommandCode != aurp.CmdCodeZoneRsp || gdzlRsp.StartIndex != -1 {
+		t.Fatalf("GDZL response command/start = %v/%d, want ZoneRsp/-1", gdzlRsp.CommandCode, gdzlRsp.StartIndex)
+	}
+
+	gzn := peer.Transport.NewGZNReqPacket("Example Zone")
+	gzn.ConnectionID = peer.Transport.RemoteConnID()
+	if err := peer.handleGZNReq(peer.logger, gzn); err != nil {
+		t.Fatal(err)
+	}
+	entries = peer.DumpChatLog()
+	gznRsp, ok := entries[len(entries)-1].Packet.(*aurp.GZNRspPacket)
+	if !ok {
+		t.Fatalf("GZN response = %T, want *aurp.GZNRspPacket", entries[len(entries)-1].Packet)
+	}
+	if gznRsp.CommandCode != aurp.CmdCodeZoneRsp || !gznRsp.NotSupported {
+		t.Fatalf("GZN response command/unsupported = %v/%v, want ZoneRsp/true", gznRsp.CommandCode, gznRsp.NotSupported)
+	}
+}

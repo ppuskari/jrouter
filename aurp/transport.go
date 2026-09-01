@@ -371,7 +371,7 @@ func (tr *Transport) NewGDZLRspPacket(startIdx int16, zoneNames []string) *GDZLR
 	return &GDZLRspPacket{
 		Header: Header{
 			TrHeader:    tr.transaction(tr.RemoteConnID()),
-			CommandCode: CmdCodeZoneReq,
+			CommandCode: CmdCodeZoneRsp,
 			Flags:       0,
 		},
 		Subcode:    SubcodeGetDomainZoneList,
@@ -399,7 +399,7 @@ func (tr *Transport) NewGZNRspPacket(zoneName string, notSupported bool, nets Ne
 	return &GZNRspPacket{
 		Header: Header{
 			TrHeader:    tr.transaction(tr.RemoteConnID()),
-			CommandCode: CmdCodeZoneReq,
+			CommandCode: CmdCodeZoneRsp,
 			Flags:       0,
 		},
 		Subcode:      SubcodeGetZonesNet,
