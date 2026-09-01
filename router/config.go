@@ -203,6 +203,11 @@ func (c AURPClusterRule) containsRoute(route Route) bool {
 	return route.NetStart >= c.Start && route.NetEnd <= c.End
 }
 
+type AURPBackupPeerRule struct {
+	Peer    string `yaml:"peer"`
+	Penalty uint8  `yaml:"penalty"`
+}
+
 type AURPConfig struct {
 	LastHeardFromTimeout  time.Duration      `yaml:"-"`
 	RetryInterval         time.Duration      `yaml:"-"`
@@ -215,6 +220,7 @@ type AURPConfig struct {
 	RemapRules            []AURPRemapRule    `yaml:"remap"`
 	HiddenDevices         []AURPDeviceHideRule `yaml:"hidden_devices"`
 	Clusters              []AURPClusterRule    `yaml:"clusters"`
+	BackupPeers           []AURPBackupPeerRule `yaml:"backup_peers"`
 }
 
 func (c AURPConfig) networkHidden(network ddp.Network) bool {
@@ -248,6 +254,7 @@ func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
 		RemapRules            []AURPRemapRule     `yaml:"remap"`
 		HiddenDevices         []AURPDeviceHideRule `yaml:"hidden_devices"`
 		Clusters              []AURPClusterRule     `yaml:"clusters"`
+		BackupPeers           []AURPBackupPeerRule  `yaml:"backup_peers"`
 	}
 	if err := n.Decode(&raw); err != nil {
 		return err
@@ -264,6 +271,7 @@ func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
 		RemapRules:            raw.RemapRules,
 		HiddenDevices:         raw.HiddenDevices,
 		Clusters:              raw.Clusters,
+		BackupPeers:           raw.BackupPeers,
 	}
 	return nil
 }
@@ -445,6 +453,23 @@ func LoadConfig(cfgPath string) (*Config, error) {
 			))
 		}
 	}
+	for i, backup := range c.AURP.BackupPeers {
+		if strings.TrimSpace(backup.Peer) == "" {
+			validationErrs = append(validationErrs, fmt.Errorf(
+				"aurp.backup_peers[%d] requires a peer selector",
+				i,
+			))
+		}
+		if backup.Penalty == 0 || backup.Penalty >= maxRouteDistance {
+			validationErrs = append(validationErrs, fmt.Errorf(
+				"aurp.backup_peers[%d] penalty must be between 1 and %d, got %d",
+				i,
+				maxRouteDistance-1,
+				backup.Penalty,
+			))
+		}
+	}
+
 	for i, cluster := range c.AURP.Clusters {
 		if cluster.Start == 0 ||
 			cluster.Start > cluster.End ||

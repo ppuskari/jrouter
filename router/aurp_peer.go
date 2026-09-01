@@ -288,11 +288,23 @@ func (p *AURPPeer) BestNetworkChanged(oldBest, newBest Route) {
 	p.queueBestNetworkTransition(oldBest, newBest)
 }
 
+func (p *AURPPeer) backupRoutePenalty() uint8 {
+	for _, rule := range p.timing.BackupPeers {
+		if peerSelectorMatches(rule.Peer, p) {
+			return rule.Penalty
+		}
+	}
+	return 0
+}
+
 func (p *AURPPeer) weightedAURPDistance(advertised uint8) (uint8, bool) {
 	if advertised >= maxRouteDistance {
 		return 0, false
 	}
-	distance := uint16(advertised) + 1 + uint16(p.timing.HopCountWeight)
+	distance := uint16(advertised) +
+		1 +
+		uint16(p.timing.HopCountWeight) +
+		uint16(p.backupRoutePenalty())
 	if distance > maxRouteDistance {
 		return 0, false
 	}

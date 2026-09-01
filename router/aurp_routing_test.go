@@ -707,3 +707,54 @@ func TestSet26ClusterCollapsesRemappedRoutesForRTMP(t *testing.T) {
 		t.Fatalf("clustered tuple = %+v, want 5000-5009 distance 2", tuples[0])
 	}
 }
+
+func TestSet26BackupPeerPenaltyRetainsButDeprioritizesRoute(t *testing.T) {
+	rt := NewRouteTable(t.Context())
+	primary := &AURPPeer{
+		tunnelID:   "cfg:primary.example",
+		RouteTable: rt,
+	}
+	backup := &AURPPeer{
+		tunnelID:   "cfg:backup.example",
+		RouteTable: rt,
+		timing: AURPConfig{BackupPeers: []AURPBackupPeerRule{{
+			Peer: "cfg:backup.example",
+			Penalty: 6,
+		}}},
+	}
+
+	if ok, err := primary.applyRIRspNetworkTuple(aurp.NetworkTuple{
+		Extended: true,
+		RangeStart: 3600,
+		RangeEnd: 3600,
+		Distance: 1,
+	}); err != nil || !ok {
+		t.Fatalf("primary route accepted=%v err=%v", ok, err)
+	}
+	if ok, err := backup.applyRIRspNetworkTuple(aurp.NetworkTuple{
+		Extended: true,
+		RangeStart: 3600,
+		RangeEnd: 3600,
+		Distance: 1,
+	}); err != nil || !ok {
+		t.Fatalf("backup route accepted=%v err=%v", ok, err)
+	}
+	if err := rt.ReplaceZonesForNetwork(3600, "Backup Zone"); err != nil {
+		t.Fatal(err)
+	}
+
+	best := rt.Lookup(3600)
+	if best.Target != primary {
+		t.Fatalf("best target with primary present = %v, want primary", best.Target)
+	}
+	if err := rt.DeleteRoute(primary, 3600); err != nil {
+		t.Fatal(err)
+	}
+	best = rt.Lookup(3600)
+	if best.Target != backup {
+		t.Fatalf("best target after primary removal = %v, want backup", best.Target)
+	}
+	if best.Distance != 8 {
+		t.Fatalf("backup stored distance = %d, want 8", best.Distance)
+	}
+}
