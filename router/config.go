@@ -454,8 +454,8 @@ func LoadConfig(cfgPath string) (*Config, error) {
 				"aurp.remap[%d] ranges have different sizes",
 				i,
 			))
-		case rule.LocalStart >= phase2StartupStart ||
-			rule.LocalEnd >= phase2StartupStart:
+		case rule.LocalStart >= 0xff00 ||
+			rule.LocalEnd >= 0xff00:
 			validationErrs = append(validationErrs, fmt.Errorf(
 				"aurp.remap[%d] local range overlaps the Phase 2 startup range",
 				i,
@@ -465,7 +465,7 @@ func LoadConfig(cfgPath string) (*Config, error) {
 	for i, hidden := range c.AURP.HiddenImportNetworks {
 		if hidden.Start == 0 ||
 			hidden.Start > hidden.End ||
-			hidden.End >= phase2StartupStart {
+			hidden.End >= 0xff00 {
 			validationErrs = append(validationErrs, fmt.Errorf(
 				"aurp.hidden_import_networks[%d] has invalid range %d-%d",
 				i,
@@ -495,7 +495,7 @@ func LoadConfig(cfgPath string) (*Config, error) {
 	for i, cluster := range c.AURP.Clusters {
 		if cluster.Start == 0 ||
 			cluster.Start > cluster.End ||
-			cluster.End >= phase2StartupStart {
+			cluster.End >= 0xff00 {
 			validationErrs = append(validationErrs, fmt.Errorf(
 				"aurp.clusters[%d] has invalid range %d-%d",
 				i,
