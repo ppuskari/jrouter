@@ -92,7 +92,7 @@ type AARPMachine struct {
 	// The Run goroutine is responsible for all writes to myAddr.Proto and
 	// probes, so this mutex is not used to enforce a single writer, only
 	// consistent reads
-	mu         sync.RWMutex
+	mu        sync.RWMutex
 	statusMsg string
 	myAddr    aarp.AddrPair
 	probes    int
@@ -102,8 +102,8 @@ type AARPMachine struct {
 	rangeEnd   ddp.Network
 	rangeCh    chan aarpRange
 
-	assignedSignaled bool
-	assignedCh       chan struct{}
+	assignedSignaled    bool
+	assignedCh          chan struct{}
 	operational         bool
 	operationalSignaled bool
 	operationalCh       chan struct{}
