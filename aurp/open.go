@@ -189,6 +189,7 @@ func parseOptions(p []byte) (Options, error) {
 		return nil, fmt.Errorf("insufficint input length %d for options", len(p))
 	}
 	optc := p[0]
+	p = p[1:]
 	opts := make([]OptionTuple, optc)
 	for i := range optc {
 		ot, np, err := parseOptionTuple(p)
