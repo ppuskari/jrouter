@@ -232,6 +232,14 @@ func (p *AURPPeer) ownsAURPNetwork(network ddp.Network) bool {
 		!p.RouteTable.find(p, network).Zero()
 }
 
+func (p *AURPPeer) needsZoneInfo(network ddp.Network) bool {
+	if p.RouteTable == nil {
+		return false
+	}
+	route := p.RouteTable.find(p, network)
+	return !route.Zero() && len(route.ZoneNames()) == 0
+}
+
 func (p *AURPPeer) applyNonExtendedZIRsp(
 	pkt *aurp.ZIRspPacket,
 ) (accepted, ignored int) {

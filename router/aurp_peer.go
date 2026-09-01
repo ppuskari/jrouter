@@ -1233,6 +1233,7 @@ func (p *AURPPeer) handleRIRsp(logger *slog.Logger, pkt *aurp.RIRspPacket) error
 
 	logger.Debug("AURP Peer: Learned about these networks", "networks", pkt.Networks)
 
+	var ackFlag aurp.RoutingFlag
 	for _, nt := range pkt.Networks {
 		logger := logger.With(
 			"extended", nt.Extended,
@@ -1254,12 +1255,13 @@ func (p *AURPPeer) handleRIRsp(logger *slog.Logger, pkt *aurp.RIRspPacket) error
 			)
 			continue
 		}
-		p.markZoneInfoPending(nt.RangeStart)
+		if p.needsZoneInfo(nt.RangeStart) {
+			p.markZoneInfoPending(nt.RangeStart)
+			ackFlag = aurp.RoutingFlagSendZoneInfo
+		}
 	}
 
-	// TODO: track which networks we don't have zone info for, and
-	// only set SZI for those ?
-	if _, err := p.send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, aurp.RoutingFlagSendZoneInfo)); err != nil {
+	if _, err := p.send(p.Transport.NewRIAckPacket(pkt.ConnectionID, pkt.Sequence, ackFlag)); err != nil {
 		logger.Error("AURP Peer: Couldn't send RI-Ack packet", "error", err)
 		return err
 	}
@@ -1404,7 +1406,10 @@ func (p *AURPPeer) applyRIUpdEvent(et aurp.EventTuple) (bool, error) {
 		_, err := p.RouteTable.UpsertRoute(
 			p, et.Extended, et.RangeStart, et.RangeEnd, et.Distance+1,
 		)
-		return err == nil, err
+		if err != nil {
+			return false, err
+		}
+		return p.needsZoneInfo(et.RangeStart), nil
 
 	case aurp.EventCodeND, aurp.EventCodeNRC:
 		// RFC 1504 says an ND or NRC for an unknown network is ignored.
@@ -1429,7 +1434,10 @@ func (p *AURPPeer) applyRIUpdEvent(et aurp.EventTuple) (bool, error) {
 			_, err := p.RouteTable.UpsertRoute(
 				p, et.Extended, et.RangeStart, et.RangeEnd, et.Distance+1,
 			)
-			return err == nil, err
+			if err != nil {
+				return false, err
+			}
+			return p.needsZoneInfo(et.RangeStart), nil
 		}
 
 		// The tuple carries the network-range shape as well as the metric.
@@ -1440,7 +1448,10 @@ func (p *AURPPeer) applyRIUpdEvent(et aurp.EventTuple) (bool, error) {
 			_, err := p.RouteTable.UpsertRoute(
 				p, et.Extended, et.RangeStart, et.RangeEnd, et.Distance+1,
 			)
-			return false, err
+			if err != nil {
+				return false, err
+			}
+			return p.needsZoneInfo(et.RangeStart), nil
 		}
 
 		return false, p.RouteTable.UpdateDistance(

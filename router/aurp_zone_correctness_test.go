@@ -400,3 +400,67 @@ func TestSet26PartialExtendedZIIsRetriedUntilComplete(t *testing.T) {
 		t.Fatalf("completed zone list was retried: chat log %d -> %d", before, got)
 	}
 }
+
+func TestSet26RIRspRequestsZoneInfoOnlyWhenMissing(t *testing.T) {
+	peer := newRestartTestPeer(t)
+	peer.setRState(ReceiverConnected)
+	peer.Transport.ResetRemoteSeq()
+
+	if _, err := peer.RouteTable.UpsertRoute(peer, true, 2800, 2800, 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := peer.RouteTable.ReplaceZonesForNetwork(2800, "Known Zone"); err != nil {
+		t.Fatal(err)
+	}
+
+	known := &aurp.RIRspPacket{
+		Header: aurp.Header{
+			TrHeader: aurp.TrHeader{
+				ConnectionID: peer.Transport.LocalConnID(),
+				Sequence:     peer.Transport.RemoteSeq(),
+			},
+			CommandCode: aurp.CmdCodeRIRsp,
+		},
+		Networks: aurp.NetworkTuples{{
+			Extended: true, RangeStart: 2800, RangeEnd: 2800, Distance: 1,
+		}},
+	}
+	if err := peer.handleRIRsp(peer.logger, known); err != nil {
+		t.Fatal(err)
+	}
+	entries := peer.DumpChatLog()
+	ack, ok := entries[len(entries)-1].Packet.(*aurp.RIAckPacket)
+	if !ok {
+		t.Fatalf("response to known-zone RI-Rsp = %T, want RI-Ack", entries[len(entries)-1].Packet)
+	}
+	if ack.Flags&aurp.RoutingFlagSendZoneInfo != 0 {
+		t.Fatal("SZI requested for network with complete zone information")
+	}
+
+	missing := &aurp.RIRspPacket{
+		Header: aurp.Header{
+			TrHeader: aurp.TrHeader{
+				ConnectionID: peer.Transport.LocalConnID(),
+				Sequence:     peer.Transport.RemoteSeq(),
+			},
+			CommandCode: aurp.CmdCodeRIRsp,
+		},
+		Networks: aurp.NetworkTuples{{
+			Extended: true, RangeStart: 2801, RangeEnd: 2801, Distance: 1,
+		}},
+	}
+	if err := peer.handleRIRsp(peer.logger, missing); err != nil {
+		t.Fatal(err)
+	}
+	entries = peer.DumpChatLog()
+	ack, ok = entries[len(entries)-1].Packet.(*aurp.RIAckPacket)
+	if !ok {
+		t.Fatalf("response to missing-zone RI-Rsp = %T, want RI-Ack", entries[len(entries)-1].Packet)
+	}
+	if ack.Flags&aurp.RoutingFlagSendZoneInfo == 0 {
+		t.Fatal("SZI was not requested for network lacking zone information")
+	}
+	if _, ok := peer.pendingZoneInfo[2801]; !ok {
+		t.Fatal("missing-zone network was not tracked for retry")
+	}
+}
