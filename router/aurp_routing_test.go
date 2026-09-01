@@ -590,7 +590,7 @@ func TestSet26StaticRemapMapsInboundDDPAndNBPTuple(t *testing.T) {
 		ExtHeader: ddp.ExtHeader{
 			SrcNet: 102,
 			Proto:  ddp.ProtoNBP,
-			Cksum:  1234,
+			Cksum:  0,
 		},
 		Data: nbpRaw,
 	}
