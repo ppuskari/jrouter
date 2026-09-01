@@ -59,7 +59,7 @@ func main() {
 	flag.Parse()
 
 	if *version {
-		fmt.Println(meta.NameVersion)
+		fmt.Printf("%s build %s\n", meta.NameVersion, meta.Build)
 		return
 	}
 
@@ -133,6 +133,9 @@ func main() {
 	} else {
 		http.Handle("/chatlog/{ip}", rooter.AURPPeers)
 		http.HandleFunc("/status", status.Handle)
+		http.HandleFunc("/healthz", rooter.HealthHandler)
+		http.HandleFunc("/readyz", rooter.ReadyHandler)
+		http.HandleFunc("/api/v1/aurp", rooter.AURPSummaryHandler)
 		http.Handle("/metrics", promhttp.Handler())
 		http.Handle("/", http.FileServerFS(status.StaticFiles))
 		go func() {

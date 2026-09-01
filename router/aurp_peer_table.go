@@ -864,3 +864,39 @@ const peerTableTemplate = `
 	</tbody>
 </table>
 `
+
+type aurpOperationalSummary struct {
+	Configured        int `json:"configured"`
+	Resolved          int `json:"resolved"`
+	Running           int `json:"running"`
+	ReceiverConnected int `json:"receiver_connected"`
+	SenderConnected   int `json:"sender_connected"`
+	LoopDisabled      int `json:"loop_disabled"`
+	ReceiveQueue      int `json:"receive_queue"`
+}
+
+func (t *AURPPeerTable) operationalSummary() aurpOperationalSummary {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	summary := aurpOperationalSummary{
+		Configured: len(t.dnsByConfigured),
+	}
+	for _, peer := range t.uniquePeersLocked() {
+		summary.Resolved++
+		if peer.Running() {
+			summary.Running++
+		}
+		if peer.ReceiverState() == ReceiverConnected {
+			summary.ReceiverConnected++
+		}
+		if peer.SenderState() == SenderConnected {
+			summary.SenderConnected++
+		}
+		if peer.LoopDisabled() {
+			summary.LoopDisabled++
+		}
+		summary.ReceiveQueue += peer.ReceiveChLen()
+	}
+	return summary
+}
