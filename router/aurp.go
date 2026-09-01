@@ -134,6 +134,14 @@ func (r *Router) AURPInput(ctx context.Context, logger *slog.Logger, wg *sync.Wa
 				logger.Error("AURP: Couldn't unmarshal encapsulated DDP packet", "error", err)
 				continue
 			}
+			if r.Config.AURP.networkHidden(ddpkt.DstNet) {
+				logger.Info(
+					"DDP/AURP: dropping packet to hidden local network",
+					"dst-net", ddpkt.DstNet,
+					"peer", peer.TunnelID(),
+				)
+				continue
+			}
 			// logger.Debug(fmt.Sprintf("DDP/AURP: Got %d.%d.%d -> %d.%d.%d proto %d data len %d",
 			// 	ddpkt.SrcNet, ddpkt.SrcNode, ddpkt.SrcSocket,
 			// 	ddpkt.DstNet, ddpkt.DstNode, ddpkt.DstSocket,

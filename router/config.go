@@ -120,12 +120,78 @@ func (d *YAMLDuration) UnmarshalYAML(n *yaml.Node) error {
 	return nil
 }
 
+type AURPNetworkRange struct {
+	Start ddp.Network
+	End   ddp.Network
+}
+
+func (r *AURPNetworkRange) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind != yaml.ScalarNode {
+		return fmt.Errorf("AURP network range must be a scalar, got YAML kind %v", n.Kind)
+	}
+	parts := strings.SplitN(strings.TrimSpace(n.Value), "-", 2)
+	parse := func(s string) (ddp.Network, error) {
+		v, err := strconv.ParseUint(strings.TrimSpace(s), 10, 16)
+		if err != nil {
+			return 0, fmt.Errorf("invalid AppleTalk network %q: %w", s, err)
+		}
+		network := ddp.Network(v)
+		if network == 0 || network >= 0xff00 {
+			return 0, fmt.Errorf("AppleTalk network %d is not valid for AURP hiding", network)
+		}
+		return network, nil
+	}
+	start, err := parse(parts[0])
+	if err != nil {
+		return err
+	}
+	end := start
+	if len(parts) == 2 {
+		end, err = parse(parts[1])
+		if err != nil {
+			return err
+		}
+	}
+	if start > end {
+		return fmt.Errorf("AURP hidden network range is reversed (%d-%d)", start, end)
+	}
+	*r = AURPNetworkRange{Start: start, End: end}
+	return nil
+}
+
+func (r AURPNetworkRange) contains(network ddp.Network) bool {
+	return network >= r.Start && network <= r.End
+}
+
+func (r AURPNetworkRange) overlaps(start, end ddp.Network) bool {
+	return start <= r.End && end >= r.Start
+}
+
 type AURPConfig struct {
-	LastHeardFromTimeout time.Duration `yaml:"-"`
-	RetryInterval        time.Duration `yaml:"-"`
-	SendRetryLimit       int           `yaml:"send_retry_limit"`
-	TickleRetryLimit     int           `yaml:"tickle_retry_limit"`
-	ZoneInfoRetryInterval time.Duration `yaml:"-"`
+	LastHeardFromTimeout  time.Duration      `yaml:"-"`
+	RetryInterval         time.Duration      `yaml:"-"`
+	SendRetryLimit        int                `yaml:"send_retry_limit"`
+	TickleRetryLimit      int                `yaml:"tickle_retry_limit"`
+	ZoneInfoRetryInterval time.Duration      `yaml:"-"`
+	HiddenNetworks        []AURPNetworkRange `yaml:"hidden_networks"`
+}
+
+func (c AURPConfig) networkHidden(network ddp.Network) bool {
+	for _, r := range c.HiddenNetworks {
+		if r.contains(network) {
+			return true
+		}
+	}
+	return false
+}
+
+func (c AURPConfig) rangeHidden(start, end ddp.Network) bool {
+	for _, r := range c.HiddenNetworks {
+		if r.overlaps(start, end) {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
@@ -134,7 +200,8 @@ func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
 		RetryInterval        YAMLDuration `yaml:"retry_interval"`
 		SendRetryLimit       int          `yaml:"send_retry_limit"`
 		TickleRetryLimit     int          `yaml:"tickle_retry_limit"`
-		ZoneInfoRetryInterval YAMLDuration `yaml:"zone_info_retry_interval"`
+		ZoneInfoRetryInterval YAMLDuration       `yaml:"zone_info_retry_interval"`
+		HiddenNetworks        []AURPNetworkRange `yaml:"hidden_networks"`
 	}
 	if err := n.Decode(&raw); err != nil {
 		return err
@@ -145,6 +212,7 @@ func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
 		SendRetryLimit:       raw.SendRetryLimit,
 		TickleRetryLimit:     raw.TickleRetryLimit,
 		ZoneInfoRetryInterval: time.Duration(raw.ZoneInfoRetryInterval),
+		HiddenNetworks:        raw.HiddenNetworks,
 	}
 	return nil
 }

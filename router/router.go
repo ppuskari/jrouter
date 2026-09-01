@@ -100,6 +100,9 @@ func (rtr *Router) OutputFromAURP(
 	ingress *AURPPeer,
 	ddpkt *ddp.ExtPacket,
 ) error {
+	if rtr.Config != nil && rtr.Config.AURP.networkHidden(ddpkt.DstNet) {
+		return fmt.Errorf("AURP network %d is hidden by local policy; dropping packet", ddpkt.DstNet)
+	}
 	route, err := rtr.outputRoute(ddpkt, ingress.TunnelID())
 	if err != nil {
 		return err

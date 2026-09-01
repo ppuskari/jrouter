@@ -223,6 +223,16 @@ func (p *AURPPeer) queueBestNetworkTransition(oldBest, newBest Route) {
 		return
 	}
 
+	netEnd := netStart
+	if !newBest.Zero() {
+		netEnd = newBest.NetEnd
+	} else if !oldBest.Zero() {
+		netEnd = oldBest.NetEnd
+	}
+	if p.timing.rangeHidden(netStart, netEnd) {
+		return
+	}
+
 	p.pendingEventsMu.Lock()
 	defer p.pendingEventsMu.Unlock()
 
@@ -1144,7 +1154,7 @@ func (p *AURPPeer) handleRIReq(logger *slog.Logger, pkt *aurp.RIReqPacket) error
 	// TODO: Load ExtraAdvertisedZones and HiddenZones. The base exported route
 	// set is deliberately built in one place so initial RI-Rsp and incremental
 	// RI-Upd split-horizon policy cannot drift apart.
-	routes := p.RouteTable.aurpExportedRoutes()
+	routes := p.aurpExportedRoutes()
 	nets := make(aurp.NetworkTuples, 0, len(routes))
 	for _, r := range routes {
 		nets = append(nets, aurp.NetworkTuple{
@@ -1662,7 +1672,13 @@ func (p *AURPPeer) handleZIReq(logger *slog.Logger, pkt *aurp.ZIReqPacket) error
 		return err
 	}
 
-	zones := p.RouteTable.ZonesForNetworks(pkt.Networks)
+	visibleNetworks := make([]ddp.Network, 0, len(pkt.Networks))
+	for _, network := range pkt.Networks {
+		if !p.timing.networkHidden(network) {
+			visibleNetworks = append(visibleNetworks, network)
+		}
+	}
+	zones := p.RouteTable.ZonesForNetworks(visibleNetworks)
 	if err := p.sendZIRspPackets(zones); err != nil {
 		logger.Error("AURP Peer: Couldn't send ZI-Rsp packet", "error", err)
 		return err

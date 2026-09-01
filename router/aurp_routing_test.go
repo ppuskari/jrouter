@@ -2,6 +2,7 @@ package router
 
 import (
 	"bytes"
+	"context"
 	"net"
 	"testing"
 
@@ -339,5 +340,50 @@ func TestAURPRouteTupleSafeguardsRejectInvalidRanges(t *testing.T) {
 		EventCode: aurp.EventCodeNA, RangeStart: 902, RangeEnd: 903,
 	}); err == nil || needZoneInfo {
 		t.Fatalf("invalid RI-Upd tuple needZoneInfo=%v err=%v", needZoneInfo, err)
+	}
+}
+
+func TestSet26HiddenNetworksAreNotExportedOrUpdated(t *testing.T) {
+	rt := NewRouteTable(t.Context())
+	local := fakeTarget{key: "local-hidden-test", class: TargetClassAppleTalkPeer}
+	for _, network := range []ddp.Network{3000, 3001} {
+		if _, err := rt.UpsertRoute(local, true, network, network, 2); err != nil {
+			t.Fatal(err)
+		}
+		if err := rt.AddZonesToNetwork(network, "Local Zone"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	peer := &AURPPeer{
+		RouteTable: rt,
+		timing: AURPConfig{HiddenNetworks: []AURPNetworkRange{
+			{Start: 3001, End: 3001},
+		}},
+	}
+	routes := peer.aurpExportedRoutes()
+	if len(routes) != 1 || routes[0].NetStart != 3000 {
+		t.Fatalf("visible exported routes = %v, want only network 3000", routes)
+	}
+
+	peer.setSState(SenderConnected)
+	peer.setSUIFlags(aurp.RoutingFlagAllSUI)
+	peer.queueBestNetworkTransition(Route{}, testAURPRoute(local, 3001, 2))
+	if got := peer.takePendingEvents(); len(got) != 0 {
+		t.Fatalf("hidden network generated RI-Upd events: %v", got)
+	}
+}
+
+func TestSet26OutputFromAURPDropsHiddenDestination(t *testing.T) {
+	rtr := &Router{
+		Config: &Config{AURP: AURPConfig{HiddenNetworks: []AURPNetworkRange{
+			{Start: 4000, End: 4009},
+		}}},
+		RouteTable: NewRouteTable(t.Context()),
+	}
+	ingress := &AURPPeer{tunnelID: "cfg:ingress.example"}
+	pkt := &ddp.ExtPacket{DstNet: 4005}
+	if err := rtr.OutputFromAURP(context.Background(), ingress, pkt); err == nil {
+		t.Fatal("AURP packet to hidden local network was accepted")
 	}
 }

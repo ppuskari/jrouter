@@ -153,3 +153,50 @@ ethertalk:
 		t.Fatal("AURP LHFT below 30 seconds was accepted")
 	}
 }
+
+func TestLoadConfigParsesAURPHiddenNetworks(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jrouter.yaml")
+	data := []byte(`aurp:
+  hidden_networks:
+    - 1000
+    - 2000-2009
+ethertalk:
+  - device: en0
+    zone_name: Test
+    net_start: 100
+    net_end: 100
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.AURP.networkHidden(1000) ||
+		!cfg.AURP.networkHidden(2005) ||
+		cfg.AURP.networkHidden(2010) {
+		t.Fatalf("hidden network policy parsed incorrectly: %+v", cfg.AURP.HiddenNetworks)
+	}
+}
+
+func TestLoadConfigRejectsInvalidAURPHiddenRange(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jrouter.yaml")
+	data := []byte(`aurp:
+  hidden_networks:
+    - 2009-2000
+ethertalk:
+  - device: en0
+    zone_name: Test
+    net_start: 100
+    net_end: 100
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadConfig(path); err == nil {
+		t.Fatal("reversed AURP hidden network range was accepted")
+	}
+}

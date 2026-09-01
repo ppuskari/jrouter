@@ -136,6 +136,21 @@ func (rt *RouteTable) aurpExportedRoutes() []Route {
 	return routes
 }
 
+func (p *AURPPeer) aurpExportedRoutes() []Route {
+	if p.RouteTable == nil {
+		return nil
+	}
+	routes := p.RouteTable.aurpExportedRoutes()
+	out := routes[:0]
+	for _, route := range routes {
+		if p.timing.rangeHidden(route.NetStart, route.NetEnd) {
+			continue
+		}
+		out = append(out, route)
+	}
+	return out
+}
+
 func aurpNetworkTupleSize(nt aurp.NetworkTuple) int {
 	if nt.Extended {
 		return 6
