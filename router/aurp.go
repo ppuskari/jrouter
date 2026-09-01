@@ -142,6 +142,15 @@ func (r *Router) AURPInput(ctx context.Context, logger *slog.Logger, wg *sync.Wa
 				logger.Error("AURP: couldn't remap inbound DDP packet", "error", err)
 				continue
 			}
+			filteredDDP, drop, err := peer.filterDeviceNBP(ddpkt, "import")
+			if err != nil {
+				logger.Error("AURP: couldn't filter inbound NBP devices", "error", err)
+				continue
+			}
+			if drop {
+				continue
+			}
+			ddpkt = filteredDDP
 			if r.Config.AURP.networkHidden(ddpkt.DstNet) {
 				logger.Info(
 					"DDP/AURP: dropping packet to hidden local network",

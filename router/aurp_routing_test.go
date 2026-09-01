@@ -6,6 +6,7 @@ import (
 	"net"
 	"testing"
 
+	"drjosh.dev/jrouter/atalk/nbp"
 	"drjosh.dev/jrouter/aurp"
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
@@ -604,5 +605,80 @@ func TestSet26StaticRemapMapsInboundDDPAndNBPTuple(t *testing.T) {
 	}
 	if parsed.Tuples[0].Network != 5003 {
 		t.Fatalf("remapped NBP tuple network = %d, want 5003", parsed.Tuples[0].Network)
+	}
+}
+
+func TestSet26DeviceHidingFiltersOnlyMatchingNBPTuples(t *testing.T) {
+	peer := &AURPPeer{
+		tunnelID: "cfg:remote.example",
+		timing: AURPConfig{HiddenDevices: []AURPDeviceHideRule{{
+			Peer: "cfg:remote.example",
+			Type: "LaserWriter",
+			Direction: "import",
+		}}},
+	}
+	raw, err := (&nbp.Packet{
+		Function: nbp.FunctionLkUpReply,
+		NBPID: 9,
+		Tuples: []nbp.Tuple{
+			{Network: 1, Node: 1, Socket: 2, Object: "Printer", Type: "LaserWriter", Zone: "Z"},
+			{Network: 2, Node: 2, Socket: 2, Object: "Server", Type: "AFPServer", Zone: "Z"},
+		},
+	}).Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkt := &ddp.ExtPacket{
+		ExtHeader: ddp.ExtHeader{Proto: ddp.ProtoNBP},
+		Data: raw,
+	}
+	filtered, drop, err := peer.filterDeviceNBP(pkt, "import")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if drop {
+		t.Fatal("mixed visible/hidden reply was dropped")
+	}
+	parsed, err := nbp.Unmarshal(filtered.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.Tuples) != 1 || parsed.Tuples[0].Type != "AFPServer" {
+		t.Fatalf("filtered tuples = %v, want only AFPServer", parsed.Tuples)
+	}
+}
+
+func TestSet26DeviceHidingDropsAllHiddenReply(t *testing.T) {
+	peer := &AURPPeer{
+		tunnelID: "cfg:remote.example",
+		timing: AURPConfig{HiddenDevices: []AURPDeviceHideRule{{
+			Type: "*",
+			Direction: "both",
+		}}},
+	}
+	raw, err := (&nbp.Packet{
+		Function: nbp.FunctionLkUpReply,
+		NBPID: 1,
+		Tuples: []nbp.Tuple{{
+			Network: 1,
+			Node: 1,
+			Socket: 2,
+			Object: "Anything",
+			Type: "AnyType",
+			Zone: "Z",
+		}},
+	}).Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, drop, err := peer.filterDeviceNBP(&ddp.ExtPacket{
+		ExtHeader: ddp.ExtHeader{Proto: ddp.ProtoNBP},
+		Data: raw,
+	}, "export")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !drop {
+		t.Fatal("all-hidden NBP reply was not dropped")
 	}
 }

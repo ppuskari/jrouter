@@ -183,6 +183,13 @@ func (r AURPRemapRule) localRange() AURPNetworkRange {
 	return AURPNetworkRange{Start: r.LocalStart, End: r.LocalEnd}
 }
 
+type AURPDeviceHideRule struct {
+	Peer      string `yaml:"peer"`
+	Object    string `yaml:"object"`
+	Type      string `yaml:"type"`
+	Direction string `yaml:"direction"`
+}
+
 type AURPConfig struct {
 	LastHeardFromTimeout  time.Duration      `yaml:"-"`
 	RetryInterval         time.Duration      `yaml:"-"`
@@ -193,6 +200,7 @@ type AURPConfig struct {
 	HopCountReduction     bool               `yaml:"hop_count_reduction"`
 	HopCountWeight        uint8              `yaml:"hop_count_weight"`
 	RemapRules            []AURPRemapRule    `yaml:"remap"`
+	HiddenDevices         []AURPDeviceHideRule `yaml:"hidden_devices"`
 }
 
 func (c AURPConfig) networkHidden(network ddp.Network) bool {
@@ -223,7 +231,8 @@ func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
 		HiddenNetworks        []AURPNetworkRange `yaml:"hidden_networks"`
 		HopCountReduction     bool               `yaml:"hop_count_reduction"`
 		HopCountWeight        uint8              `yaml:"hop_count_weight"`
-		RemapRules            []AURPRemapRule    `yaml:"remap"`
+		RemapRules            []AURPRemapRule     `yaml:"remap"`
+		HiddenDevices         []AURPDeviceHideRule `yaml:"hidden_devices"`
 	}
 	if err := n.Decode(&raw); err != nil {
 		return err
@@ -238,6 +247,7 @@ func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
 		HopCountReduction:     raw.HopCountReduction,
 		HopCountWeight:        raw.HopCountWeight,
 		RemapRules:            raw.RemapRules,
+		HiddenDevices:         raw.HiddenDevices,
 	}
 	return nil
 }
@@ -419,6 +429,19 @@ func LoadConfig(cfgPath string) (*Config, error) {
 			))
 		}
 	}
+	for i, rule := range c.AURP.HiddenDevices {
+		direction := strings.ToLower(strings.TrimSpace(rule.Direction))
+		switch direction {
+		case "", "both", "import", "export":
+		default:
+			validationErrs = append(validationErrs, fmt.Errorf(
+				"aurp.hidden_devices[%d] direction %q must be import, export, or both",
+				i,
+				rule.Direction,
+			))
+		}
+	}
+
 	for i := range c.AURP.RemapRules {
 		for j := i + 1; j < len(c.AURP.RemapRules); j++ {
 			a := c.AURP.RemapRules[i]

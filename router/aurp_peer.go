@@ -320,7 +320,14 @@ func (p *AURPPeer) applyAURPHopWeight(ddpkt *ddp.ExtPacket) (*ddp.ExtPacket, err
 // Forward encapsulates the DDP packet in an AURP AppleTalkPacket and sends it
 // to the remote peer router.
 func (p *AURPPeer) Forward(_ context.Context, ddpkt *ddp.ExtPacket) error {
-	remapped, err := p.remapOutboundDDP(ddpkt)
+	filtered, drop, err := p.filterDeviceNBP(ddpkt, "export")
+	if err != nil {
+		return err
+	}
+	if drop {
+		return nil
+	}
+	remapped, err := p.remapOutboundDDP(filtered)
 	if err != nil {
 		return err
 	}

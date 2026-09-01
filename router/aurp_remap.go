@@ -9,11 +9,11 @@ import (
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
-func (r AURPRemapRule) matchesPeer(peer *AURPPeer) bool {
-	if r.Peer == "" {
+func peerSelectorMatches(selector string, peer *AURPPeer) bool {
+	if strings.TrimSpace(selector) == "" {
 		return true
 	}
-	selector := strings.ToLower(strings.TrimSpace(r.Peer))
+	selector = strings.ToLower(strings.TrimSpace(selector))
 	if selector == strings.ToLower(peer.TunnelID()) {
 		return true
 	}
@@ -24,6 +24,10 @@ func (r AURPRemapRule) matchesPeer(peer *AURPPeer) bool {
 		}
 	}
 	return false
+}
+
+func (r AURPRemapRule) matchesPeer(peer *AURPPeer) bool {
+	return peerSelectorMatches(r.Peer, peer)
 }
 
 func remapNetworkNumber(

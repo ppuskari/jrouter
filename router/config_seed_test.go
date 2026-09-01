@@ -297,3 +297,24 @@ ethertalk:
 		t.Fatal("remap range overlapping local EtherTalk range was accepted")
 	}
 }
+
+func TestLoadConfigRejectsInvalidDeviceHideDirection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jrouter.yaml")
+	data := []byte(`aurp:
+  hidden_devices:
+    - type: LaserWriter
+      direction: sideways
+ethertalk:
+  - device: en0
+    zone_name: Test
+    net_start: 100
+    net_end: 100
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadConfig(path); err == nil {
+		t.Fatal("invalid device-hiding direction was accepted")
+	}
+}
