@@ -3,9 +3,8 @@ package router
 import "testing"
 
 func TestSet27PeerStatusIncludesDataPlaneCounters(t *testing.T) {
-	peer := &AURPPeer{
-		tunnelID: "cfg:status.example",
-	}
+	peer := newRestartTestPeer(t)
+	peer.tunnelID = "cfg:status.example"
 	peer.ddpPacketsIn.Store(11)
 	peer.ddpPacketsOut.Store(12)
 	peer.ddpBytesIn.Store(11000)
