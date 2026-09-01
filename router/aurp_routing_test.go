@@ -382,7 +382,8 @@ func TestSet26OutputFromAURPDropsHiddenDestination(t *testing.T) {
 		RouteTable: NewRouteTable(t.Context()),
 	}
 	ingress := &AURPPeer{tunnelID: "cfg:ingress.example"}
-	pkt := &ddp.ExtPacket{DstNet: 4005}
+	pkt := new(ddp.ExtPacket)
+	pkt.DstNet = 4005
 	if err := rtr.OutputFromAURP(context.Background(), ingress, pkt); err == nil {
 		t.Fatal("AURP packet to hidden local network was accepted")
 	}
