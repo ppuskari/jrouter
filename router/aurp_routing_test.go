@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"drjosh.dev/jrouter/atalk/nbp"
+	"drjosh.dev/jrouter/atalk/zip"
 	"drjosh.dev/jrouter/aurp"
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
@@ -756,5 +757,29 @@ func TestSet26BackupPeerPenaltyRetainsButDeprioritizesRoute(t *testing.T) {
 	}
 	if best.Distance != 8 {
 		t.Fatalf("backup stored distance = %d, want 8", best.Distance)
+	}
+}
+
+func TestSet26ZIPQueryChunkingHandlesLargeRouteUpdates(t *testing.T) {
+	var networks []ddp.Network
+	for n := ddp.Network(1); n <= 600; n++ {
+		networks = append(networks, n)
+	}
+	packets, err := buildZIPQueryPackets(networks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(packets) != 3 {
+		t.Fatalf("ZIP query packets = %d, want 3", len(packets))
+	}
+	counts := []int{255, 255, 90}
+	for i, data := range packets {
+		query, err := zip.UnmarshalQueryPacket(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(query.Networks) != counts[i] {
+			t.Fatalf("ZIP query %d networks = %d, want %d", i, len(query.Networks), counts[i])
+		}
 	}
 }

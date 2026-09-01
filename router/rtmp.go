@@ -19,6 +19,7 @@ package router
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"drjosh.dev/jrouter/atalk"
@@ -156,28 +157,28 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 			}
 		}
 		if len(noZones) > 0 {
-			// Send a ZIP Query for all networks we don't have zone names for.
-			// TODO: split networks to fit in multiple packets as needed
-			qryPkt, err := (&zip.QueryPacket{Networks: noZones}).Marshal()
+			queries, err := buildZIPQueryPackets(noZones)
 			if err != nil {
-				return fmt.Errorf("marshal ZIP Query packet: %w", err)
+				return err
 			}
-			outDDP := &ddp.ExtPacket{
-				ExtHeader: ddp.ExtHeader{
-					Size:      uint16(len(qryPkt)) + atalk.DDPExtHeaderSize,
-					Cksum:     0,
-					SrcNet:    port.myAddr.Network,
-					SrcNode:   port.myAddr.Node,
-					SrcSocket: 6,
-					DstNet:    pkt.SrcNet,
-					DstNode:   pkt.SrcNode,
-					DstSocket: 6, // ZIP socket
-					Proto:     ddp.ProtoZIP,
-				},
-				Data: qryPkt,
-			}
-			if err := port.Send(ctx, outDDP); err != nil {
-				return fmt.Errorf("sending ZIP Query: %w", err)
+			for _, qryPkt := range queries {
+				outDDP := &ddp.ExtPacket{
+					ExtHeader: ddp.ExtHeader{
+						Size:      uint16(len(qryPkt)) + atalk.DDPExtHeaderSize,
+						Cksum:     0,
+						SrcNet:    port.myAddr.Network,
+						SrcNode:   port.myAddr.Node,
+						SrcSocket: 6,
+						DstNet:    pkt.SrcNet,
+						DstNode:   pkt.SrcNode,
+						DstSocket: 6,
+						Proto:     ddp.ProtoZIP,
+					},
+					Data: qryPkt,
+				}
+				if err := port.Send(ctx, outDDP); err != nil {
+					return fmt.Errorf("sending ZIP Query: %w", err)
+				}
 			}
 		}
 
@@ -186,6 +187,35 @@ func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) e
 	}
 
 	return nil
+}
+
+func buildZIPQueryPackets(
+	networks []ddp.Network,
+) ([][]byte, error) {
+	if len(networks) == 0 {
+		return nil, nil
+	}
+	networks = append([]ddp.Network(nil), networks...)
+	slices.Sort(networks)
+	networks = slices.Compact(networks)
+
+	const maxZIPQueryNetworks = 255
+	var packets [][]byte
+	for len(networks) > 0 {
+		n := min(len(networks), maxZIPQueryNetworks)
+		data, err := (&zip.QueryPacket{
+			Networks: networks[:n],
+		}).Marshal()
+		if err != nil {
+			return nil, fmt.Errorf(
+				"marshal ZIP Query packet: %w",
+				err,
+			)
+		}
+		packets = append(packets, data)
+		networks = networks[n:]
+	}
+	return packets, nil
 }
 
 // RunRTMP makes periodic RTMP Data broadcasts on this port.
