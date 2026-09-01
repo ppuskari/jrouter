@@ -187,6 +187,9 @@ func (port *EtherTalkPort) RunRTMP(ctx context.Context) (err error) {
 	// A soft/non-seed port may first own only a provisional startup-range
 	// address. RTMP must not advertise until the real cable range is adopted.
 	<-port.aarpMachine.Operational()
+	if addr, ok := port.aarpMachine.Address(); ok {
+		port.myAddr = addr.Proto
+	}
 
 	setStatus("Starting broadcast loop")
 
@@ -214,6 +217,17 @@ func (port *EtherTalkPort) RunRTMP(ctx context.Context) (err error) {
 }
 
 func (port *EtherTalkPort) broadcastRTMPData() error {
+	start, end, operational := port.aarpMachine.OperationalRange()
+	if !operational {
+		// A dynamic non-seed may be rebinding to a newly learned range. Do not
+		// advertise stale cable information during the provisional interval.
+		return nil
+	}
+	if addr, ok := port.aarpMachine.Address(); ok {
+		port.myAddr = addr.Proto
+	}
+	port.setCableRange(start, end)
+
 	for _, dataPkt := range port.rtmpDataPackets(true) {
 		dataPktRaw, err := dataPkt.Marshal()
 		if err != nil {
