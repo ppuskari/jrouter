@@ -257,8 +257,10 @@ func createEtherTalkPorts(logger *slog.Logger, rooter *router.Router) {
 		// the lifetime of the router; closing it when this helper returns leaves
 		// AARP/RTMP/Serve with a dead native handle and can crash in
 		// pcap_sendpacket on the first AARP probe.
-		zones := router.MakeSet(etcfg.DefaultZoneName)
-		zones.Insert(etcfg.ExtraZones...)
+		zones := router.MakeSet(etcfg.ExtraZones...)
+		if etcfg.DefaultZoneName != "" {
+			zones.Insert(etcfg.DefaultZoneName)
+		}
 
 		rooter.NewEtherTalkPort(
 			etcfg.Device,
