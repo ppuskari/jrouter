@@ -28,7 +28,6 @@ import (
 
 	"drjosh.dev/jrouter/aurp"
 	"drjosh.dev/jrouter/status"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
@@ -38,38 +37,37 @@ func (r *Router) AURPInput(ctx context.Context, logger *slog.Logger, wg *sync.Wa
 	defer setStatus("Not running!")
 	setStatus(fmt.Sprintf("Listening on UDP port %d", r.Config.ListenPort))
 
+	pktbuf := make([]byte, 4096)
 	for {
 		if ctx.Err() != nil {
 			return
 		}
 		udpConn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-		pktbuf := make([]byte, 4096)
 		pktlen, raddr, readErr := udpConn.ReadFromUDP(pktbuf)
 
 		var operr *net.OpError
 		if errors.As(readErr, &operr) && operr.Timeout() {
 			continue
 		}
+		if readErr != nil {
+			logger.Warn("AURP: Failed to read packet", "error", readErr, "pktlen", pktlen)
+			return
+		}
 
 		metricPeer := "endpoint:" + raddr.IP.String()
 		if knownPeer, err := r.AURPPeers.Lookup(raddr.IP); err == nil && knownPeer != nil {
 			metricPeer = knownPeer.metricPeerLabel()
 		}
-		promLabels := prometheus.Labels{"peer": metricPeer}
-		aurpPacketsInCounter.With(promLabels).Inc()
-		aurpBytesInCounter.With(promLabels).Add(float64(pktlen))
+		aurpPacketsInCounter.WithLabelValues(metricPeer).Inc()
+		aurpBytesInCounter.WithLabelValues(metricPeer).Add(float64(pktlen))
 
 		// logger.Debug("AURP: Received packet", "pktlen", pktlen, "raddr", raddr)
 
 		dh, pkt, parseErr := aurp.ParsePacket(pktbuf[:pktlen])
 		if parseErr != nil {
 			logger.Warn("AURP: Failed to parse packet", "error", parseErr, "pktlen", pktlen, "raddr", raddr)
-			aurpInvalidPacketsInCounter.With(promLabels).Inc()
+			aurpInvalidPacketsInCounter.WithLabelValues(metricPeer).Inc()
 			continue
-		}
-		if readErr != nil {
-			logger.Warn("AURP: Failed to read packet", "error", readErr, "pktlen", pktlen, "raddr", raddr)
-			return
 		}
 
 		logger.Debug(

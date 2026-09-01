@@ -30,9 +30,12 @@ import (
 	"time"
 
 	"drjosh.dev/jrouter/aurp"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
+
+var aurpSendBufferPool = sync.Pool{
+	New: func() any { return new(bytes.Buffer) },
+}
 
 const (
 	lastHeardFromTimer   = 90 * time.Second
@@ -2236,14 +2239,20 @@ func (p *AURPPeer) send(pkt aurp.Packet) (int, error) {
 		p.addToChatLog(rpkt, true /* sent */)
 	}
 
-	var b bytes.Buffer
-	if _, err := pkt.WriteTo(&b); err != nil {
+	b := aurpSendBufferPool.Get().(*bytes.Buffer)
+	b.Reset()
+	defer func() {
+		b.Reset()
+		aurpSendBufferPool.Put(b)
+	}()
+
+	if _, err := pkt.WriteTo(b); err != nil {
 		return 0, err
 	}
 
-	promLabels := prometheus.Labels{"peer": p.metricPeerLabel()}
-	aurpPacketsOutCounter.With(promLabels).Inc()
-	aurpBytesOutCounter.With(promLabels).Add(float64(b.Len()))
+	metricPeer := p.metricPeerLabel()
+	aurpPacketsOutCounter.WithLabelValues(metricPeer).Inc()
+	aurpBytesOutCounter.WithLabelValues(metricPeer).Add(float64(b.Len()))
 
 	p.logger.Debug("AURP Peer: Sending", "pkt-type", reflect.TypeOf(pkt), "length", b.Len())
 	p.lastSend.Store(time.Now())
