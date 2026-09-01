@@ -30,22 +30,29 @@ Home-grown alternative implementation of Apple Internet Router 3.0
   to `http://[your router]:[port you configured]/status` to see information
   about the state of jrouter.
 
-## Caveats & known bugs
+## Caveats & pre-1.0 status
 
-- For expediency I made it act as a _seed router_ only. I hope to add "non-seed"
-  and "soft-seed" mode soon!
-- I have not yet tested with `netatalk` on the same host. I have seen reports
-  that it is (at best) very flaky (zones appearing and disappearing). For now I
-  recommend running `jrouter` and `netatalk` on separate hosts.
-- Some packet types aren't currently split correctly to fit within limits. This
-  mainly affects routers try to that advertise lots of routes or zones.
-- The AURP implementation is about 99.5% complete.
+- Hard-seed, soft-seed, and non-seed EtherTalk operation are implemented.
+- AURP routing and zone information are chunked to bounded datagram sizes;
+  large ZIP query sets are also split into protocol-sized requests.
+- RFC 1504 core routing is implemented, together with the Chapter 4 features
+  tracked in [the RFC 1504 conformance matrix](docs/RFC1504-CONFORMANCE.md).
+- Static network remapping is implemented. Dynamic remapping is not currently
+  implemented; RFC 1504 permits static or dynamic remapping.
+- The historical Apple Internet Router SNMP MIB is not implemented. jrouter
+  exposes status, health/readiness JSON, and Prometheus metrics instead.
+- Running `jrouter` and `netatalk` on the same host still deserves dedicated
+  interoperability testing before 1.0; separate hosts remain the conservative
+  deployment choice.
+- The 0.0.27 line is a pre-release hardening series. Field soak, malformed-wire
+  tests, failover tests, and performance measurements are being used to close
+  the remaining release risk.
 
 The issues in this repo should be updated as things get fixed.
 
 ## How to use
 
-WARNING: It Sorta Works™. See "Caveats & known bugs" above.
+Pre-1.0 software: see "Caveats & pre-1.0 status" above and the RFC 1504 conformance matrix.
 
 First, write a `jrouter.yaml` config file.
 Use [the jrouter.yaml in this repo](/josh/jrouter/src/branch/main/jrouter.yaml)
