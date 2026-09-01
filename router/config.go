@@ -144,7 +144,8 @@ type EtherTalkConfig struct {
 	Device string `yaml:"device"`
 
 	// DefaultZoneName is the AppleTalk zone name for the network on this
-	// interface. Required.
+	// interface. Required for hard/soft seeds. A true non-seed may leave it
+	// empty and discover the default zone through ZIP GetNetInfo.
 	DefaultZoneName string `yaml:"zone_name"`
 
 	// ExtraZones is a list of any additional zone names that are available
@@ -243,9 +244,15 @@ func LoadConfig(cfgPath string) (*Config, error) {
 		if len(port.DefaultZoneName) > 32 {
 			validationErrs = append(validationErrs, fmt.Errorf("port %q zone name %q (length %d) is too long; cannot be more than 32 characters", port.Device, port.DefaultZoneName, len(port.DefaultZoneName)))
 		}
-		// Must not be empty or '*'
-		if port.DefaultZoneName == "" || port.DefaultZoneName == "*" {
-			validationErrs = append(validationErrs, fmt.Errorf("port %q zone name %q is invalid; cannot be empty or *", port.Device, port.DefaultZoneName))
+		// Hard/soft seeds must have an explicit default zone. A true
+		// non-seed may send a NIL zone in GetNetInfo and learn the cable's
+		// default zone from the reply.
+		if port.DefaultZoneName == "*" ||
+			(port.SeedMode != SeedModeNone && port.DefaultZoneName == "") {
+			validationErrs = append(validationErrs, fmt.Errorf(
+				"port %q zone name %q is invalid for seed_mode %q",
+				port.Device, port.DefaultZoneName, port.SeedMode,
+			))
 		}
 		// The above, but for all extra zones
 		for _, zn := range port.ExtraZones {
