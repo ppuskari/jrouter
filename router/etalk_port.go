@@ -225,7 +225,8 @@ func (port *EtherTalkPort) Outbox(ctx context.Context) {
 	)
 	defer statusStr.Store("EtherTalk Outbox goroutine exited!")
 
-	resolveTicker := time.Tick(aarpRequestRetransmit)
+	resolveTicker := time.NewTicker(aarpRequestRetransmit)
+	defer resolveTicker.Stop()
 
 	for {
 		// First time I'm using [reflect.Select]!
@@ -244,7 +245,7 @@ func (port *EtherTalkPort) Outbox(ctx context.Context) {
 
 			statusStr.Store(fmt.Sprintf("Waiting on %d address resolutions", len(port.outboxes)))
 			// 2: case <-resolveTicker
-			cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(resolveTicker)})
+			cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(resolveTicker.C)})
 			// 3 to N: case <-waitCh
 			for waitCh := range port.outboxes {
 				cases = append(cases, reflect.SelectCase{

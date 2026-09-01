@@ -723,8 +723,10 @@ func (p *AURPPeer) Handle(ctx context.Context) {
 	p.lastUpdate.Store(now)
 	p.sendRetries.Store(0)
 
-	rticker := time.Tick(1 * time.Second)
-	sticker := time.Tick(1 * time.Second)
+	rticker := time.NewTicker(1 * time.Second)
+	defer rticker.Stop()
+	sticker := time.NewTicker(1 * time.Second)
+	defer sticker.Stop()
 
 	// Write an Open-Req packet
 	if _, err := p.send(p.Transport.NewOpenReqPacket(nil)); err != nil {
@@ -762,12 +764,12 @@ func (p *AURPPeer) Handle(ctx context.Context) {
 			}
 			p.setRState(ReceiverWaitForOpenRsp)
 
-		case <-rticker:
+		case <-rticker.C:
 			if err := p.rtickerTasks(); err != nil {
 				return
 			}
 
-		case <-sticker:
+		case <-sticker.C:
 			if err := p.stickerTasks(); err != nil {
 				return
 			}
