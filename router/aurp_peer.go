@@ -295,6 +295,16 @@ func (p *AURPPeer) TunnelID() string {
 	return p.tunnelID
 }
 
+func (p *AURPPeer) metricPeerLabel() string {
+	if p.tunnelID != "" {
+		return p.tunnelID
+	}
+	if addr := p.RemoteAddrString(); addr != "" && addr != "<nil>" {
+		return "endpoint:" + addr
+	}
+	return "unknown"
+}
+
 // RouteTargetKey uses the immutable tunnel identity rather than the active IP
 // endpoint, so DNS failover cannot orphan route-table entries.
 func (p *AURPPeer) RouteTargetKey() string {
@@ -2074,7 +2084,7 @@ func (p *AURPPeer) send(pkt aurp.Packet) (int, error) {
 		return 0, err
 	}
 
-	promLabels := prometheus.Labels{"peer": p.RemoteAddrString()}
+	promLabels := prometheus.Labels{"peer": p.metricPeerLabel()}
 	aurpPacketsOutCounter.With(promLabels).Inc()
 	aurpBytesOutCounter.With(promLabels).Add(float64(b.Len()))
 

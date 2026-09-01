@@ -166,96 +166,96 @@ func (t *AURPPeerTable) Collect(ch chan<- prometheus.Metric) {
 		if p.SenderConnected() {
 			sconn = 1
 		}
-		raddr := p.RemoteAddrString()
+		peerLabel := p.metricPeerLabel()
 		ch <- prometheus.MustNewConstMetric(
 			aurpPeerReceiverConnectedDesc,
 			prometheus.GaugeValue,
 			float64(rconn),
-			raddr,
+			peerLabel,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			aurpPeerSenderConnectedDesc,
 			prometheus.GaugeValue,
 			float64(sconn),
-			raddr,
+			peerLabel,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			aurpPeerSendRetriesDesc,
 			prometheus.GaugeValue,
 			float64(p.SendRetries()),
-			raddr,
+			peerLabel,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			aurpPeerLastHeardFromDesc,
 			prometheus.GaugeValue,
 			metricTimestamp(p.LastHeardFrom()),
-			raddr,
+			peerLabel,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			aurpPeerLastReconnectDesc,
 			prometheus.GaugeValue,
 			metricTimestamp(p.LastReconnect()),
-			raddr,
+			peerLabel,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			aurpPeerLastSendDesc,
 			prometheus.GaugeValue,
 			metricTimestamp(p.LastSend()),
-			raddr,
+			peerLabel,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			aurpPeerLastUpdateDesc,
 			prometheus.GaugeValue,
 			metricTimestamp(p.LastUpdate()),
-			raddr,
+			peerLabel,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			aurpPeerLastSuccessDesc,
 			prometheus.GaugeValue,
 			metricTimestamp(p.LastSuccess()),
-			raddr,
+			peerLabel,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			aurpPeerReconnectFailuresDesc,
 			prometheus.GaugeValue,
 			float64(p.ReconnectFailures()),
-			raddr,
+			peerLabel,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			aurpPeerNextReconnectDesc,
 			prometheus.GaugeValue,
 			metricTimestamp(p.NextReconnect()),
-			raddr,
+			peerLabel,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			aurpPeerDuplicateRoutingDesc,
 			prometheus.CounterValue,
 			float64(p.DuplicateRoutingPackets()),
-			raddr,
+			peerLabel,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			aurpPeerReacksSentDesc,
 			prometheus.CounterValue,
 			float64(p.ReacksSent()),
-			raddr,
+			peerLabel,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			aurpPeerStaleRoutingDesc,
 			prometheus.CounterValue,
 			float64(p.StaleRoutingPackets()),
-			raddr,
+			peerLabel,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			aurpPeerFutureRoutingDesc,
 			prometheus.CounterValue,
 			float64(p.FutureRoutingPackets()),
-			raddr,
+			peerLabel,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			aurpPeerConnIDMismatchDesc,
 			prometheus.CounterValue,
 			float64(p.ConnectionIDMismatches()),
-			raddr,
+			peerLabel,
 		)
 	}
 

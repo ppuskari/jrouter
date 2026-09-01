@@ -732,3 +732,32 @@ func TestSet8CandidateRefreshConflictIsClassified(t *testing.T) {
 		t.Fatalf("refresh conflict kind = %q, want identity-conflict", got)
 	}
 }
+
+func TestSet26MetricPeerLabelSurvivesDNSEndpointSwitch(t *testing.T) {
+	table := newTestAURPPeerTable()
+	localDI := aurp.IPDomainIdentifier(net.IPv4(192, 0, 2, 1))
+	ip1, ip2, _ := testPeerIPs()
+
+	peer, err := table.LookupOrCreate(
+		context.Background(), table.logger, nil, nil,
+		"Peer.Example", ip1, localDI, nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "cfg:peer.example"
+	if got := peer.metricPeerLabel(); got != want {
+		t.Fatalf("metric peer label = %q, want %q", got, want)
+	}
+
+	switched, err := table.setConfiguredCandidates(peer, []net.IP{ip2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !switched {
+		t.Fatal("expected active endpoint switch")
+	}
+	if got := peer.metricPeerLabel(); got != want {
+		t.Fatalf("metric peer label changed after DNS failover: got %q want %q", got, want)
+	}
+}

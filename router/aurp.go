@@ -51,7 +51,11 @@ func (r *Router) AURPInput(ctx context.Context, logger *slog.Logger, wg *sync.Wa
 			continue
 		}
 
-		promLabels := prometheus.Labels{"peer": raddr.IP.String()}
+		metricPeer := "endpoint:" + raddr.IP.String()
+		if knownPeer, err := r.AURPPeers.Lookup(raddr.IP); err == nil && knownPeer != nil {
+			metricPeer = knownPeer.metricPeerLabel()
+		}
+		promLabels := prometheus.Labels{"peer": metricPeer}
 		aurpPacketsInCounter.With(promLabels).Inc()
 		aurpBytesInCounter.With(promLabels).Add(float64(pktlen))
 
