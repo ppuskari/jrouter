@@ -519,3 +519,65 @@ func TestSet26RouteDeletionClearsPendingZoneInfoImmediately(t *testing.T) {
 		t.Fatal("route deletion left stale pending zone state")
 	}
 }
+
+func TestSet26LoopIndicativeRouteDetection(t *testing.T) {
+	rt := NewRouteTable(t.Context())
+	direct := fakeTarget{key: "direct-loop-test", class: TargetClassDirect}
+	peer := &AURPPeer{
+		tunnelID:   "cfg:loop.example",
+		RouteTable: rt,
+	}
+
+	if _, err := rt.UpsertRoute(direct, true, 100, 109, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.ReplaceZonesForNetwork(100, "Engineering", "Shared"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.UpsertRoute(peer, true, 500, 509, 2); err != nil {
+		t.Fatal(err)
+	}
+
+	accepted, ignored := peer.applyNonExtendedZIRsp(&aurp.ZIRspPacket{
+		Subcode: aurp.SubcodeZoneInfoNonExt,
+		Zones: aurp.ZoneTuples{
+			{Network: 500, Name: "Shared"},
+			{Network: 500, Name: "Engineering"},
+		},
+	})
+	if accepted != 2 || ignored != 0 {
+		t.Fatalf("zone tuples accepted/ignored = %d/%d, want 2/0", accepted, ignored)
+	}
+	if got := peer.LoopIndicativeRoutes(); got != 1 {
+		t.Fatalf("loop-indicative counter = %d, want 1", got)
+	}
+}
+
+func TestSet26LoopIndicativeRequiresExactRangeSizeAndZones(t *testing.T) {
+	rt := NewRouteTable(t.Context())
+	direct := fakeTarget{key: "direct-loop-negative", class: TargetClassDirect}
+	peer := &AURPPeer{
+		tunnelID:   "cfg:loop-negative.example",
+		RouteTable: rt,
+	}
+
+	if _, err := rt.UpsertRoute(direct, true, 100, 109, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.ReplaceZonesForNetwork(100, "Engineering", "Shared"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.UpsertRoute(peer, true, 600, 608, 2); err != nil {
+		t.Fatal(err)
+	}
+	peer.applyNonExtendedZIRsp(&aurp.ZIRspPacket{
+		Subcode: aurp.SubcodeZoneInfoNonExt,
+		Zones: aurp.ZoneTuples{
+			{Network: 600, Name: "Engineering"},
+			{Network: 600, Name: "Shared"},
+		},
+	})
+	if got := peer.LoopIndicativeRoutes(); got != 0 {
+		t.Fatalf("different range size produced %d loop indication(s)", got)
+	}
+}

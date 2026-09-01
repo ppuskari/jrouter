@@ -124,6 +124,7 @@ type AURPPeer struct {
 	extendedZICompleted     atomic.Uint64
 	zoneTuplesAccepted      atomic.Uint64
 	zoneTuplesIgnored       atomic.Uint64
+	loopIndicativeRoutes    atomic.Uint64
 
 	// SUI flags requested by the remote data receiver. These control which
 	// incremental routing events we send after the initial RI-Rsp exchange.
@@ -469,6 +470,10 @@ func (p *AURPPeer) ZoneTuplesAccepted() uint64 {
 
 func (p *AURPPeer) ZoneTuplesIgnored() uint64 {
 	return p.zoneTuplesIgnored.Load()
+}
+
+func (p *AURPPeer) LoopIndicativeRoutes() uint64 {
+	return p.loopIndicativeRoutes.Load()
 }
 
 // ReconnectFailures returns the number of consecutive failed receiver

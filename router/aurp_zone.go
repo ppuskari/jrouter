@@ -249,6 +249,48 @@ func (p *AURPPeer) needsZoneInfo(network ddp.Network) bool {
 	return !route.Zero() && len(route.ZoneNames()) == 0
 }
 
+func routeRangeSize(route Route) uint32 {
+	if route.Zero() || route.NetEnd < route.NetStart {
+		return 0
+	}
+	return uint32(route.NetEnd)-uint32(route.NetStart)+1
+}
+
+func (p *AURPPeer) loopIndicativeNetwork(network ddp.Network) bool {
+	if p.RouteTable == nil {
+		return false
+	}
+	remote := p.RouteTable.find(p, network)
+	if remote.Zero() || routeRangeSize(remote) == 0 {
+		return false
+	}
+	remoteZones := dedupeSortedZones(remote.ZoneNames())
+	if len(remoteZones) == 0 {
+		return false
+	}
+
+	for local := range p.RouteTable.ValidRoutesForClass(TargetClassDirect) {
+		if routeRangeSize(local) != routeRangeSize(remote) {
+			continue
+		}
+		if slices.Equal(
+			dedupeSortedZones(local.ZoneNames()),
+			remoteZones,
+		) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *AURPPeer) noteLoopIndicativeNetwork(network ddp.Network) bool {
+	if !p.loopIndicativeNetwork(network) {
+		return false
+	}
+	p.loopIndicativeRoutes.Add(1)
+	return true
+}
+
 func (p *AURPPeer) applyNonExtendedZIRsp(
 	pkt *aurp.ZIRspPacket,
 ) (accepted, ignored int) {
@@ -270,6 +312,7 @@ func (p *AURPPeer) applyNonExtendedZIRsp(
 			continue
 		}
 		delete(p.pendingZoneInfo, network)
+		p.noteLoopIndicativeNetwork(network)
 		accepted += len(zones)
 	}
 	return accepted, ignored
@@ -341,5 +384,6 @@ func (p *AURPPeer) applyExtendedZIRsp(
 		return false, network, err
 	}
 	delete(p.pendingZoneInfo, network)
+	p.noteLoopIndicativeNetwork(network)
 	return true, network, nil
 }
