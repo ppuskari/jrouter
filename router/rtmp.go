@@ -33,6 +33,12 @@ import (
 func (port *EtherTalkPort) HandleRTMP(ctx context.Context, pkt *ddp.ExtPacket) error {
 	switch pkt.Proto {
 	case ddp.ProtoRTMPReq:
+		// A soft/non-seed router must not advertise provisional startup-range
+		// routing information before it owns a real cable-range address.
+		if _, _, operational := port.aarpMachine.OperationalRange(); !operational {
+			return nil
+		}
+
 		// I can answer RTMP requests!
 		req, err := rtmp.UnmarshalRequestPacket(pkt.Data)
 		if err != nil {
