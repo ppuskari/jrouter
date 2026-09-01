@@ -1258,6 +1258,8 @@ func (p *AURPPeer) handleRIRsp(logger *slog.Logger, pkt *aurp.RIRspPacket) error
 		if p.needsZoneInfo(nt.RangeStart) {
 			p.markZoneInfoPending(nt.RangeStart)
 			ackFlag = aurp.RoutingFlagSendZoneInfo
+		} else {
+			p.clearPendingZoneInfo(nt.RangeStart)
 		}
 	}
 
@@ -1414,8 +1416,10 @@ func (p *AURPPeer) applyRIUpdEvent(et aurp.EventTuple) (bool, error) {
 	case aurp.EventCodeND, aurp.EventCodeNRC:
 		// RFC 1504 says an ND or NRC for an unknown network is ignored.
 		if p.RouteTable.find(p, et.RangeStart).Zero() {
+			p.clearPendingZoneInfo(et.RangeStart)
 			return false, nil
 		}
+		p.clearPendingZoneInfo(et.RangeStart)
 		return false, p.RouteTable.DeleteRoute(p, et.RangeStart)
 
 	case aurp.EventCodeNDC:
@@ -1423,6 +1427,7 @@ func (p *AURPPeer) applyRIUpdEvent(et aurp.EventTuple) (bool, error) {
 
 		// A distance of 15 is processed as a deletion.
 		if et.Distance >= maxRouteDistance {
+			p.clearPendingZoneInfo(et.RangeStart)
 			if existing.Zero() {
 				return false, nil
 			}
@@ -1604,6 +1609,8 @@ func (p *AURPPeer) handleRIUpd(logger *slog.Logger, pkt *aurp.RIUpdPacket) error
 		if needZoneInfo {
 			p.markZoneInfoPending(et.RangeStart)
 			ackFlag = aurp.RoutingFlagSendZoneInfo
+		} else if et.EventCode == aurp.EventCodeNA || et.EventCode == aurp.EventCodeNDC {
+			p.clearPendingZoneInfo(et.RangeStart)
 		}
 	}
 

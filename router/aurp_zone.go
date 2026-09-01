@@ -22,9 +22,18 @@ func (p *AURPPeer) markZoneInfoPending(network ddp.Network) {
 	if p.pendingZoneInfo == nil {
 		p.pendingZoneInfo = make(map[ddp.Network]*pendingAURPZoneInfo)
 	}
+	if _, exists := p.pendingZoneInfo[network]; exists {
+		return
+	}
 	p.pendingZoneInfo[network] = &pendingAURPZoneInfo{
 		zones:        make(Set[string]),
 		lastActivity: time.Now(),
+	}
+}
+
+func (p *AURPPeer) clearPendingZoneInfo(network ddp.Network) {
+	if p.pendingZoneInfo != nil {
+		delete(p.pendingZoneInfo, network)
 	}
 }
 

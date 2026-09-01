@@ -464,3 +464,58 @@ func TestSet26RIRspRequestsZoneInfoOnlyWhenMissing(t *testing.T) {
 		t.Fatal("missing-zone network was not tracked for retry")
 	}
 }
+
+func TestSet26RepeatedPendingMarkPreservesExtendedAssembly(t *testing.T) {
+	peer := newRestartTestPeer(t)
+	if _, err := peer.RouteTable.UpsertRoute(peer, true, 2900, 2900, 2); err != nil {
+		t.Fatal(err)
+	}
+	peer.markZoneInfoPending(2900)
+
+	complete, _, err := peer.applyExtendedZIRsp(&aurp.ZIRspPacket{
+		Subcode:     aurp.SubcodeZoneInfoExt,
+		TotalTuples: 2,
+		Zones: aurp.ZoneTuples{
+			{Network: 2900, Name: "First"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if complete {
+		t.Fatal("one of two zone tuples reported complete")
+	}
+	before := peer.pendingZoneInfo[2900]
+	if before == nil || !before.zones.Contains("First") {
+		t.Fatal("first extended fragment was not retained")
+	}
+
+	peer.markZoneInfoPending(2900)
+	after := peer.pendingZoneInfo[2900]
+	if after != before || !after.zones.Contains("First") {
+		t.Fatal("repeated pending mark reset partial extended ZI assembly")
+	}
+}
+
+func TestSet26RouteDeletionClearsPendingZoneInfoImmediately(t *testing.T) {
+	peer := newRestartTestPeer(t)
+	if _, err := peer.RouteTable.UpsertRoute(peer, true, 2910, 2910, 2); err != nil {
+		t.Fatal(err)
+	}
+	peer.markZoneInfoPending(2910)
+	if _, ok := peer.pendingZoneInfo[2910]; !ok {
+		t.Fatal("pending zone state not created")
+	}
+
+	if _, err := peer.applyRIUpdEvent(aurp.EventTuple{
+		EventCode:  aurp.EventCodeND,
+		Extended:   true,
+		RangeStart: 2910,
+		RangeEnd:   2910,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := peer.pendingZoneInfo[2910]; ok {
+		t.Fatal("route deletion left stale pending zone state")
+	}
+}
