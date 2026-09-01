@@ -196,10 +196,10 @@ func (c AURPConfig) rangeHidden(start, end ddp.Network) bool {
 
 func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
 	var raw struct {
-		LastHeardFromTimeout YAMLDuration `yaml:"last_heard_from_timeout"`
-		RetryInterval        YAMLDuration `yaml:"retry_interval"`
-		SendRetryLimit       int          `yaml:"send_retry_limit"`
-		TickleRetryLimit     int          `yaml:"tickle_retry_limit"`
+		LastHeardFromTimeout  YAMLDuration       `yaml:"last_heard_from_timeout"`
+		RetryInterval         YAMLDuration       `yaml:"retry_interval"`
+		SendRetryLimit        int                `yaml:"send_retry_limit"`
+		TickleRetryLimit      int                `yaml:"tickle_retry_limit"`
 		ZoneInfoRetryInterval YAMLDuration       `yaml:"zone_info_retry_interval"`
 		HiddenNetworks        []AURPNetworkRange `yaml:"hidden_networks"`
 	}
@@ -207,10 +207,10 @@ func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
 		return err
 	}
 	*c = AURPConfig{
-		LastHeardFromTimeout: time.Duration(raw.LastHeardFromTimeout),
-		RetryInterval:        time.Duration(raw.RetryInterval),
-		SendRetryLimit:       raw.SendRetryLimit,
-		TickleRetryLimit:     raw.TickleRetryLimit,
+		LastHeardFromTimeout:  time.Duration(raw.LastHeardFromTimeout),
+		RetryInterval:         time.Duration(raw.RetryInterval),
+		SendRetryLimit:        raw.SendRetryLimit,
+		TickleRetryLimit:      raw.TickleRetryLimit,
 		ZoneInfoRetryInterval: time.Duration(raw.ZoneInfoRetryInterval),
 		HiddenNetworks:        raw.HiddenNetworks,
 	}
