@@ -1563,7 +1563,7 @@ func (p *AURPPeer) applyRIUpdEvent(et aurp.EventTuple) (bool, error) {
 		if !reachable {
 			return false, nil
 		}
-		_, err := p.RouteTable.UpsertRoute(
+		_, err = p.RouteTable.UpsertRoute(
 			p, et.Extended, et.RangeStart, et.RangeEnd, distance,
 		)
 		if err != nil {
@@ -1603,7 +1603,7 @@ func (p *AURPPeer) applyRIUpdEvent(et aurp.EventTuple) (bool, error) {
 
 		// RFC 1504 says an NDC for an unknown network is processed as an NA.
 		if existing.Zero() {
-			_, err := p.RouteTable.UpsertRoute(
+			_, err = p.RouteTable.UpsertRoute(
 				p, et.Extended, et.RangeStart, et.RangeEnd, distance,
 			)
 			if err != nil {
@@ -1617,7 +1617,7 @@ func (p *AURPPeer) applyRIUpdEvent(et aurp.EventTuple) (bool, error) {
 		// and leaving stale forwarding entries beyond the new range.
 		if existing.Extended != et.Extended ||
 			existing.NetEnd != et.RangeEnd {
-			_, err := p.RouteTable.UpsertRoute(
+			_, err = p.RouteTable.UpsertRoute(
 				p, et.Extended, et.RangeStart, et.RangeEnd, distance,
 			)
 			if err != nil {
