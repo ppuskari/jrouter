@@ -62,3 +62,28 @@ func TestSet26ReadyEndpointFailsWithoutOperationalEtherTalk(t *testing.T) {
 		t.Fatalf("ready status = %d, want 503", resp.Code)
 	}
 }
+
+func TestSet27OperationalSummaryIncludesDataPlaneCounters(t *testing.T) {
+	peer := &AURPPeer{}
+	peer.ddpPacketsIn.Store(7)
+	peer.ddpPacketsOut.Store(5)
+	peer.ddpBytesIn.Store(7000)
+	peer.ddpBytesOut.Store(5000)
+	peer.receiveQueueHighWater.Store(9)
+
+	table := &AURPPeerTable{
+		peersByIP: map[[4]byte]*AURPPeer{
+			{192, 0, 2, 1}: peer,
+		},
+		peersByConfigured: make(map[string]*AURPPeer),
+		dnsByConfigured:   make(map[string]configuredDNSState),
+	}
+	summary := table.operationalSummary()
+	if summary.DDPPacketsIn != 7 ||
+		summary.DDPPacketsOut != 5 ||
+		summary.DDPBytesIn != 7000 ||
+		summary.DDPBytesOut != 5000 ||
+		summary.ReceiveQueueHighWater != 9 {
+		t.Fatalf("unexpected data-plane summary: %+v", summary)
+	}
+}

@@ -119,6 +119,36 @@ var (
 		[]string{"peer"},
 		nil,
 	)
+	aurpPeerReceiveQueueHighWaterDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_receive_queue_high_water",
+		"highest observed routing-packet queue depth for this peer",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerDDPPacketsInDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_ddp_packets_in_total",
+		"valid encapsulated DDP packets received from this peer",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerDDPPacketsOutDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_ddp_packets_out_total",
+		"DDP packets successfully sent to this peer",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerDDPBytesInDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_ddp_bytes_in_total",
+		"valid encapsulated DDP bytes received from this peer",
+		[]string{"peer"},
+		nil,
+	)
+	aurpPeerDDPBytesOutDesc = prometheus.NewDesc(
+		"jrouter_aurp_peer_ddp_bytes_out_total",
+		"DDP bytes successfully sent to this peer",
+		[]string{"peer"},
+		nil,
+	)
 	aurpPeerLateTickleAcksDesc = prometheus.NewDesc(
 		"jrouter_aurp_peer_late_tickle_acks_total",
 		"late or duplicate Tickle-Ack packets received",
@@ -252,6 +282,11 @@ func (t *AURPPeerTable) Describe(ch chan<- *prometheus.Desc) {
 	ch <- aurpPeerFutureRoutingDesc
 	ch <- aurpPeerConnIDMismatchDesc
 	ch <- aurpPeerReceiveQueueDesc
+	ch <- aurpPeerReceiveQueueHighWaterDesc
+	ch <- aurpPeerDDPPacketsInDesc
+	ch <- aurpPeerDDPPacketsOutDesc
+	ch <- aurpPeerDDPBytesInDesc
+	ch <- aurpPeerDDPBytesOutDesc
 	ch <- aurpPeerLateTickleAcksDesc
 	ch <- aurpPeerSenderRouterDownsDesc
 	ch <- aurpPeerReceiverRouterDownsDesc
@@ -387,6 +422,36 @@ func (t *AURPPeerTable) Collect(ch chan<- prometheus.Metric) {
 			aurpPeerReceiveQueueDesc,
 			prometheus.GaugeValue,
 			float64(p.ReceiveChLen()),
+			peerLabel,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerReceiveQueueHighWaterDesc,
+			prometheus.GaugeValue,
+			float64(p.ReceiveQueueHighWater()),
+			peerLabel,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerDDPPacketsInDesc,
+			prometheus.CounterValue,
+			float64(p.DDPPacketsIn()),
+			peerLabel,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerDDPPacketsOutDesc,
+			prometheus.CounterValue,
+			float64(p.DDPPacketsOut()),
+			peerLabel,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerDDPBytesInDesc,
+			prometheus.CounterValue,
+			float64(p.DDPBytesIn()),
+			peerLabel,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			aurpPeerDDPBytesOutDesc,
+			prometheus.CounterValue,
+			float64(p.DDPBytesOut()),
 			peerLabel,
 		)
 		ch <- prometheus.MustNewConstMetric(

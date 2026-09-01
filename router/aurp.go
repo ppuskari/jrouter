@@ -117,6 +117,7 @@ func (r *Router) AURPInput(ctx context.Context, logger *slog.Logger, wg *sync.Wa
 			// Pass the packet to the goroutine in charge of this peer.
 			select {
 			case peer.ReceiveCh <- tpkt:
+				peer.noteReceiveQueueDepth(len(peer.ReceiveCh))
 				// That's it for us.
 
 			case <-ctx.Done():
@@ -136,6 +137,8 @@ func (r *Router) AURPInput(ctx context.Context, logger *slog.Logger, wg *sync.Wa
 				logger.Error("AURP: Couldn't unmarshal encapsulated DDP packet", "error", err)
 				continue
 			}
+			peer.ddpPacketsIn.Add(1)
+			peer.ddpBytesIn.Add(uint64(len(tpkt.Data)))
 			if peer.importNetworkHidden(ddpkt.SrcNet) {
 				logger.Info(
 					"DDP/AURP: dropping packet from hidden imported network",

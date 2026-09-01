@@ -866,13 +866,18 @@ const peerTableTemplate = `
 `
 
 type aurpOperationalSummary struct {
-	Configured        int `json:"configured"`
-	Resolved          int `json:"resolved"`
-	Running           int `json:"running"`
-	ReceiverConnected int `json:"receiver_connected"`
-	SenderConnected   int `json:"sender_connected"`
-	LoopDisabled      int `json:"loop_disabled"`
-	ReceiveQueue      int `json:"receive_queue"`
+	Configured            int    `json:"configured"`
+	Resolved              int    `json:"resolved"`
+	Running               int    `json:"running"`
+	ReceiverConnected     int    `json:"receiver_connected"`
+	SenderConnected       int    `json:"sender_connected"`
+	LoopDisabled          int    `json:"loop_disabled"`
+	ReceiveQueue          int    `json:"receive_queue"`
+	ReceiveQueueHighWater uint64 `json:"receive_queue_high_water"`
+	DDPPacketsIn          uint64 `json:"ddp_packets_in"`
+	DDPPacketsOut         uint64 `json:"ddp_packets_out"`
+	DDPBytesIn            uint64 `json:"ddp_bytes_in"`
+	DDPBytesOut           uint64 `json:"ddp_bytes_out"`
 }
 
 func (t *AURPPeerTable) operationalSummary() aurpOperationalSummary {
@@ -897,6 +902,14 @@ func (t *AURPPeerTable) operationalSummary() aurpOperationalSummary {
 			summary.LoopDisabled++
 		}
 		summary.ReceiveQueue += peer.ReceiveChLen()
+		summary.ReceiveQueueHighWater = max(
+			summary.ReceiveQueueHighWater,
+			peer.ReceiveQueueHighWater(),
+		)
+		summary.DDPPacketsIn += peer.DDPPacketsIn()
+		summary.DDPPacketsOut += peer.DDPPacketsOut()
+		summary.DDPBytesIn += peer.DDPBytesIn()
+		summary.DDPBytesOut += peer.DDPBytesOut()
 	}
 	return summary
 }

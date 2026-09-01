@@ -137,6 +137,13 @@ type AURPPeer struct {
 	confirmedRoutingLoops   atomic.Uint64
 	loopDisabled            atomic.Bool
 
+	// Data-plane counters used for field throughput diagnostics.
+	ddpPacketsIn          atomic.Uint64
+	ddpPacketsOut         atomic.Uint64
+	ddpBytesIn            atomic.Uint64
+	ddpBytesOut           atomic.Uint64
+	receiveQueueHighWater atomic.Uint64
+
 	// SUI flags requested by the remote data receiver. These control which
 	// incremental routing events we send after the initial RI-Rsp exchange.
 	suiFlags atomic.Uint32
@@ -355,8 +362,12 @@ func (p *AURPPeer) Forward(_ context.Context, ddpkt *ddp.ExtPacket) error {
 		return err
 	}
 	_, err = p.send(p.Transport.NewAppleTalkPacket(outPkt))
-	if err == nil && p.timing.HopCountWeight > 0 {
-		p.hopCountWeightedPackets.Add(1)
+	if err == nil {
+		p.ddpPacketsOut.Add(1)
+		p.ddpBytesOut.Add(uint64(len(outPkt)))
+		if p.timing.HopCountWeight > 0 {
+			p.hopCountWeightedPackets.Add(1)
+		}
 	}
 	return err
 }
@@ -560,6 +571,36 @@ func (p *AURPPeer) AlternativePathForwards() uint64 {
 
 func (p *AURPPeer) ReflectionDrops() uint64 {
 	return p.reflectionDrops.Load()
+}
+
+func (p *AURPPeer) DDPPacketsIn() uint64 {
+	return p.ddpPacketsIn.Load()
+}
+
+func (p *AURPPeer) DDPPacketsOut() uint64 {
+	return p.ddpPacketsOut.Load()
+}
+
+func (p *AURPPeer) DDPBytesIn() uint64 {
+	return p.ddpBytesIn.Load()
+}
+
+func (p *AURPPeer) DDPBytesOut() uint64 {
+	return p.ddpBytesOut.Load()
+}
+
+func (p *AURPPeer) ReceiveQueueHighWater() uint64 {
+	return p.receiveQueueHighWater.Load()
+}
+
+func (p *AURPPeer) noteReceiveQueueDepth(depth int) {
+	want := uint64(max(depth, 0))
+	for {
+		old := p.receiveQueueHighWater.Load()
+		if want <= old || p.receiveQueueHighWater.CompareAndSwap(old, want) {
+			return
+		}
+	}
 }
 
 func (p *AURPPeer) ConfirmedRoutingLoops() uint64 {
