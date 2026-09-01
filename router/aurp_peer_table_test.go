@@ -514,6 +514,9 @@ func TestAURPStatusIncludesConfiguredDNSAndPeerState(t *testing.T) {
 	if peerRow.RemoteAddr != "104.21.23.127" {
 		t.Fatalf("active endpoint = %q", peerRow.RemoteAddr)
 	}
+	if peerRow.RemoteDI != "104.21.23.127 (0x6815177f)" {
+		t.Fatalf("remote DI = %q", peerRow.RemoteDI)
+	}
 	if peerRow.LocalConnID == 0 || peerRow.RemoteConnID != 77 {
 		t.Fatalf(
 			"conn IDs = %d/%d, want nonzero/77",

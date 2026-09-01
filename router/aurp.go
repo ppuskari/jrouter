@@ -68,7 +68,12 @@ func (r *Router) AURPInput(ctx context.Context, logger *slog.Logger, wg *sync.Wa
 			return
 		}
 
-		logger.Debug("AURP: Read packet from peer", "pkt-type", reflect.TypeOf(pkt), "raddr", raddr, "sourceDI", dh.SourceDI)
+		logger.Debug(
+			"AURP: Read packet from peer",
+			"pkt-type", reflect.TypeOf(pkt),
+			"raddr", raddr,
+			"sourceDI", aurp.DomainIdentifierDisplay(dh.SourceDI),
+		)
 
 		var peer *AURPPeer
 		if r.Config.OpenPeering {

@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math/rand/v2"
 	"net"
@@ -1025,6 +1026,9 @@ func (p *AURPPeer) handleRIReq(logger *slog.Logger, pkt *aurp.RIReqPacket) error
 }
 
 func (p *AURPPeer) applyRIRspNetworkTuple(nt aurp.NetworkTuple) (bool, error) {
+	if err := validateAURPRouteTuple(nt.Extended, nt.RangeStart, nt.RangeEnd); err != nil {
+		return false, err
+	}
 	if nt.Distance >= maxRouteDistance {
 		return false, nil
 	}
@@ -1050,15 +1054,21 @@ func (p *AURPPeer) handleRIRsp(logger *slog.Logger, pkt *aurp.RIRspPacket) error
 	}
 	p.markReceiverAlive()
 
-	if p.ReceiverState() != ReceiverWaitForRIRsp {
-		logger.Warn("Received RI-Rsp but was not waiting for one")
-	}
-
-	if err := p.checkRemoteSeq(logger, &pkt.TrHeader); err != nil {
+	if err := p.checkRemoteSeq(logger, &pkt.TrHeader, "RI-Rsp"); err != nil {
 		if err == errDropPacket {
 			return nil
 		}
 		return err
+	}
+	if rstate := p.ReceiverState(); rstate != ReceiverWaitForRIRsp {
+		// A delayed final chunk or a peer-initiated refresh can arrive after
+		// the state has returned to connected. It is still valid when its
+		// connection ID and sequence number pass the normal checks above.
+		logger.Info(
+			"AURP Peer: processing RI-Rsp outside initial synchronization",
+			"receiver-state", rstate,
+			"reason", "late-or-refresh-response",
+		)
 	}
 
 	logger.Debug("AURP Peer: Learned about these networks", "networks", pkt.Networks)
@@ -1073,11 +1083,15 @@ func (p *AURPPeer) handleRIRsp(logger *slog.Logger, pkt *aurp.RIRspPacket) error
 
 		accepted, err := p.applyRIRspNetworkTuple(nt)
 		if err != nil {
-			logger.Error("AURP Peer: RI-Rsp: couldn't upsert a route", "error", err)
+			logger.Warn("AURP Peer: RI-Rsp: ignored invalid route tuple", "error", err, "action", "no route installed")
 			continue
 		}
 		if !accepted {
-			logger.Info("AURP Peer: RI-Rsp: skipping route because distance is too high")
+			logger.Info(
+				"AURP Peer: RI-Rsp: ignored unreachable route tuple",
+				"reason", "distance-15-or-higher",
+				"action", "no route installed",
+			)
 			continue
 		}
 	}
@@ -1200,6 +1214,14 @@ func (p *AURPPeer) handleRIAck(logger *slog.Logger, pkt *aurp.RIAckPacket) error
 }
 
 func (p *AURPPeer) applyRIUpdEvent(et aurp.EventTuple) (bool, error) {
+	// ND/NRC identify the route by RangeStart only; their range end is not
+	// consumed and older peers/tests may leave it at zero. Validate the
+	// range shape for events that actually carry a replacement route.
+	if et.EventCode == aurp.EventCodeNA || et.EventCode == aurp.EventCodeNDC {
+		if err := validateAURPRouteTuple(et.Extended, et.RangeStart, et.RangeEnd); err != nil {
+			return false, err
+		}
+	}
 	switch et.EventCode {
 	case aurp.EventCodeNull:
 		return false, nil
@@ -1263,6 +1285,39 @@ func (p *AURPPeer) applyRIUpdEvent(et aurp.EventTuple) (bool, error) {
 	return false, nil
 }
 
+func validateAURPRouteTuple(extended bool, start, end ddp.Network) error {
+	if start > end {
+		return fmt.Errorf("network range is reversed (%d-%d)", start, end)
+	}
+	if !extended && start != end {
+		return fmt.Errorf("non-extended tuple has range %d-%d", start, end)
+	}
+	return nil
+}
+
+func aurpRIUpdAction(et aurp.EventTuple) string {
+	switch et.EventCode {
+	case aurp.EventCodeNull:
+		return "probe-only"
+	case aurp.EventCodeNA:
+		if et.Distance >= maxRouteDistance {
+			return "ignore-unreachable"
+		}
+		return "install-or-refresh"
+	case aurp.EventCodeND, aurp.EventCodeNRC:
+		return "remove-if-present"
+	case aurp.EventCodeNDC:
+		if et.Distance >= maxRouteDistance {
+			return "remove-if-present-distance-15"
+		}
+		return "update-distance"
+	case aurp.EventCodeZC:
+		return "reserved-no-op"
+	default:
+		return "unknown-no-op"
+	}
+}
+
 func (p *AURPPeer) handleRIUpd(logger *slog.Logger, pkt *aurp.RIUpdPacket) error {
 	// We are: receiver
 	// They are: sender
@@ -1301,7 +1356,7 @@ func (p *AURPPeer) handleRIUpd(logger *slog.Logger, pkt *aurp.RIUpdPacket) error
 		// progress. RFC 1504 still requires valid sequenced data to be
 		// acknowledged. Advance the sequence but do not mutate the partial
 		// routing baseline; request the complete table again.
-		if err := p.checkRemoteSeq(logger, &pkt.TrHeader); err != nil {
+		if err := p.checkRemoteSeq(logger, &pkt.TrHeader, "RI-Upd"); err != nil {
 			if err == errDropPacket {
 				return nil
 			}
@@ -1324,7 +1379,7 @@ func (p *AURPPeer) handleRIUpd(logger *slog.Logger, pkt *aurp.RIUpdPacket) error
 		return nil
 	}
 
-	if err := p.checkRemoteSeq(logger, &pkt.TrHeader); err != nil {
+	if err := p.checkRemoteSeq(logger, &pkt.TrHeader, "RI-Upd"); err != nil {
 		if err == errDropPacket {
 			return nil
 		}
@@ -1341,12 +1396,30 @@ func (p *AURPPeer) handleRIUpd(logger *slog.Logger, pkt *aurp.RIUpdPacket) error
 			"net-end", et.RangeEnd,
 			"distance", et.Distance,
 		)
-		logger.Debug("AURP Peer: RI-Upd event")
+		logger.Debug("AURP Peer: RI-Upd event", "action", aurpRIUpdAction(et))
 
 		needZoneInfo, err := p.applyRIUpdEvent(et)
 		if err != nil {
-			logger.Error("AURP Peer: RI-Upd event couldn't be applied", "error", err)
+			logger.Warn(
+				"AURP Peer: RI-Upd event ignored",
+				"error", err,
+				"action", "no route mutation",
+			)
 			continue
+		}
+		if et.EventCode == aurp.EventCodeNA && et.Distance >= maxRouteDistance {
+			logger.Info(
+				"AURP Peer: RI-Upd NA ignored unreachable route tuple",
+				"reason", "distance-15-or-higher",
+				"action", "no route installed",
+			)
+		}
+		if et.EventCode == aurp.EventCodeNDC && et.Distance >= maxRouteDistance {
+			logger.Info(
+				"AURP Peer: RI-Upd NDC treated as route deletion",
+				"reason", "distance-15-or-higher",
+				"action", "route removed if present",
+			)
 		}
 		if needZoneInfo {
 			ackFlag = aurp.RoutingFlagSendZoneInfo
@@ -1390,7 +1463,7 @@ func (p *AURPPeer) handleRD(logger *slog.Logger, pkt *aurp.RDPacket) error {
 		}
 		return err
 	}
-	if err := p.checkRemoteSeq(logger, &pkt.TrHeader); err != nil {
+	if err := p.checkRemoteSeq(logger, &pkt.TrHeader, "RD"); err != nil {
 		if err == errDropPacket {
 			return nil
 		}
@@ -1610,7 +1683,7 @@ func (p *AURPPeer) handleTickleAck(logger *slog.Logger, pkt *aurp.TickleAckPacke
 
 // checkRemoteSeq checks the sequence number in the packet against the expected
 // sequence number from the transport.
-func (p *AURPPeer) checkRemoteSeq(logger *slog.Logger, trheader *aurp.TrHeader) error {
+func (p *AURPPeer) checkRemoteSeq(logger *slog.Logger, trheader *aurp.TrHeader, packetName string) error {
 	switch got, want := trheader.Sequence, p.Transport.RemoteSeq(); got {
 	case aurp.Pred(want):
 		p.duplicateRoutingPackets.Add(1)
@@ -1621,7 +1694,13 @@ func (p *AURPPeer) checkRemoteSeq(logger *slog.Logger, trheader *aurp.TrHeader) 
 		// RI-Ack packet, because the data sender may not have
 		// received the RI-Ack packet previously sent; that is, the
 		// RI-Ack may have been lost."
-		logger.Warn("AURP Peer: repeated routing information packet", "want-seq", want)
+		logger.Debug(
+			"AURP Peer: duplicate sequenced routing packet; retransmitting RI-Ack",
+			"packet", packetName,
+			"packet-seq", got,
+			"expected-seq", want,
+			"action", "re-ack-and-drop",
+		)
 		if _, err := p.send(p.Transport.NewRIAckPacket(trheader.ConnectionID, trheader.Sequence, aurp.RoutingFlagSendZoneInfo)); err != nil {
 			logger.Error("AURP Peer: Couldn't send RI-Ack packet", "error", err)
 			return err
@@ -1646,7 +1725,13 @@ func (p *AURPPeer) checkRemoteSeq(logger *slog.Logger, trheader *aurp.TrHeader) 
 		// receipt of such a packet indicates that the connection is
 		// out of sync."
 
-		logger.Warn("AURP Peer: routing information packet out of sequence, resetting connection", "want-seq", want)
+		logger.Warn(
+			"AURP Peer: future sequenced routing packet; resetting receiver connection",
+			"packet", packetName,
+			"packet-seq", got,
+			"expected-seq", want,
+			"action", "reset-receiver",
+		)
 		p.disconnectReceiver()
 		return errDropPacket
 
@@ -1660,7 +1745,13 @@ func (p *AURPPeer) checkRemoteSeq(logger *slog.Logger, trheader *aurp.TrHeader) 
 		// received an RI-Ack for that sequence number prior to
 		// sending a packet with the sequence number n-1. The data
 		// receiver should discard the packet."
-		logger.Warn("AURP Peer: routing information packet out of sequence, discarding packet", "want-seq", want)
+		logger.Debug(
+			"AURP Peer: stale sequenced routing packet; discarding",
+			"packet", packetName,
+			"packet-seq", got,
+			"expected-seq", want,
+			"action", "drop-without-ack",
+		)
 		return errDropPacket
 	}
 }

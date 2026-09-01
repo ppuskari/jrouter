@@ -70,8 +70,8 @@ func (dh *DomainHeader) GetDomainHeader() *DomainHeader { return dh }
 
 func (dh *DomainHeader) String() string {
 	return fmt.Sprintf("%s → %s v%d %s",
-		dh.SourceDI,
-		dh.DestinationDI,
+		DomainIdentifierDisplay(dh.SourceDI),
+		DomainIdentifierDisplay(dh.DestinationDI),
 		dh.Version,
 		dh.PacketType,
 	)
@@ -121,6 +121,29 @@ func (NullDomainIdentifier) WriteTo(w io.Writer) (int64, error) {
 type IPDomainIdentifier net.IP
 
 func (i IPDomainIdentifier) String() string { return net.IP(i).String() }
+
+// DomainIdentifierDisplay returns a stable, human-readable representation of a
+// domain identifier for logs and diagnostic pages. In particular, keep the raw
+// four-byte value visible alongside its IPv4 interpretation so it cannot be
+// rendered as binary text by a generic formatter.
+func DomainIdentifierDisplay(di DomainIdentifier) string {
+	if di == nil {
+		return "(nil DI)"
+	}
+
+	switch di := di.(type) {
+	case NullDomainIdentifier:
+		return di.String()
+	case IPDomainIdentifier:
+		v4 := net.IP(di).To4()
+		if v4 != nil {
+			return fmt.Sprintf("%s (0x%08x)", v4, binary.BigEndian.Uint32(v4))
+		}
+		return fmt.Sprintf("IP DI (0x%x)", []byte(di))
+	default:
+		return di.String()
+	}
+}
 
 // WriteTo writes the encoded form of the domain identifier to w.
 func (i IPDomainIdentifier) WriteTo(w io.Writer) (int64, error) {

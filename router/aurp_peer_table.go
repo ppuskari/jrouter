@@ -283,7 +283,7 @@ func (t *AURPPeerTable) LookupOrCreate(
 		ReceiveCh:      make(chan aurp.RoutingPacket, 1024),
 		RouteTable:     routes,
 
-		logger:      logger.With("raddr", raddr4, "remote-di", remoteDI),
+		logger:      logger.With("raddr", raddr4, "remote-di", aurp.DomainIdentifierDisplay(remoteDI)),
 		reconnectCh: make(chan struct{}, 1),
 	}
 	peer.setRemoteAddr(raddr4)
@@ -332,6 +332,7 @@ type aurpPeerStatusRow struct {
 	ConfiguredAddr string
 	IngestSource   string
 	TunnelID       string
+	RemoteDI       string
 	CandidateAddrs string
 	RemoteAddr     string
 	HasPeer        bool
@@ -410,6 +411,7 @@ func newAURPPeerStatusRow(
 
 	row.HasPeer = true
 	row.TunnelID = peer.TunnelID()
+	row.RemoteDI = aurp.DomainIdentifierDisplay(peer.Transport.RemoteDI())
 	row.RemoteAddr = peer.RemoteAddrString()
 	row.Running = peer.Running()
 	row.ReceiverConnected = peer.ReceiverState() == ReceiverConnected
@@ -734,6 +736,7 @@ const peerTableTemplate = `
 		<th>Configured</th>
 		<th>Ingest</th>
 		<th>Peer ID</th>
+		<th>Remote DI</th>
 		<th>Candidates</th>
 		<th>Active</th>
 		<th>Running</th>
@@ -762,6 +765,7 @@ const peerTableTemplate = `
 		<td>{{$peer.ConfiguredAddr}}</td>
 		<td>{{$peer.IngestSource}}</td>
 		<td>{{$peer.TunnelID}}</td>
+		<td>{{$peer.RemoteDI}}</td>
 		<td>{{$peer.CandidateAddrs}}</td>
 		<td>{{if $peer.HasPeer}}<a href="/chatlog/{{$peer.RemoteAddr}}">{{$peer.RemoteAddr}}</a>{{else}}unresolved{{end}}</td>
 		<td class="{{if $peer.Running}}green{{else}}red{{end}}">{{if $peer.Running}}running{{else}}stopped{{end}}</td>
