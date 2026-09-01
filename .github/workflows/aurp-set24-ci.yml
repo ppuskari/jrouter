@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - petar/aurp-set24-phase2-addressing-20260831
+  pull_request:
+    branches:
+      - lock/aurp-set19-23-green-20260829
   workflow_dispatch:
 
 jobs:
