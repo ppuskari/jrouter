@@ -35,10 +35,20 @@ backup paths.
 - Dynamic remapping is not implemented; static remapping is supported.
 - GDZL and GZN return the RFC-defined unsupported response.
 - The historical SNMP MIB is replaced by status/JSON and Prometheus.
-- Peer-specific export network hiding remains a Chapter 4 policy granularity:
-  existing `hidden_networks` hides from all AURP peers, while import hiding
-  is already peer-scoped.
+- Peer-specific export network hiding is implemented as
+  `hidden_export_networks`; existing `hidden_networks` remains the
+  all-peers policy and import hiding remains peer-scoped.
 - Point-to-point foreign-link tunneling is outside jrouter's current
   IP/GlobalTalk transport target.
 
 These optional items should not destabilize the proven default AURP/IP path.
+
+## Additional Chapter 2/4 closure
+
+The follow-up audit tightened two edge conditions:
+
+- `aurp.retry_interval` cannot be configured below two seconds, preventing
+  Open-Req retransmission faster than the RFC recommendation.
+- A tunneled DDP packet already at hop count 15 is not forwarded onward to
+  another router. It may still be delivered onto its directly connected
+  destination network.

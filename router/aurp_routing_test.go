@@ -1011,3 +1011,97 @@ func TestSet27HeaderOnlyRemapPreservesPayloadBacking(t *testing.T) {
 		t.Fatal("header-only outbound remap copied payload data")
 	}
 }
+
+func TestSet28PeerScopedExportHidingAffectsOnlySelectedPeer(t *testing.T) {
+	rt := NewRouteTable(t.Context())
+	local := fakeTarget{key: "peer-hide-local", class: TargetClassDirect}
+	if _, err := rt.UpsertRoute(local, true, 3700, 3700, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.ReplaceZonesForNetwork(3700, "Private Zone"); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := AURPConfig{HiddenExportNetworks: []AURPExportHideRule{{
+		Peer: "cfg:hidden.example", Start: 3700, End: 3700,
+	}}}
+	hidden := &AURPPeer{tunnelID: "cfg:hidden.example", RouteTable: rt, timing: cfg}
+	visible := &AURPPeer{tunnelID: "cfg:visible.example", RouteTable: rt, timing: cfg}
+
+	if got := hidden.aurpExportedRoutes(); len(got) != 0 {
+		t.Fatalf("hidden peer exported routes = %v, want none", got)
+	}
+	got := visible.aurpExportedRoutes()
+	if len(got) != 1 || got[0].NetStart != 3700 {
+		t.Fatalf("visible peer exported routes = %v, want network 3700", got)
+	}
+	if !hidden.exportNetworkHidden(3700) {
+		t.Fatal("selected peer did not hide network 3700")
+	}
+	if visible.exportNetworkHidden(3700) {
+		t.Fatal("non-selected peer incorrectly hid network 3700")
+	}
+}
+
+func TestSet28PeerScopedHiddenDestinationDropsOnlySelectedIngress(t *testing.T) {
+	rt := NewRouteTable(t.Context())
+	local := fakeTarget{key: "peer-hide-dest", class: TargetClassDirect}
+	if _, err := rt.UpsertRoute(local, true, 3710, 3710, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.ReplaceZonesForNetwork(3710, "Local Zone"); err != nil {
+		t.Fatal(err)
+	}
+	cfg := AURPConfig{HiddenExportNetworks: []AURPExportHideRule{{
+		Peer: "cfg:hidden.example", Start: 3710, End: 3710,
+	}}}
+	rtr := &Router{RouteTable: rt, Config: &Config{AURP: cfg}}
+	hidden := &AURPPeer{tunnelID: "cfg:hidden.example", timing: cfg}
+	visible := &AURPPeer{tunnelID: "cfg:visible.example", timing: cfg}
+	packet := &ddp.ExtPacket{ExtHeader: ddp.ExtHeader{DstNet: 3710}}
+
+	if err := rtr.OutputFromAURP(t.Context(), hidden, packet); err == nil {
+		t.Fatal("selected hidden peer reached hidden local network")
+	}
+	if err := rtr.OutputFromAURP(t.Context(), visible, packet); err != nil {
+		t.Fatalf("non-selected peer was incorrectly blocked: %v", err)
+	}
+}
+
+func TestSet28TunneledHop15PacketNotForwardedToRouter(t *testing.T) {
+	rt := NewRouteTable(t.Context())
+	nextRouter := fakeTarget{key: "hop15-router", class: TargetClassAppleTalkPeer}
+	if _, err := rt.UpsertRoute(nextRouter, true, 3720, 3720, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.ReplaceZonesForNetwork(3720, "Hop Zone"); err != nil {
+		t.Fatal(err)
+	}
+	rtr := &Router{RouteTable: rt, Config: &Config{}}
+	ingress := &AURPPeer{tunnelID: "cfg:hop15.example"}
+	packet := &ddp.ExtPacket{ExtHeader: ddp.ExtHeader{DstNet: 3720}}
+	setDDPHopCount(packet, 15)
+
+	if err := rtr.OutputFromAURP(t.Context(), ingress, packet); err == nil {
+		t.Fatal("hop-count-15 tunneled packet was forwarded to another router")
+	}
+}
+
+func TestSet28TunneledHop15PacketMayReachDirectDestinationNetwork(t *testing.T) {
+	rt := NewRouteTable(t.Context())
+	direct := fakeTarget{key: "hop15-direct", class: TargetClassDirect}
+	if _, err := rt.UpsertRoute(direct, true, 3730, 3730, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.ReplaceZonesForNetwork(3730, "Direct Zone"); err != nil {
+		t.Fatal(err)
+	}
+	rtr := &Router{RouteTable: rt, Config: &Config{}}
+	ingress := &AURPPeer{tunnelID: "cfg:hop15.example"}
+	packet := &ddp.ExtPacket{ExtHeader: ddp.ExtHeader{DstNet: 3730}}
+	setDDPHopCount(packet, 15)
+
+	if err := rtr.OutputFromAURP(t.Context(), ingress, packet); err != nil {
+		t.Fatalf("hop-count-15 packet to direct destination was rejected: %v", err)
+	}
+}

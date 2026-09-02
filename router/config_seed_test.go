@@ -425,3 +425,47 @@ func TestSet28LoadConfigRejectsInvalidAURPUpdateIntervals(t *testing.T) {
 		})
 	}
 }
+
+func TestSet28LoadConfigRejectsAURPRetryBelowTwoSeconds(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jrouter.yaml")
+	data := []byte("aurp:\n" +
+		"  retry_interval: 1s\n" +
+		"ethertalk:\n" +
+		"  - device: en0\n" +
+		"    zone_name: Test\n" +
+		"    net_start: 100\n" +
+		"    net_end: 100\n")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadConfig(path); err == nil {
+		t.Fatal("AURP retry interval below RFC two-second floor was accepted")
+	}
+}
+
+func TestSet28LoadConfigAcceptsPeerScopedExportHiding(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "jrouter.yaml")
+	data := []byte(`aurp:
+  hidden_export_networks:
+    - peer: cfg:remote.example
+      start: 300
+      end: 309
+ethertalk:
+  - device: en0
+    zone_name: Test
+    net_start: 1000
+    net_end: 1009
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.AURP.HiddenExportNetworks) != 1 {
+		t.Fatalf("hidden export rules = %d, want 1", len(cfg.AURP.HiddenExportNetworks))
+	}
+}

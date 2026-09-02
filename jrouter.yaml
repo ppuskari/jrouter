@@ -36,6 +36,13 @@ aurp:
   tickle_retry_limit: 10
   zone_info_retry_interval: 10s
 
+  # Optional peer-scoped export hiding. hidden_networks remains available
+  # when a range should be hidden from every AURP peer.
+  #hidden_export_networks:
+  #  - peer: cfg:remote.example
+  #    start: 3000
+  #    end: 3009
+
 # ethertalk configures network interfaces used for Ethertalk, and the
 # AppleTalk zone information.
 # This can contain either a single ethertalk config, or a list of such configs.

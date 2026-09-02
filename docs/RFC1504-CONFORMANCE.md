@@ -30,7 +30,7 @@ changes, and long-running field operation.
 
 | Enhancement | Status | Notes |
 | --- | --- | --- |
-| Network hiding (export) | Implemented | Hidden local ranges are omitted from routing/zone export and remote traffic to them is dropped. |
+| Network hiding (export) | Implemented | Hidden local ranges are omitted from routing/zone export and remote traffic to them is dropped; `hidden_networks` applies to all peers and `hidden_export_networks` can select a specific AURP peer. |
 | Network hiding (import) | Implemented | Peer-scoped remote ranges can be suppressed on import. |
 | Device hiding | Implemented | Peer/direction-scoped NBP lookup-reply filtering with checksum-safe rewrite. |
 | Network remapping | Implemented, static | Static peer-scoped equal-sized range mappings rewrite routing, DDP, and NBP addresses. Dynamic allocation is not implemented. |
