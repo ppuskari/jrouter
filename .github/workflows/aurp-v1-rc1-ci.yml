@@ -1,0 +1,106 @@
+name: AURP v1.0.0-rc1
+
+on:
+  push:
+    branches:
+      - petar/aurp-v1.0.0-rc1-prep-20260902
+  pull_request:
+    branches:
+      - petar/aurp-v1.0.0-rc1-prep-20260902
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aurp-v1-rc1-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Global gofmt gate
+        shell: bash
+        run: |
+          mapfile -t gofiles < <(git ls-files '*.go')
+          if [ "${#gofiles[@]}" -eq 0 ]; then
+            exit 0
+          fi
+          files="$(gofmt -l "${gofiles[@]}")"
+          if [ -n "$files" ]; then
+            echo "Tracked Go files requiring gofmt:"
+            echo "$files"
+            echo
+            echo "=== gofmt diff ==="
+            while IFS= read -r file; do
+              [ -n "$file" ] && gofmt -d "$file"
+            done <<< "$files"
+            exit 1
+          fi
+
+  test:
+    needs: format
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Verify RC version identity
+        shell: bash
+        run: |
+          test "$(tr -d '\r\n' < meta/VERSION)" = "1.0.0-rc1"
+      - name: Install libpcap headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpcap-dev
+      - name: Go vet
+        run: go vet ./...
+      - name: Unit tests
+        run: go test ./...
+      - name: Race tests
+        run: go test -race ./router ./aurp ./atalk/zip ./status
+      - name: Phase2/AURP stress x100
+        run: go test ./router ./aurp ./atalk/zip -count=100
+      - name: Build all packages
+        run: go build ./...
+      - name: Build Linux amd64 RC with exact commit identity
+        shell: bash
+        run: |
+          mkdir -p dist
+          BUILD_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          GOOS=linux GOARCH=amd64 go build \
+            -ldflags "-X drjosh.dev/jrouter/meta.Build=${BUILD_SHA}" \
+            -o dist/jrouter-v1.0.0-rc1-linux-amd64 .
+          ./dist/jrouter-v1.0.0-rc1-linux-amd64 -version \
+            | tee dist/VERSION-OUTPUT.txt
+          grep -F "jrouter v1.0.0-rc1 build ${BUILD_SHA}" \
+            dist/VERSION-OUTPUT.txt
+          sha256sum dist/jrouter-v1.0.0-rc1-linux-amd64 \
+            | tee dist/jrouter-v1.0.0-rc1-linux-amd64.sha256
+      - name: Upload Linux amd64 RC
+        uses: actions/upload-artifact@v7
+        with:
+          name: jrouter-v1.0.0-rc1-linux-amd64
+          path: |
+            dist/jrouter-v1.0.0-rc1-linux-amd64
+            dist/jrouter-v1.0.0-rc1-linux-amd64.sha256
+            dist/VERSION-OUTPUT.txt
+          if-no-files-found: error
