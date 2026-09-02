@@ -91,6 +91,8 @@ Before RC:
 - the RFC 1504 conformance matrix must identify implemented, optional, and
   intentionally out-of-scope features.
 
+Build/download procedure: [Set28 Build and Download Helpers](SET28-BUILD-AND-DOWNLOAD.md).
+
 ## 6. Release packaging
 
 The first candidate should be named `1.0.0-rc1` only after Set28 closes the
