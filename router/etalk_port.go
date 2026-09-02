@@ -214,7 +214,7 @@ func (port *EtherTalkPort) Outbox(ctx context.Context) {
 	var statusStr atomic.Value
 	statusStr.Store("Initialising")
 	ctx, _ = status.AddItem(ctx,
-		"Outbound",
+		"Outbound on "+port.device,
 		outboxStatusTemplate,
 		func(ctx context.Context) (any, error) {
 			return map[string]any{
@@ -295,7 +295,7 @@ func (port *EtherTalkPort) Outbox(ctx context.Context) {
 // Serve runs a loop that reads AARP or AppleTalk packets from the network
 // device, and handles them.
 func (port *EtherTalkPort) Serve(ctx context.Context) {
-	ctx, setStatus, _ := status.AddSimpleItem(ctx, "Inbound")
+	ctx, setStatus, _ := status.AddSimpleItem(ctx, "Inbound on "+port.device)
 	defer setStatus("EtherTalk Serve goroutine exited!")
 	setStatus(fmt.Sprintf("Listening on %s", port.device))
 

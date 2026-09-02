@@ -10,7 +10,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Status for {{.ExeName}}</title>
+    <title>{{.PageName}} for {{.ExeName}}</title>
     <style>
     :root {
         color-scheme: light dark;
@@ -18,6 +18,13 @@
     body {
         font-family: sans-serif;
         background: light-dark(#fff, #111);
+    }
+    nav {
+        text-align: center;
+        margin: 0.4em 0 0.8em 0;
+    }
+    nav a {
+        margin: 0 0.6em;
     }
     h1 {
         clear: both;
@@ -131,7 +138,8 @@
     </style>
 </head>
 <body>
-    <h1>Status for {{.ExeName}}</h1>
+    <h1>{{.PageName}} for {{.ExeName}}</h1>
+    <nav><a href="/status">Status</a><a href="/peering">Peering</a></nav>
     <div class="summary">
         <div class="grow">
             {{.ExePath}}<br>
@@ -146,7 +154,14 @@
             {{if .March}}<img src="/MARCHintoshLogo.svg">{{end}}
         </div>
     </div>
-    {{template "render_items" .Items}}
+    {{range $title := orderedTitles .Items .PageName}}
+    {{$item := index $.Items $title}}
+    <details open>
+        <summary>{{$title}}</summary>
+        <div class="itemdata">{{$item.Eval $.Ctx}}</div>
+        <div class="subitems">{{template "render_items" $item.Items}}</div>
+    </details>
+    {{end}}
     <script>
     (() => {
         const collator = new Intl.Collator(undefined, {

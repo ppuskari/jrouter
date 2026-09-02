@@ -117,11 +117,12 @@ func main() {
 
 	// -------------------------------- Router --------------------------------
 	//
+	peeringCtx := status.PeeringContext(ctx)
 	rooter := &router.Router{
 		Logger:     logger,
 		Config:     cfg,
 		RouteTable: router.NewRouteTable(ctx),
-		AURPPeers:  router.NewAURPPeerTable(ctx, logger, cfg.AURP),
+		AURPPeers:  router.NewAURPPeerTable(peeringCtx, logger, cfg.AURP),
 		Identity:   localDI,
 	}
 	rooter.AURPPeers.AttachRouter(rooter)
@@ -133,6 +134,7 @@ func main() {
 	} else {
 		http.Handle("/chatlog/{ip}", rooter.AURPPeers)
 		http.HandleFunc("/status", status.Handle)
+		http.HandleFunc("/peering", status.HandlePeering)
 		http.HandleFunc("/healthz", rooter.HealthHandler)
 		http.HandleFunc("/readyz", rooter.ReadyHandler)
 		http.HandleFunc("/api/v1/aurp", rooter.AURPSummaryHandler)
@@ -167,20 +169,20 @@ func main() {
 	// -------------------------- Run EtherTalk ports -------------------------
 	//
 	for _, etPort := range rooter.Ports {
-		ctx := etPort.StatusCtx(ctx)
+		// The primary page is operator-focused: EtherTalk and AARP stay there.
+		// Protocol-loop detail is registered on the Peering page.
+		etPort.StatusCtx(ctx)
 
-		// Run AARP and RTMP on each port.
 		go etPort.RunAARP(ctx)
 		go func() {
 			if err := etPort.RunSeedState(ctx); err != nil && ctx.Err() == nil {
 				logger.Error("EtherTalk seed state stopped", "device", etPort.String(), "error", err)
 			}
 		}()
-		go etPort.RunRTMP(ctx)
+		go etPort.RunRTMP(peeringCtx)
 
-		// Start handling packets.
-		wg.Go(func() { etPort.Serve(ctx) })
-		wg.Go(func() { etPort.Outbox(ctx) })
+		wg.Go(func() { etPort.Serve(peeringCtx) })
+		wg.Go(func() { etPort.Outbox(peeringCtx) })
 	}
 
 	// -------------------------- Route maintenance ----------------------------
@@ -191,7 +193,7 @@ func main() {
 	// we have networks to advertise to peers before connecting to them.
 	wg.Go(func() { rooter.AURPInput(ctx, logger, wg, udpConn) })
 	wg.Go(func() {
-		rooter.AURPPeers.PeriodicallyAttemptConnections(ctx, logger, wg, rooter.RouteTable, udpConn, rooter.Identity)
+		rooter.AURPPeers.PeriodicallyAttemptConnections(peeringCtx, logger, wg, rooter.RouteTable, udpConn, rooter.Identity)
 	})
 
 	// Among other things, peer handlers send outbound Open-Reqs, initiating

@@ -17,6 +17,7 @@
 package status
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"html/template"
@@ -25,6 +26,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"runtime"
+	"slices"
 	"testing"
 	"time"
 )
@@ -59,6 +61,7 @@ func TestSmokeStatusTemplate(t *testing.T) {
 				},
 			},
 		},
+		PageName:     "Status",
 		Version:      "0.0.0",
 		Build:        "1234",
 		Hostname:     hostname,
@@ -108,5 +111,71 @@ func TestCleanHTMLFragmentRemovesPresentationArtifacts(t *testing.T) {
 	got := cleanHTMLFragment("\n<td>extended&#x9;</td>\t\n")
 	if want := "<td>extended </td>"; got != want {
 		t.Fatalf("cleanHTMLFragment() = %q, want %q", got, want)
+	}
+}
+
+func TestOrderedTopLevelStatusSections(t *testing.T) {
+	items := map[string]item{
+		"Routing table":      &simpleItem{},
+		"AARP on en0":        &simpleItem{},
+		"EtherTalk on en0":   &simpleItem{},
+		"Something optional": &simpleItem{},
+	}
+	got := orderedTitles(items, "Status")
+	want := []string{
+		"EtherTalk on en0",
+		"AARP on en0",
+		"Routing table",
+		"Something optional",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("Status order = %v, want %v", got, want)
+	}
+}
+
+func TestOrderedPeeringSections(t *testing.T) {
+	items := map[string]item{
+		"RTMP on en0":                      &simpleItem{},
+		"Outbound on en0":                  &simpleItem{},
+		"Periodically Attempt Connections": &simpleItem{},
+		"Inbound on en0":                   &simpleItem{},
+		"AURP Peers":                       &simpleItem{},
+	}
+	got := orderedTitles(items, "Peering")
+	want := []string{
+		"AURP Peers",
+		"Inbound on en0",
+		"Outbound on en0",
+		"RTMP on en0",
+		"Periodically Attempt Connections",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("Peering order = %v, want %v", got, want)
+	}
+}
+
+func TestPeeringContextUsesSeparateRoot(t *testing.T) {
+	ctx := PeeringContext(context.Background())
+	_, setStatus, done := AddSimpleItem(ctx, "RC2 Peering Test")
+	defer done()
+	setStatus("ok")
+
+	req, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodGet,
+		"/peering",
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	HandlePeering(rec, req)
+	body, err := io.ReadAll(rec.Result().Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(body, []byte("RC2 Peering Test")) {
+		t.Fatalf("peering page did not contain registered item")
 	}
 }

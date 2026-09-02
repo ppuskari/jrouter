@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -60,6 +61,11 @@ var (
 			items: make(map[string]item),
 		},
 	}
+	peeringRootItem = &simpleItem{
+		baseItem: baseItem{
+			items: make(map[string]item),
+		},
+	}
 
 	// The inbuilt templates should always parse. Rather than use template.Must,
 	// successful parsing is enforced by the smoke tests.
@@ -69,13 +75,15 @@ var (
 
 func FuncMap() template.FuncMap {
 	return template.FuncMap{
-		"printJSON": printJSON,
-		"ago":       ago,
+		"printJSON":     printJSON,
+		"ago":           ago,
+		"orderedTitles": orderedTitles,
 	}
 }
 
 type statusData struct {
 	Items        map[string]item
+	PageName     string
 	Version      string
 	Build        string
 	Hostname     string
@@ -118,6 +126,11 @@ func parentItem(ctx context.Context) item {
 		return rootItem
 	}
 	return v.(item)
+}
+
+// PeeringContext registers top-level items on the /peering page.
+func PeeringContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, itemCtxKey{}, peeringRootItem)
 }
 
 type baseItem struct {
@@ -211,8 +224,22 @@ func cleanHTMLFragment(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// Handle handles status page requests.
+// Handle handles the primary status page.
 func Handle(w http.ResponseWriter, r *http.Request) {
+	handlePage(w, r, rootItem, "Status")
+}
+
+// HandlePeering handles the peer/protocol support page.
+func HandlePeering(w http.ResponseWriter, r *http.Request) {
+	handlePage(w, r, peeringRootItem, "Peering")
+}
+
+func handlePage(
+	w http.ResponseWriter,
+	r *http.Request,
+	root *simpleItem,
+	pageName string,
+) {
 	build := meta.Build
 	if build == "" || build == "unknown" {
 		info, has := debug.ReadBuildInfo()
@@ -221,15 +248,16 @@ func Handle(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	rootItem.mu.RLock()
-	items := make(map[string]item, len(rootItem.items))
-	for title, item := range rootItem.items {
+	root.mu.RLock()
+	items := make(map[string]item, len(root.items))
+	for title, item := range root.items {
 		items[title] = item
 	}
-	rootItem.mu.RUnlock()
+	root.mu.RUnlock()
 
 	data := &statusData{
 		Items:        items,
+		PageName:     pageName,
 		Version:      meta.Version,
 		Build:        build,
 		Hostname:     hostname,
@@ -250,13 +278,57 @@ func Handle(w http.ResponseWriter, r *http.Request) {
 		Ctx:          r.Context(),
 	}
 
-	// The status template ranges over the items.
 	if err := statusTmpl.Execute(w, data); err != nil {
 		errorTmpl.Execute(w, errorData{
 			Operation: "Error while executing main template",
 			Error:     err,
 			Item:      data,
 		})
+	}
+}
+
+func orderedTitles(items map[string]item, pageName string) []string {
+	titles := make([]string, 0, len(items))
+	for title := range items {
+		titles = append(titles, title)
+	}
+	slices.SortFunc(titles, func(a, b string) int {
+		pa := pagePriority(pageName, a)
+		pb := pagePriority(pageName, b)
+		if pa != pb {
+			return cmp.Compare(pa, pb)
+		}
+		return cmp.Compare(a, b)
+	})
+	return titles
+}
+
+func pagePriority(pageName, title string) int {
+	if pageName == "Peering" {
+		switch {
+		case title == "AURP Peers":
+			return 10
+		case strings.HasPrefix(title, "Inbound on "):
+			return 20
+		case strings.HasPrefix(title, "Outbound on "):
+			return 30
+		case strings.HasPrefix(title, "RTMP on "):
+			return 40
+		case title == "Periodically Attempt Connections":
+			return 50
+		default:
+			return 90
+		}
+	}
+	switch {
+	case strings.HasPrefix(title, "EtherTalk on "):
+		return 10
+	case strings.HasPrefix(title, "AARP on "):
+		return 20
+	case title == "Routing table":
+		return 30
+	default:
+		return 90
 	}
 }
 
