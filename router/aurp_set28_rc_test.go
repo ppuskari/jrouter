@@ -288,14 +288,29 @@ func TestSet28DNSEndpointSwitchKeepsInstalledRouteOwnership(t *testing.T) {
 		t.Fatalf("route target key changed: %q -> %q", wantKey, got)
 	}
 
-	after := rt.Lookup(4200)
-	if after.Zero() || after.Target != peer {
-		t.Fatalf("route ownership lost across endpoint switch: %v", after)
-	}
-	if got := after.RouteOrigin(); got != wantOrigin {
-		t.Fatalf("route origin changed: got %+v want %+v", got, wantOrigin)
+	// Routes learned through the old transport must be withdrawn while the
+	// new endpoint reconnects. Keeping them would preserve stale reachability.
+	if stale := rt.Lookup(4200); !stale.Zero() {
+		t.Fatalf("stale route survived endpoint switch: %v", stale)
 	}
 	if got := peer.RemoteAddr().String(); got != ip2.String() {
 		t.Fatalf("active endpoint = %s, want %s", got, ip2)
+	}
+
+	// Simulate the RI-Rsp relearn after the new endpoint connects. The route
+	// must return under the same logical tunnel identity, not a new endpoint
+	// identity that would orphan policy or alternative-path state.
+	if _, err := rt.UpsertRoute(peer, true, 4200, 4200, 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.ReplaceZonesForNetwork(4200, "Stable Route"); err != nil {
+		t.Fatal(err)
+	}
+	after := rt.Lookup(4200)
+	if after.Zero() || after.Target != peer {
+		t.Fatalf("relearned route = %v, want configured peer", after)
+	}
+	if got := after.RouteOrigin(); got != wantOrigin {
+		t.Fatalf("relearned route origin changed: got %+v want %+v", got, wantOrigin)
 	}
 }
