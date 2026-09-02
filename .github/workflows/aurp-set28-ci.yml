@@ -3,10 +3,10 @@ name: AURP Set28 RC Prep
 on:
   push:
     branches:
-      - petar/aurp-set28-pre-rc-conformance-20260901
+      - petar/aurp-set28-rc-prep-20260901
   pull_request:
     branches:
-      - petar/aurp-set28-pre-rc-conformance-20260901
+      - petar/aurp-set28-rc-prep-20260901
   workflow_dispatch:
 
 permissions:
