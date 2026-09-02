@@ -38,6 +38,7 @@ const routingTableTemplate = `
 		<th>Zone names</th>
 		<th>Distance</th>
 		<th>Learned via</th>
+		<th>DDP bytes in/out</th>
 		<th>Last seen</th>
 		<th>Valid?</th>
 		<th>Target</th>
@@ -50,6 +51,7 @@ const routingTableTemplate = `
 		<td><ul>{{range $route.ZoneNames}}<li>{{.}}</li>{{end}}</ul></td>
 		<td>{{$route.Distance}}</td>
 		<td>{{$route.LearnedVia}}</td>
+		<td>{{$route.DDPBytesIn}} / {{$route.DDPBytesOut}}</td>
 		<td>{{$route.LastSeen | ago}}</td>
 		<td class="{{if $route.Valid}}green{{else}}red{{end}}">{{if $route.Valid}}valid{{else}}stale{{end}}</td>
 		<td>{{$route.Target}}</td>
@@ -158,6 +160,25 @@ func (rt *RouteTable) Lookup(network ddp.Network) Route {
 	for _, r := range rt.byNetwork[network].Routes {
 		if r.Valid() {
 			return r
+		}
+	}
+	return Route{}
+}
+
+func (rt *RouteTable) lookupForTarget(
+	network ddp.Network,
+	target RouteTarget,
+) Route {
+	if target == nil {
+		return Route{}
+	}
+	targetKey := target.RouteTargetKey()
+	rt.byNetwork[network].RLock()
+	defer rt.byNetwork[network].RUnlock()
+
+	for _, route := range rt.byNetwork[network].Routes {
+		if route.TargetKey == targetKey && route.Valid() {
+			return route
 		}
 	}
 	return Route{}
@@ -463,6 +484,11 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 		NetStart:  netStart,
 	}
 
+	oldRoute := rt.find(target, netStart)
+	traffic := oldRoute.traffic
+	if traffic == nil {
+		traffic = new(routeTraffic)
+	}
 	newRoute := Route{
 		RouteKey: key,
 		Extended: extended,
@@ -473,9 +499,9 @@ func (rt *RouteTable) UpsertRoute(target RouteTarget, extended bool, netStart, n
 		LastSeen: time.Now(),
 
 		network: &rt.byNetwork[netStart],
+		traffic: traffic,
 	}
 
-	oldRoute := rt.find(target, netStart)
 	update := !oldRoute.Zero()
 	func() {
 		rt.byClassMu[class].Lock()

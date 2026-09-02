@@ -322,3 +322,114 @@ func TestRouteTable_DeleteTarget(t *testing.T) {
 		t.Errorf("obs.changed diff (-got +want):\n%s", diff)
 	}
 }
+
+func TestRC2RouteTrafficCountsSourceAndDestinationBytes(t *testing.T) {
+	rt := NewRouteTable(t.Context())
+	src := fakeTarget{key: "traffic-src", class: TargetClassDirect}
+	dst := fakeTarget{key: "traffic-dst", class: TargetClassDirect}
+
+	if _, err := rt.UpsertRoute(src, true, 4100, 4100, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.UpsertRoute(dst, true, 4200, 4200, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.ReplaceZonesForNetwork(4100, "Source Zone"); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.ReplaceZonesForNetwork(4200, "Destination Zone"); err != nil {
+		t.Fatal(err)
+	}
+
+	rtr := &Router{RouteTable: rt}
+	packet := &ddp.ExtPacket{
+		ExtHeader: ddp.ExtHeader{SrcNet: 4100, DstNet: 4200},
+		Data:      make([]byte, 87),
+	}
+	if err := rtr.Output(t.Context(), packet); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := rt.Lookup(4100).DDPBytesIn(); got != 100 {
+		t.Fatalf("source DDP bytes in = %d, want 100", got)
+	}
+	if got := rt.Lookup(4100).DDPBytesOut(); got != 0 {
+		t.Fatalf("source DDP bytes out = %d, want 0", got)
+	}
+	if got := rt.Lookup(4200).DDPBytesOut(); got != 100 {
+		t.Fatalf("destination DDP bytes out = %d, want 100", got)
+	}
+	if got := rt.Lookup(4200).DDPBytesIn(); got != 0 {
+		t.Fatalf("destination DDP bytes in = %d, want 0", got)
+	}
+}
+
+func TestRC2RouteTrafficSurvivesRouteRefresh(t *testing.T) {
+	rt := NewRouteTable(t.Context())
+	target := fakeTarget{key: "traffic-refresh", class: TargetClassAppleTalkPeer}
+
+	if _, err := rt.UpsertRoute(target, true, 4300, 4300, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.ReplaceZonesForNetwork(4300, "Refresh Zone"); err != nil {
+		t.Fatal(err)
+	}
+	before := rt.Lookup(4300)
+	before.noteDDPBytesIn(1234)
+	before.noteDDPBytesOut(5678)
+
+	if _, err := rt.UpsertRoute(target, true, 4300, 4300, 2); err != nil {
+		t.Fatal(err)
+	}
+	after := rt.Lookup(4300)
+	if got := after.DDPBytesIn(); got != 1234 {
+		t.Fatalf("DDP bytes in after refresh = %d, want 1234", got)
+	}
+	if got := after.DDPBytesOut(); got != 5678 {
+		t.Fatalf("DDP bytes out after refresh = %d, want 5678", got)
+	}
+}
+
+func TestRC2AURPIngressTrafficCreditsActualIngressRoute(t *testing.T) {
+	rt := NewRouteTable(t.Context())
+	bestSource := fakeTarget{key: "best-source", class: TargetClassDirect}
+	ingress := &AURPPeer{tunnelID: "cfg:traffic-ingress.example"}
+	destination := fakeTarget{key: "traffic-local-dst", class: TargetClassDirect}
+
+	if _, err := rt.UpsertRoute(bestSource, true, 4400, 4400, 0); err != nil {
+		t.Fatal(err)
+	}
+	ingress.RouteTable = rt
+	if _, err := rt.UpsertRoute(ingress, true, 4400, 4400, 2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.UpsertRoute(destination, true, 4500, 4500, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.ReplaceZonesForNetwork(4400, "Shared Source"); err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.ReplaceZonesForNetwork(4500, "Local Destination"); err != nil {
+		t.Fatal(err)
+	}
+
+	rtr := &Router{RouteTable: rt, Config: &Config{}}
+	packet := &ddp.ExtPacket{
+		ExtHeader: ddp.ExtHeader{SrcNet: 4400, DstNet: 4500},
+		Data:      make([]byte, 187),
+	}
+	if err := rtr.OutputFromAURP(t.Context(), ingress, packet); err != nil {
+		t.Fatal(err)
+	}
+
+	ingressRoute := rt.lookupForTarget(4400, ingress)
+	if got := ingressRoute.DDPBytesIn(); got != 200 {
+		t.Fatalf("actual ingress route DDP bytes in = %d, want 200", got)
+	}
+	if got := rt.Lookup(4400).DDPBytesIn(); got != 0 {
+		t.Fatalf("best-but-not-ingress route was credited %d bytes", got)
+	}
+	if got := rt.Lookup(4500).DDPBytesOut(); got != 200 {
+		t.Fatalf("destination DDP bytes out = %d, want 200", got)
+	}
+}

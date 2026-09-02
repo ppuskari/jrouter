@@ -55,6 +55,39 @@ func setDDPHopCount(ddpkt *ddp.ExtPacket, hopCount uint16) {
 	ddpkt.Size |= (hopCount & 0x0f) << 10
 }
 
+func ddpPacketBytes(ddpkt *ddp.ExtPacket) uint64 {
+	if ddpkt == nil {
+		return 0
+	}
+	return uint64(13 + len(ddpkt.Data))
+}
+
+func (rtr *Router) noteRouteTraffic(
+	ddpkt *ddp.ExtPacket,
+	destination Route,
+	ingress RouteTarget,
+) {
+	if rtr.RouteTable == nil || ddpkt == nil || destination.Zero() {
+		return
+	}
+	bytes := ddpPacketBytes(ddpkt)
+	if bytes == 0 {
+		return
+	}
+
+	source := Route{}
+	if ingress != nil {
+		source = rtr.RouteTable.lookupForTarget(ddpkt.SrcNet, ingress)
+	}
+	if source.Zero() {
+		source = rtr.RouteTable.Lookup(ddpkt.SrcNet)
+	}
+	if !source.Zero() {
+		source.noteDDPBytesIn(bytes)
+	}
+	destination.noteDDPBytesOut(bytes)
+}
+
 func reduceAURPHopCount(ddpkt *ddp.ExtPacket, route Route) (bool, error) {
 	hopCount := ddpHopCount(ddpkt)
 	if hopCount >= maxRouteDistance {
@@ -137,7 +170,11 @@ func (rtr *Router) Output(ctx context.Context, ddpkt *ddp.ExtPacket) error {
 	if err != nil {
 		return err
 	}
-	return route.Target.Forward(ctx, ddpkt)
+	if err := route.Target.Forward(ctx, ddpkt); err != nil {
+		return err
+	}
+	rtr.noteRouteTraffic(ddpkt, route, nil)
+	return nil
 }
 
 // OutputFromAURP outputs an encapsulated AppleTalk packet while preserving
@@ -194,5 +231,9 @@ func (rtr *Router) OutputFromAURP(
 			ingress.hopCountReductions.Add(1)
 		}
 	}
-	return route.Target.Forward(ctx, ddpkt)
+	if err := route.Target.Forward(ctx, ddpkt); err != nil {
+		return err
+	}
+	rtr.noteRouteTraffic(ddpkt, route, ingress)
+	return nil
 }

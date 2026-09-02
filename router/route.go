@@ -18,6 +18,7 @@ package router
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/sfiera/multitalk/pkg/ddp"
@@ -94,6 +95,42 @@ type Route struct {
 
 	// reference back to the netStart network
 	network *network
+
+	// traffic is shared by all copies of one stored route. Route records are
+	// copied between the class and per-network indexes, so counters live behind
+	// a pointer and survive ordinary route refresh/replacement.
+	traffic *routeTraffic
+}
+
+type routeTraffic struct {
+	ddpBytesIn  atomic.Uint64
+	ddpBytesOut atomic.Uint64
+}
+
+func (r Route) DDPBytesIn() uint64 {
+	if r.traffic == nil {
+		return 0
+	}
+	return r.traffic.ddpBytesIn.Load()
+}
+
+func (r Route) DDPBytesOut() uint64 {
+	if r.traffic == nil {
+		return 0
+	}
+	return r.traffic.ddpBytesOut.Load()
+}
+
+func (r Route) noteDDPBytesIn(bytes uint64) {
+	if r.traffic != nil && bytes != 0 {
+		r.traffic.ddpBytesIn.Add(bytes)
+	}
+}
+
+func (r Route) noteDDPBytesOut(bytes uint64) {
+	if r.traffic != nil && bytes != 0 {
+		r.traffic.ddpBytesOut.Add(bytes)
+	}
 }
 
 // Zero reports whether the route is a zero value for Route (trivially invalid).
