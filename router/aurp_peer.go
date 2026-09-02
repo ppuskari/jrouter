@@ -45,7 +45,9 @@ const (
 	reconnectBackoffBase = 10 * time.Minute
 	reconnectBackoffCap  = 2 * time.Hour
 	reconnectJitterPct   = 10
-	updateTimer          = 10 * time.Second
+	updateRateUnit       = 10 * time.Second
+	updateTimer          = updateRateUnit
+	tickleBeforeDataTime = 2 * time.Minute
 
 	chatLogLimit = 200
 )
@@ -201,6 +203,59 @@ func (p *AURPPeer) zoneInfoRetryInterval() time.Duration {
 		return p.timing.ZoneInfoRetryInterval
 	}
 	return aurpZoneInfoRetryTimer
+}
+
+func (p *AURPPeer) updateInterval() time.Duration {
+	if p.timing.UpdateInterval > 0 {
+		return p.timing.UpdateInterval
+	}
+	return updateTimer
+}
+
+func (p *AURPPeer) openResponseRate() int16 {
+	units := p.updateInterval() / updateRateUnit
+	if units < 1 {
+		units = 1
+	}
+	if units > 0x7fff {
+		units = 0x7fff
+	}
+	return int16(units)
+}
+
+func (p *AURPPeer) openResponseEnvironmentFlags() aurp.RoutingFlag {
+	var flags aurp.RoutingFlag
+	if p.hasRemapRuleForPeer() {
+		flags |= aurp.RoutingFlagRemappingActive
+	}
+	if p.timing.HopCountReduction {
+		flags |= aurp.RoutingFlagHopCountReduction
+	}
+	return flags
+}
+
+func (p *AURPPeer) needsTickleBeforeData(now time.Time) bool {
+	if p.lastHeardTimeout() <= tickleBeforeDataTime ||
+		p.ReceiverState() != ReceiverConnected {
+		return false
+	}
+	lastHeard := p.LastHeardFrom()
+	if lastHeard.IsZero() || now.Before(lastHeard) {
+		return false
+	}
+	return now.Sub(lastHeard) >= tickleBeforeDataTime
+}
+
+func (p *AURPPeer) sendTickleBeforeDataIfNeeded(now time.Time) error {
+	if !p.needsTickleBeforeData(now) {
+		return nil
+	}
+	if _, err := p.send(p.Transport.NewTicklePacket()); err != nil {
+		return err
+	}
+	p.sendRetries.Store(0)
+	p.setRState(ReceiverWaitForTickleAck)
+	return nil
 }
 
 func (p *AURPPeer) setSUIFlags(flags aurp.RoutingFlag) {
@@ -359,6 +414,9 @@ func (p *AURPPeer) Forward(_ context.Context, ddpkt *ddp.ExtPacket) error {
 	}
 	outPkt, err := ddp.ExtMarshal(*weighted)
 	if err != nil {
+		return err
+	}
+	if err := p.sendTickleBeforeDataIfNeeded(time.Now()); err != nil {
 		return err
 	}
 	_, err = p.send(p.Transport.NewAppleTalkPacket(outPkt))
@@ -1003,7 +1061,7 @@ func (p *AURPPeer) stickerTasks() error {
 		// Do nothing
 
 	case SenderConnected:
-		if time.Since(p.LastUpdate()) <= updateTimer {
+		if time.Since(p.LastUpdate()) <= p.updateInterval() {
 			break
 		}
 
@@ -1257,7 +1315,11 @@ func (p *AURPPeer) handleOpenReq(logger *slog.Logger, pkt *aurp.OpenReqPacket) e
 		orsp = p.Transport.NewOpenRspPacket(0, int16(aurp.ErrCodeInvalidVersion), nil)
 
 	default:
-		orsp = p.Transport.NewOpenRspPacket(0, 1, nil)
+		orsp = p.Transport.NewOpenRspPacket(
+			p.openResponseEnvironmentFlags(),
+			p.openResponseRate(),
+			nil,
+		)
 	}
 
 	if _, err := p.send(orsp); err != nil {
@@ -1332,7 +1394,14 @@ func (p *AURPPeer) handleRIReq(logger *slog.Logger, pkt *aurp.RIReqPacket) error
 	}
 
 	if sstate := p.SenderState(); sstate != SenderConnected {
-		logger.Warn("AURP Peer: Received RI-Req but was not expecting one")
+		// RFC 1504 permits only one outstanding sequenced routing packet.
+		// Do not overwrite or resequence the active RI-Rsp/RI-Upd/RD.
+		// AURP-Tr receivers retransmit RI-Req when the sender becomes ready.
+		logger.Info(
+			"AURP Peer: deferring RI-Req until outstanding sequenced packet is acknowledged",
+			"sender-state", sstate,
+		)
+		return nil
 	}
 	p.setSUIFlags(pkt.Flags)
 

@@ -99,7 +99,8 @@ func TestLoadConfigDefaultsAURPTiming(t *testing.T) {
 		cfg.AURP.RetryInterval != 10*time.Second ||
 		cfg.AURP.SendRetryLimit != 5 ||
 		cfg.AURP.TickleRetryLimit != 10 ||
-		cfg.AURP.ZoneInfoRetryInterval != 10*time.Second {
+		cfg.AURP.ZoneInfoRetryInterval != 10*time.Second ||
+		cfg.AURP.UpdateInterval != 10*time.Second {
 		t.Fatalf("unexpected AURP defaults: %+v", cfg.AURP)
 	}
 }
@@ -113,6 +114,7 @@ func TestLoadConfigAcceptsAURPTimingOverrides(t *testing.T) {
   send_retry_limit: 7
   tickle_retry_limit: 12
   zone_info_retry_interval: 4s
+  update_interval: 30s
 ethertalk:
   - device: en0
     zone_name: Test
@@ -130,7 +132,8 @@ ethertalk:
 		cfg.AURP.RetryInterval != 3*time.Second ||
 		cfg.AURP.SendRetryLimit != 7 ||
 		cfg.AURP.TickleRetryLimit != 12 ||
-		cfg.AURP.ZoneInfoRetryInterval != 4*time.Second {
+		cfg.AURP.ZoneInfoRetryInterval != 4*time.Second ||
+		cfg.AURP.UpdateInterval != 30*time.Second {
 		t.Fatalf("unexpected AURP overrides: %+v", cfg.AURP)
 	}
 }
@@ -398,5 +401,27 @@ ethertalk:
 	}
 	if len(cfg.AURP.HiddenImportNetworks) != 1 {
 		t.Fatalf("hidden import rules = %d, want 1", len(cfg.AURP.HiddenImportNetworks))
+	}
+}
+
+func TestSet28LoadConfigRejectsInvalidAURPUpdateIntervals(t *testing.T) {
+	for _, interval := range []string{"9s", "15s", "100h"} {
+		t.Run(interval, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "jrouter.yaml")
+			data := []byte("aurp:\n" +
+				"  update_interval: " + interval + "\n" +
+				"ethertalk:\n" +
+				"  - device: en0\n" +
+				"    zone_name: Test\n" +
+				"    net_start: 100\n" +
+				"    net_end: 100\n")
+			if err := os.WriteFile(path, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadConfig(path); err == nil {
+				t.Fatalf("invalid AURP update interval %s was accepted", interval)
+			}
+		})
 	}
 }

@@ -220,6 +220,7 @@ type AURPConfig struct {
 	SendRetryLimit        int                  `yaml:"send_retry_limit"`
 	TickleRetryLimit      int                  `yaml:"tickle_retry_limit"`
 	ZoneInfoRetryInterval time.Duration        `yaml:"-"`
+	UpdateInterval        time.Duration        `yaml:"-"`
 	HiddenNetworks        []AURPNetworkRange   `yaml:"hidden_networks"`
 	HopCountReduction     bool                 `yaml:"hop_count_reduction"`
 	HopCountWeight        uint8                `yaml:"hop_count_weight"`
@@ -255,6 +256,7 @@ func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
 		SendRetryLimit        int                  `yaml:"send_retry_limit"`
 		TickleRetryLimit      int                  `yaml:"tickle_retry_limit"`
 		ZoneInfoRetryInterval YAMLDuration         `yaml:"zone_info_retry_interval"`
+		UpdateInterval        YAMLDuration         `yaml:"update_interval"`
 		HiddenNetworks        []AURPNetworkRange   `yaml:"hidden_networks"`
 		HopCountReduction     bool                 `yaml:"hop_count_reduction"`
 		HopCountWeight        uint8                `yaml:"hop_count_weight"`
@@ -273,6 +275,7 @@ func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
 		SendRetryLimit:        raw.SendRetryLimit,
 		TickleRetryLimit:      raw.TickleRetryLimit,
 		ZoneInfoRetryInterval: time.Duration(raw.ZoneInfoRetryInterval),
+		UpdateInterval:        time.Duration(raw.UpdateInterval),
 		HiddenNetworks:        raw.HiddenNetworks,
 		HopCountReduction:     raw.HopCountReduction,
 		HopCountWeight:        raw.HopCountWeight,
@@ -300,6 +303,9 @@ func (c *AURPConfig) applyDefaults() {
 	}
 	if c.ZoneInfoRetryInterval == 0 {
 		c.ZoneInfoRetryInterval = aurpZoneInfoRetryTimer
+	}
+	if c.UpdateInterval == 0 {
+		c.UpdateInterval = updateTimer
 	}
 }
 
@@ -417,6 +423,24 @@ func LoadConfig(cfgPath string) (*Config, error) {
 	if c.AURP.ZoneInfoRetryInterval <= 0 {
 		validationErrs = append(validationErrs, fmt.Errorf(
 			"aurp.zone_info_retry_interval must be positive, got %v", c.AURP.ZoneInfoRetryInterval,
+		))
+	}
+	if c.AURP.UpdateInterval < updateRateUnit {
+		validationErrs = append(validationErrs, fmt.Errorf(
+			"aurp.update_interval must be at least %v, got %v",
+			updateRateUnit,
+			c.AURP.UpdateInterval,
+		))
+	} else if c.AURP.UpdateInterval%updateRateUnit != 0 {
+		validationErrs = append(validationErrs, fmt.Errorf(
+			"aurp.update_interval must be a multiple of %v, got %v",
+			updateRateUnit,
+			c.AURP.UpdateInterval,
+		))
+	} else if c.AURP.UpdateInterval/updateRateUnit > 0x7fff {
+		validationErrs = append(validationErrs, fmt.Errorf(
+			"aurp.update_interval is too large for the Open-Rsp rate field: %v",
+			c.AURP.UpdateInterval,
 		))
 	}
 	if c.AURP.HopCountWeight >= maxRouteDistance {

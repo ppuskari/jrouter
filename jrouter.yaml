@@ -21,6 +21,21 @@ local_ip: 192.0.2.1
 # - /metrics - Prometheus-style metrics
 monitoring_addr: ":9459"
 
+# aurp configures AURP transport timing and optional Chapter 4 policies.
+# update_interval is the routing-update interval. RFC 1504 requires at least
+# 10 seconds; jrouter accepts whole 10-second units so Open-Rsp advertises the
+# exact nominal update rate. Default: 10s.
+# last_heard_from_timeout has an RFC minimum of 30s. If configured above 2m,
+# jrouter sends the RFC tickle-before-data probe after two minutes without
+# receiver-side activity.
+aurp:
+  update_interval: 10s
+  last_heard_from_timeout: 90s
+  retry_interval: 10s
+  send_retry_limit: 5
+  tickle_retry_limit: 10
+  zone_info_retry_interval: 10s
+
 # ethertalk configures network interfaces used for Ethertalk, and the
 # AppleTalk zone information.
 # This can contain either a single ethertalk config, or a list of such configs.

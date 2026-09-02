@@ -13,12 +13,12 @@ changes, and long-running field operation.
 | Area | Status | Implementation / evidence |
 | --- | --- | --- |
 | Domain header, IP domain identifiers | Implemented | AURP parser/transport plus stable DI display and immutable parsed DI ownership tests. |
-| Open-Req / Open-Rsp | Implemented | Version 1, SUI flags, unsupported options ignored by the peer FSM, malformed option tuples rejected. |
-| RI-Req / RI-Rsp | Implemented | Sequenced initial routing exchange, bounded multi-packet RI-Rsp, duplicate re-ACK, restart recovery. |
+| Open-Req / Open-Rsp | Implemented | Version 1, SUI flags, unsupported options ignored by the peer FSM, malformed option tuples rejected, and successful Open-Rsp packets advertise active remapping/HCR environment flags plus the configured nominal update rate. |
+| RI-Req / RI-Rsp | Implemented | Sequenced initial routing exchange, bounded multi-packet RI-Rsp, duplicate re-ACK, restart recovery, and RI-Req deferral while another sequenced packet remains unacknowledged. |
 | RI-Ack | Implemented | Connection/sequence validation, duplicate recovery, Router Down acknowledgement handling. |
 | RI-Upd | Implemented | Incremental NA/ND/NRC/NDC events, SUI filtering, ACK gating, event coalescing. |
 | Router Down | Implemented | Receiver- and sender-originated RD, normal close and routing-loop error, retry/ACK shutdown semantics. |
-| Tickle / Tickle-Ack | Implemented | Receiver liveness, configurable timers/retry limits, late/duplicate diagnostics. |
+| Tickle / Tickle-Ack | Implemented | Receiver liveness, configurable timers/retry limits, late/duplicate diagnostics, and the >2-minute LHFT tickle-before-data rule. |
 | Zone Information | Implemented | ZI-Req/ZI-Rsp, extended fragments, retry-until-complete, precise SZI behavior. |
 | GDZL / GZN | Implemented | Requests and responses supported; unsupported cases return protocol responses rather than silently hanging. |
 | Large routing updates | Implemented | AURP routing tuples are split below the configured datagram budget and remain ACK-gated. |
