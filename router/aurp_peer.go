@@ -303,7 +303,7 @@ func (p *AURPPeer) queueBestNetworkTransition(oldBest, newBest Route) {
 	} else if !oldBest.Zero() {
 		netEnd = oldBest.NetEnd
 	}
-	if p.timing.rangeHidden(netStart, netEnd) {
+	if p.exportRangeHidden(netStart, netEnd) {
 		return
 	}
 
@@ -1982,7 +1982,7 @@ func (p *AURPPeer) handleZIReq(logger *slog.Logger, pkt *aurp.ZIReqPacket) error
 
 	visibleNetworks := make([]ddp.Network, 0, len(pkt.Networks))
 	for _, network := range pkt.Networks {
-		if !p.timing.networkHidden(network) {
+		if !p.exportNetworkHidden(network) {
 			visibleNetworks = append(visibleNetworks, network)
 		}
 	}

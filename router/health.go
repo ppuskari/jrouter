@@ -10,6 +10,7 @@ import (
 type AURPPolicySummary struct {
 	HiddenNetworks       int   `json:"hidden_networks"`
 	HiddenImportNetworks int   `json:"hidden_import_networks"`
+	HiddenExportNetworks int   `json:"hidden_export_networks"`
 	HiddenDevices        int   `json:"hidden_devices"`
 	RemapRules           int   `json:"remap_rules"`
 	Clusters             int   `json:"clusters"`
@@ -56,6 +57,7 @@ func (rtr *Router) HealthSnapshot() RouterHealthSnapshot {
 		snapshot.Policies = AURPPolicySummary{
 			HiddenNetworks:       len(cfg.HiddenNetworks),
 			HiddenImportNetworks: len(cfg.HiddenImportNetworks),
+			HiddenExportNetworks: len(cfg.HiddenExportNetworks),
 			HiddenDevices:        len(cfg.HiddenDevices),
 			RemapRules:           len(cfg.RemapRules),
 			Clusters:             len(cfg.Clusters),

@@ -203,6 +203,12 @@ func (c AURPClusterRule) containsRoute(route Route) bool {
 	return route.NetStart >= c.Start && route.NetEnd <= c.End
 }
 
+type AURPExportHideRule struct {
+	Peer  string      `yaml:"peer"`
+	Start ddp.Network `yaml:"start"`
+	End   ddp.Network `yaml:"end"`
+}
+
 type AURPImportHideRule struct {
 	Peer  string      `yaml:"peer"`
 	Start ddp.Network `yaml:"start"`
@@ -229,6 +235,7 @@ type AURPConfig struct {
 	Clusters              []AURPClusterRule    `yaml:"clusters"`
 	BackupPeers           []AURPBackupPeerRule `yaml:"backup_peers"`
 	HiddenImportNetworks  []AURPImportHideRule `yaml:"hidden_import_networks"`
+	HiddenExportNetworks  []AURPExportHideRule `yaml:"hidden_export_networks"`
 }
 
 func (c AURPConfig) networkHidden(network ddp.Network) bool {
@@ -265,6 +272,7 @@ func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
 		Clusters              []AURPClusterRule    `yaml:"clusters"`
 		BackupPeers           []AURPBackupPeerRule `yaml:"backup_peers"`
 		HiddenImportNetworks  []AURPImportHideRule `yaml:"hidden_import_networks"`
+		HiddenExportNetworks  []AURPExportHideRule `yaml:"hidden_export_networks"`
 	}
 	if err := n.Decode(&raw); err != nil {
 		return err
@@ -284,6 +292,7 @@ func (c *AURPConfig) UnmarshalYAML(n *yaml.Node) error {
 		Clusters:              raw.Clusters,
 		BackupPeers:           raw.BackupPeers,
 		HiddenImportNetworks:  raw.HiddenImportNetworks,
+		HiddenExportNetworks:  raw.HiddenExportNetworks,
 	}
 	return nil
 }
@@ -405,9 +414,10 @@ func LoadConfig(cfgPath string) (*Config, error) {
 			c.AURP.LastHeardFromTimeout,
 		))
 	}
-	if c.AURP.RetryInterval <= 0 {
+	if c.AURP.RetryInterval < 2*time.Second {
 		validationErrs = append(validationErrs, fmt.Errorf(
-			"aurp.retry_interval must be positive, got %v", c.AURP.RetryInterval,
+			"aurp.retry_interval must be at least 2s, got %v",
+			c.AURP.RetryInterval,
 		))
 	}
 	if c.AURP.SendRetryLimit <= 0 {
@@ -492,6 +502,19 @@ func LoadConfig(cfgPath string) (*Config, error) {
 			hidden.End >= 0xff00 {
 			validationErrs = append(validationErrs, fmt.Errorf(
 				"aurp.hidden_import_networks[%d] has invalid range %d-%d",
+				i,
+				hidden.Start,
+				hidden.End,
+			))
+		}
+	}
+
+	for i, hidden := range c.AURP.HiddenExportNetworks {
+		if hidden.Start == 0 ||
+			hidden.Start > hidden.End ||
+			hidden.End >= 0xff00 {
+			validationErrs = append(validationErrs, fmt.Errorf(
+				"aurp.hidden_export_networks[%d] has invalid range %d-%d",
 				i,
 				hidden.Start,
 				hidden.End,

@@ -143,7 +143,7 @@ func (p *AURPPeer) aurpExportedRoutes() []Route {
 	routes := p.RouteTable.aurpExportedRoutes()
 	out := routes[:0]
 	for _, route := range routes {
-		if p.timing.rangeHidden(route.NetStart, route.NetEnd) {
+		if p.exportRangeHidden(route.NetStart, route.NetEnd) {
 			continue
 		}
 		out = append(out, route)

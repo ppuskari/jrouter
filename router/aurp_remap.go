@@ -211,6 +211,34 @@ func (p *AURPPeer) remapOutboundDDP(
 	return &clone, nil
 }
 
+func (r AURPExportHideRule) matchesPeer(peer *AURPPeer) bool {
+	return peerSelectorMatches(r.Peer, peer)
+}
+
+func (p *AURPPeer) exportNetworkHidden(network ddp.Network) bool {
+	if p.timing.networkHidden(network) {
+		return true
+	}
+	for _, rule := range p.timing.HiddenExportNetworks {
+		if rule.matchesPeer(p) && network >= rule.Start && network <= rule.End {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *AURPPeer) exportRangeHidden(start, end ddp.Network) bool {
+	if p.timing.rangeHidden(start, end) {
+		return true
+	}
+	for _, rule := range p.timing.HiddenExportNetworks {
+		if rule.matchesPeer(p) && start <= rule.End && end >= rule.Start {
+			return true
+		}
+	}
+	return false
+}
+
 func (r AURPImportHideRule) matchesPeer(peer *AURPPeer) bool {
 	return peerSelectorMatches(r.Peer, peer)
 }

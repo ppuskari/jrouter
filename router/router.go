@@ -149,8 +149,12 @@ func (rtr *Router) OutputFromAURP(
 	ingress *AURPPeer,
 	ddpkt *ddp.ExtPacket,
 ) error {
-	if rtr.Config != nil && rtr.Config.AURP.networkHidden(ddpkt.DstNet) {
-		return fmt.Errorf("AURP network %d is hidden by local policy; dropping packet", ddpkt.DstNet)
+	if (rtr.Config != nil && rtr.Config.AURP.networkHidden(ddpkt.DstNet)) ||
+		(ingress != nil && ingress.exportNetworkHidden(ddpkt.DstNet)) {
+		return fmt.Errorf(
+			"AURP network %d is hidden from ingress peer; dropping packet",
+			ddpkt.DstNet,
+		)
 	}
 	best := rtr.RouteTable.Lookup(ddpkt.DstNet)
 	route, err := rtr.outputRoute(ddpkt, ingress.TunnelID())
@@ -171,6 +175,13 @@ func (rtr *Router) OutputFromAURP(
 			route.Target.RouteTargetKey() != best.Target.RouteTargetKey() {
 			ingress.alternativePathForwards.Add(1)
 		}
+	}
+	if ddpHopCount(ddpkt) >= maxRouteDistance &&
+		route.Target.Class() != TargetClassDirect {
+		return fmt.Errorf(
+			"tunneled packet at hop-count limit %d cannot be forwarded to another router",
+			ddpHopCount(ddpkt),
+		)
 	}
 	if rtr.Config != nil &&
 		rtr.Config.AURP.HopCountReduction &&
