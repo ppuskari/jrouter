@@ -44,9 +44,9 @@ Home-grown alternative implementation of Apple Internet Router 3.0
 - Running `jrouter` and `netatalk` on the same host still deserves dedicated
   interoperability testing before 1.0; separate hosts remain the conservative
   deployment choice.
-- The 0.0.27 line is a pre-release hardening series. Field soak, malformed-wire
-  tests, failover tests, and performance measurements are being used to close
-  the remaining release risk.
+- The 0.0.28 line is release-candidate preparation. Field soak, hostile-wire
+  tests, failover tests, and measured data-plane performance are being used to
+  close the remaining release risk. See [the Set28 RC checklist](docs/SET28-RC-CHECKLIST.md).
 
 The issues in this repo should be updated as things get fixed.
 
