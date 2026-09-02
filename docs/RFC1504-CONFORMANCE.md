@@ -61,6 +61,7 @@ changes, and long-running field operation.
 
 ## Release gates
 
+Set28 tracks these gates operationally in [the RC checklist](SET28-RC-CHECKLIST.md).
 A 1.0 candidate should not be tagged until all of the following remain green:
 
 1. Global gofmt and go vet.
