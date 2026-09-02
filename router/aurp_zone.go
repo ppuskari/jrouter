@@ -351,11 +351,34 @@ func (p *AURPPeer) applyExtendedZIRsp(
 		)
 	}
 
+	// RFC 1504 requires every tuple in one extended ZI-Rsp packet to carry
+	// the same network number. Validate the entire fragment before mutating
+	// any retained assembly so a malformed packet cannot contaminate a
+	// previously valid partial zone list.
+	for _, zt := range pkt.Zones {
+		mappedNetwork, _ := p.remapInboundNetwork(zt.Network)
+		if mappedNetwork != network {
+			return false, network, fmt.Errorf(
+				"extended ZI-Rsp mixed network %d with %d",
+				network,
+				mappedNetwork,
+			)
+		}
+	}
+
 	if p.pendingZoneInfo == nil {
 		p.pendingZoneInfo = make(map[ddp.Network]*pendingAURPZoneInfo)
 	}
 	pending := p.pendingZoneInfo[network]
-	if pending == nil || (pending.total != 0 && pending.total != pkt.TotalTuples) {
+	if pending != nil && pending.total != 0 && pending.total != pkt.TotalTuples {
+		return false, network, fmt.Errorf(
+			"extended ZI-Rsp for network %d changed total tuple count from %d to %d",
+			network,
+			pending.total,
+			pkt.TotalTuples,
+		)
+	}
+	if pending == nil {
 		pending = &pendingAURPZoneInfo{
 			total:        pkt.TotalTuples,
 			zones:        make(Set[string]),
@@ -370,14 +393,6 @@ func (p *AURPPeer) applyExtendedZIRsp(
 	}
 
 	for _, zt := range pkt.Zones {
-		mappedNetwork, _ := p.remapInboundNetwork(zt.Network)
-		if mappedNetwork != network {
-			return false, network, fmt.Errorf(
-				"extended ZI-Rsp mixed network %d with %d",
-				network,
-				mappedNetwork,
-			)
-		}
 		if zt.Name != "" {
 			pending.zones.Insert(zt.Name)
 		}
