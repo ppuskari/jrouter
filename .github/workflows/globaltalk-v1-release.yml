@@ -1,0 +1,131 @@
+name: GlobalTalk AURP Router 1.0.0
+
+on:
+  push:
+    branches:
+      - release/globaltalk-aurp-router-v1.0.0
+    tags:
+      - v1.0.0
+  pull_request:
+    branches:
+      - release/globaltalk-aurp-router-v1.0.0
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: globaltalk-v1-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-validate-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Verify final version identity
+        shell: bash
+        run: test "$(tr -d '\r\n' < meta/VERSION)" = "1.0.0"
+      - name: Install libpcap headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpcap-dev
+      - name: Global gofmt gate
+        shell: bash
+        run: |
+          mapfile -t gofiles < <(git ls-files '*.go')
+          files="$(gofmt -l "${gofiles[@]}")"
+          if [ -n "$files" ]; then
+            echo "Tracked Go files requiring gofmt:"
+            echo "$files"
+            exit 1
+          fi
+      - name: Go vet
+        run: go vet ./...
+      - name: Unit tests
+        run: go test ./...
+      - name: Race tests
+        run: go test -race ./router ./aurp ./atalk/zip ./status
+      - name: AURP stress x100
+        run: go test ./router ./aurp ./atalk/zip -count=100
+      - name: Build all packages
+        run: go build ./...
+      - name: Build Linux amd64 final
+        shell: bash
+        run: |
+          mkdir -p dist
+          BUILD_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
+            -trimpath \
+            -ldflags "-X drjosh.dev/jrouter/meta.Build=${BUILD_SHA}" \
+            -o dist/globaltalk-aurp-router-v1.0.0-linux-amd64 .
+          ./dist/globaltalk-aurp-router-v1.0.0-linux-amd64 -version \
+            | tee dist/VERSION-LINUX.txt
+          grep -F "jrouter v1.0.0 build ${BUILD_SHA}" dist/VERSION-LINUX.txt
+          sha256sum dist/globaltalk-aurp-router-v1.0.0-linux-amd64 \
+            | tee dist/globaltalk-aurp-router-v1.0.0-linux-amd64.sha256
+          printf '%s\n' "$BUILD_SHA" > dist/BUILD-SHA.txt
+      - name: Upload Linux amd64 final
+        uses: actions/upload-artifact@v7
+        with:
+          name: globaltalk-aurp-router-v1.0.0-linux-amd64
+          path: |
+            dist/globaltalk-aurp-router-v1.0.0-linux-amd64
+            dist/globaltalk-aurp-router-v1.0.0-linux-amd64.sha256
+            dist/VERSION-LINUX.txt
+            dist/BUILD-SHA.txt
+          if-no-files-found: error
+
+  windows-build:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Verify final version identity
+        shell: pwsh
+        run: |
+          if ((Get-Content meta/VERSION -Raw).Trim() -ne '1.0.0') { throw 'meta/VERSION is not 1.0.0' }
+      - name: Build Windows amd64 final from same commit
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $sha = '${{ github.event.pull_request.head.sha || github.sha }}'
+          $env:CGO_ENABLED = '0'
+          $env:GOOS = 'windows'
+          $env:GOARCH = 'amd64'
+          go build -trimpath -ldflags "-X drjosh.dev/jrouter/meta.Build=$sha" -o dist/globaltalk-aurp-router-v1.0.0-windows-amd64.exe .
+          if ($LASTEXITCODE -ne 0) { throw 'Windows build failed' }
+          & .\dist\globaltalk-aurp-router-v1.0.0-windows-amd64.exe -version | Tee-Object -FilePath dist/VERSION-WINDOWS.txt
+          $version = (Get-Content dist/VERSION-WINDOWS.txt -Raw).Trim()
+          $expected = "jrouter v1.0.0 build $sha"
+          if ($version -ne $expected) { throw "Version mismatch: '$version' expected '$expected'" }
+          $hash = (Get-FileHash dist/globaltalk-aurp-router-v1.0.0-windows-amd64.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  globaltalk-aurp-router-v1.0.0-windows-amd64.exe" | Set-Content -Encoding ascii dist/globaltalk-aurp-router-v1.0.0-windows-amd64.sha256
+          $sha | Set-Content -Encoding ascii dist/BUILD-SHA.txt
+      - name: Upload Windows amd64 final
+        uses: actions/upload-artifact@v7
+        with:
+          name: globaltalk-aurp-router-v1.0.0-windows-amd64
+          path: |
+            dist/globaltalk-aurp-router-v1.0.0-windows-amd64.exe
+            dist/globaltalk-aurp-router-v1.0.0-windows-amd64.sha256
+            dist/VERSION-WINDOWS.txt
+            dist/BUILD-SHA.txt
+          if-no-files-found: error
