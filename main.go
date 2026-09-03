@@ -248,9 +248,15 @@ func createEtherTalkPorts(logger *slog.Logger, rooter *router.Router) {
 			myHWAddr = ethernet.Addr(netHWAddr)
 		}
 
-		handle, err := pcap.OpenLive(etcfg.Device, 4096, true, 100*time.Millisecond)
+		captureDevice, err := pcapDeviceName(iface)
 		if err != nil {
-			logger.Error("Couldn't open device for packet capture", "device", etcfg.Device, "error", err)
+			logger.Error("Couldn't resolve packet capture device", "device", etcfg.Device, "error", err)
+			os.Exit(1)
+		}
+
+		handle, err := pcap.OpenLive(captureDevice, 4096, true, 100*time.Millisecond)
+		if err != nil {
+			logger.Error("Couldn't open device for packet capture", "device", etcfg.Device, "capture_device", captureDevice, "error", err)
 			os.Exit(1)
 		}
 		bpfFilter := fmt.Sprintf("(atalk or aarp) and (ether multicast or ether dst %s)", myHWAddr)
