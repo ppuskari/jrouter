@@ -1,0 +1,96 @@
+name: jrouter v1.0.0 Windows amd64
+
+on:
+  push:
+    branches:
+      - build/windows-v1.0.0-20260903
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-amd64:
+    runs-on: windows-2025
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout exact v1.0.0 tag
+        uses: actions/checkout@v7
+        with:
+          ref: v1.0.0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Verify release identity
+        shell: pwsh
+        run: |
+          $ExpectedSHA = '2af8eb805e2afbb2430149355472cfe7cbdbc50b'
+          $ActualSHA = (git rev-parse HEAD).Trim()
+          if ($ActualSHA -ne $ExpectedSHA) {
+            throw "v1.0.0 resolved to $ActualSHA instead of $ExpectedSHA"
+          }
+          $Version = (Get-Content .\meta\VERSION -Raw).Trim()
+          if ($Version -ne '1.0.0') {
+            throw "meta/VERSION is $Version instead of 1.0.0"
+          }
+
+      - name: Build Windows amd64
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          $BuildSHA = '2af8eb805e2afbb2430149355472cfe7cbdbc50b'
+          $env:GOOS = 'windows'
+          $env:GOARCH = 'amd64'
+          $env:CGO_ENABLED = '0'
+          go build -ldflags "-X drjosh.dev/jrouter/meta.Build=$BuildSHA" -o dist\jrouter-v1.0.0-windows-amd64.exe .
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Windows amd64 build failed.'
+          }
+
+      - name: Verify Windows executable identity
+        shell: pwsh
+        run: |
+          $Expected = 'jrouter v1.0.0 build 2af8eb805e2afbb2430149355472cfe7cbdbc50b'
+          $Actual = (& .\dist\jrouter-v1.0.0-windows-amd64.exe -version).Trim()
+          $Actual | Set-Content -Encoding ascii .\dist\VERSION-WINDOWS-OUTPUT.txt
+          if ($Actual -ne $Expected) {
+            throw "Version identity mismatch: $Actual"
+          }
+
+      - name: Generate SHA256
+        shell: pwsh
+        run: |
+          $File = '.\dist\jrouter-v1.0.0-windows-amd64.exe'
+          $Hash = (Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$Hash  jrouter-v1.0.0-windows-amd64.exe" |
+            Set-Content -Encoding ascii .\dist\jrouter-v1.0.0-windows-amd64.exe.sha256
+          Write-Host "SHA256: $Hash"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: jrouter-v1.0.0-windows-amd64
+          path: |
+            dist/jrouter-v1.0.0-windows-amd64.exe
+            dist/jrouter-v1.0.0-windows-amd64.exe.sha256
+            dist/VERSION-WINDOWS-OUTPUT.txt
+          if-no-files-found: error
+
+      - name: Attach Windows build to v1.0.0 release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload v1.0.0 `
+            .\dist\jrouter-v1.0.0-windows-amd64.exe `
+            .\dist\jrouter-v1.0.0-windows-amd64.exe.sha256 `
+            .\dist\VERSION-WINDOWS-OUTPUT.txt `
+            --repo ppuskari/jrouter `
+            --clobber
