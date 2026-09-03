@@ -64,7 +64,7 @@ jobs:
           }
       - name: Prove Windows interface to Npcap mapping
         shell: pwsh
-        run: go test -v . -run TestPcapDeviceNameMatchesNpcap
+        run: go test -v . -run TestPcapDeviceNameWindows
       - name: Build Windows amd64
         shell: pwsh
         run: |
