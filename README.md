@@ -1,217 +1,122 @@
-# jrouter
+# GlobalTalk AURP Router 1.0
 
-Home-grown alternative implementation of Apple Internet Router 3.0
+**GlobalTalk AURP Router** is a modern AppleTalk router with EtherTalk and AppleTalk Update-Based Routing Protocol (AURP) support. Version **1.0.0** is the first stable release from the RFC 1504 implementation and field-soak line maintained in this repository.
 
-## Goals
+The executable remains named `jrouter` internally and in configuration compatibility surfaces. Release binaries use the product name in their filenames.
 
-- Full compatibility with Apple Internet Router 3.0
-- Function on modern operating systems
-- EtherTalk support
-- Be observable (there's a HTTP server with `/status` and `/metrics` pages)
+## 1.0 capabilities
 
-### Stretch goals
+- EtherTalk routing on modern systems.
+- AURP peer routing for GlobalTalk and other compatible AURP deployments.
+- RFC 1504 core routing plus the Chapter 4 behavior tracked in [`docs/RFC1504-CONFORMANCE.md`](docs/RFC1504-CONFORMANCE.md).
+- Hard-seed, soft-seed, and non-seed EtherTalk operation.
+- Route and zone learning and propagation.
+- Split-horizon and route-lifecycle hardening.
+- Bounded AURP routing/zone datagrams and bounded ZIP request sets.
+- Static network remapping.
+- HTTP operator status, detailed peering status, health/readiness JSON, and Prometheus metrics.
+- Per-route DDP byte counters and top-talker ordering on the routing status view.
 
-- Direct TashTalk support
-- Non-seed and soft-seed modes
-- Netatalk compatibility (on same host)
+Dynamic network remapping is not implemented; RFC 1504 permits static or dynamic remapping. The historical Apple Internet Router SNMP MIB is not implemented; this project exposes modern status and metrics interfaces instead.
 
-## Things that used to be caveats
+## Release identity
 
-- Previously it would listen for all EtherTalk traffic, regardless of
-  destination. Now it doesn't do that, which should help it co-exist with other
-  routers on the same host.
-- You can configure an alternate Ethernet address if you are reusing the same
-  network interface for multiple different EtherTalk software.
-- In addition to the configured EtherTalk network and zone, it now learns
-  routes and zones from other EtherTalk routers, and should share them across
-  AURP.
-- There's a status endpoint that outputs diagnostic information about the
-  state of the server. Set the `monitoring_addr` config option and then browse
-  to `http://[your router]:[port you configured]/status` to see information
-  about the state of jrouter.
+The stable release version is stored in `meta/VERSION`. Official binaries embed the exact source Git SHA and report it with:
 
-## Caveats & pre-1.0 status
+```text
+jrouter -version
+```
 
-- Hard-seed, soft-seed, and non-seed EtherTalk operation are implemented.
-- AURP routing and zone information are chunked to bounded datagram sizes;
-  large ZIP query sets are also split into protocol-sized requests.
-- RFC 1504 core routing is implemented, together with the Chapter 4 features
-  tracked in [the RFC 1504 conformance matrix](docs/RFC1504-CONFORMANCE.md).
-- Static network remapping is implemented. Dynamic remapping is not currently
-  implemented; RFC 1504 permits static or dynamic remapping.
-- The historical Apple Internet Router SNMP MIB is not implemented. jrouter
-  exposes status, health/readiness JSON, and Prometheus metrics instead.
-- Running `jrouter` and `netatalk` on the same host still deserves dedicated
-  interoperability testing before 1.0; separate hosts remain the conservative
-  deployment choice.
-- The 0.0.28 line is release-candidate preparation. Field soak, hostile-wire
-  tests, failover tests, and measured data-plane performance are being used to
-  close the remaining release risk. See [the Set28 RC checklist](docs/SET28-RC-CHECKLIST.md).
+For 1.0.0 the expected form is:
 
-The issues in this repo should be updated as things get fixed.
+```text
+jrouter v1.0.0 build <40-character-git-sha>
+```
 
-## How to use
+SHA-256 checksum files are published with each binary.
 
-Pre-1.0 software: see "Caveats & pre-1.0 status" above and the RFC 1504 conformance matrix.
+## Supported 1.0 release binaries
 
-First, write a `jrouter.yaml` config file.
-Use [the jrouter.yaml in this repo](/josh/jrouter/src/branch/main/jrouter.yaml)
-as both an example and for documentation of config options.
+The initial 1.0 release publishes:
 
-Then choose from the options below:
+- `globaltalk-aurp-router-v1.0.0-linux-amd64`
+- `globaltalk-aurp-router-v1.0.0-windows-amd64.exe`
 
-### Installing on Debian / Raspbian directly
+Both are produced from the same source commit by the `GlobalTalk AURP Router 1.0.0` GitHub Actions workflow.
 
-There's not an APT repository yet, but you can always directly install .debs:
+### Windows runtime note
 
-1. Download a `jrouter_(VERSION)_linux_arm64.deb` from the Releases page
-2. `sudo dpkg -i jrouter_..._arm64.deb`
-3. Put `jrouter.yaml` into `/etc/jrouter/`
+Windows packet capture uses the gopacket Windows pcap path. Install **Npcap** on the target system before using EtherTalk capture/injection. The Windows binary itself is built without a C compiler dependency.
 
-Then (assuming you are using systemd, which you probably are):
+## Configuration
 
-4. `sudo systemctl enable --now jrouter.service`
-5. To see logs, use `journalctl -f -u jrouter.service`
+Create a `jrouter.yaml` file using [`jrouter.yaml`](jrouter.yaml) as the configuration reference. By default `jrouter` looks for its configuration in the current directory; specify another path with:
 
-### Running with Docker
+```text
+jrouter -config /path/to/jrouter.yaml
+```
 
-Multiarch (x86_64 and arm64) container images are available from this server.
+AURP normally uses UDP port 387. EtherTalk requires access to raw Ethernet frames, so the process must have the necessary operating-system privileges.
 
-- `gitea.drjosh.dev/josh/jrouter:latest` - latest release version
-- `gitea.drjosh.dev/josh/jrouter:0.0.12` - specific patch version
-- `gitea.drjosh.dev/josh/jrouter:0.0` - latest patch release for minor version
-- `gitea.drjosh.dev/josh/jrouter:0` - latest minor & patch release for major version
-- `gitea.drjosh.dev/josh/jrouter:dev` - pre-release that I'm currently testing
+### Linux capabilities
 
-Example `docker run` command:
+A typical Linux installation can grant the binary the required privileges without running it permanently as root:
 
 ```shell
-# Run using a config file ./cfg/jrouter.yaml
-docker run \
-  -v ./cfg:/etc/jrouter \
-  --cap-add NET_RAW \
-  --net host \
-  --name jrouter \
-  gitea.drjosh.dev/josh/jrouter:latest
+sudo setcap 'CAP_NET_BIND_SERVICE=ep CAP_NET_RAW=ep' ./globaltalk-aurp-router-v1.0.0-linux-amd64
 ```
 
-Notes:
+## Operator status
 
-- Put `jrouter.yaml` inside a `cfg` directory (or some path of your choice and bind-mount it at `/etc/jrouter`) for it to find the config file.
-- `--cap-add NET_RAW` and `--net host` is needed for EtherTalk access to the network interface.
-- By using `--net host`, the default AURP port (387) will be bound without `-p`.
+Set `monitoring_addr` in the configuration and browse to the configured HTTP listener.
 
-### Docker Compose
+- `/status` — operator-oriented router and routing-table status.
+- `/peering` — detailed AURP peer state and diagnostics.
+- `/metrics` — Prometheus metrics.
 
-Example `docker-compose.yml` file:
+The routing table includes aggregate DDP bytes in/out so active routes and top talkers can be identified quickly.
 
-```yaml
-services:
-  jrouter:
-    image: gitea.drjosh.dev/josh/jrouter:latest
-    restart: unless-stopped
-    volumes:
-      - type: bind
-        source: ./jrouter
-        target: /etc/jrouter
-    network_mode: host
-    cap_add:
-      - NET_RAW
-```
+## Building
 
-### Building and running manually
+Go **1.26.4** is declared by `go.mod` for this release line.
 
-These instructions ignore `mage` or containerised builds, and build the binary
-directly.
-
-1. Install [Go](https://go.dev/dl).
-2. Run these commands (for Debian-variety Linuxen, e.g. Ubuntu, Raspbian, Mint...):
+On Debian/Ubuntu Linux:
 
 ```shell
 sudo apt install git build-essential libpcap-dev
-go install drjosh.dev/jrouter@latest   # or substitute @latest with @(version) e.g. @v0.0.12
-sudo setcap 'CAP_NET_BIND_SERVICE=ep CAP_NET_RAW=ep' ~/go/bin/jrouter
+go test ./...
+go build .
 ```
 
-3. Configure `jrouter.yaml`
-4. To run:
+The final release workflow performs gofmt validation, `go vet`, unit tests, race tests on the critical router/AURP/ZIP/status packages, repeated AURP stress tests, full package builds, and Linux/Windows amd64 release builds.
 
-```shell
-~/go/bin/jrouter
+## Preparing and publishing 1.0.0 from Windows PowerShell
+
+From a clean local clone of `ppuskari/jrouter`:
+
+```powershell
+.\scripts\Prepare-Release1.ps1
+.\scripts\Download-Release1.ps1
 ```
 
-Notes:
+Test both downloaded binaries. When the final validation is satisfactory:
 
-- `git` is needed for `go install` to fetch the module
-- `build-essential` and `libpcap-dev` are needed for [gopacket](https://github.com/google/gopacket), which uses [CGo](https://pkg.go.dev/cmd/cgo)
-- `NET_BIND_SERVICE` is needed for `jrouter` to bind UDP port 387 (for talking between AIRs)
-- `NET_RAW` is needed for `jrouter` to listen for and send EtherTalk packets
-- By default `jrouter` looks for `jrouter` in the current directory. It can be
-  changed with the `config` flag:
+```powershell
+.\scripts\Publish-Release1.ps1
+```
 
-  ```shell
-  jrouter -config /etc/jrouter/jrouter.yaml
-  ```
+The publish script refuses to proceed if the working tree is dirty, the local release branch differs from GitHub, the verified CI artifacts do not come from that exact commit, the version is not `1.0.0`, or an incompatible `v1.0.0` tag/release already exists.
 
-TODO: instructions for non-Linux / non-Debian-like machines
+## Protocol references
 
-### Building and running with Docker manually
+- Apple Computer, *AppleTalk Update-Based Routing Protocol: Enhanced AppleTalk Routing* (RFC 1504 / Apple AURP documentation).
+- Sidhu, Andrews & Oppenheimer, *Inside AppleTalk, Second Edition*.
+- Apple Internet Router 3.0 behavior and interoperability.
 
-These instructions ignore `mage`, and use `Dockerfile` which builds the binary
-specifically for the container.
+See [`docs/RFC1504-CONFORMANCE.md`](docs/RFC1504-CONFORMANCE.md) for the repository's conformance matrix and implementation notes.
 
-1.  Install Docker.
-2.  Clone the repo and `cd` into it.
-3.  `docker build -t jrouter .`
+## Project lineage and license
 
-Example `docker run` command:
+This repository is derived from Josh Deprez's `jrouter` implementation and retains the original Apache License 2.0 notices and attribution in the source tree. The GlobalTalk AURP Router 1.0 release line adds the AURP/RFC 1504 completion, resiliency, failover, observability, and operator-facing work developed and field-tested in this fork.
 
-    ```shell
-    docker run \
-      -v ./cfg:/etc/jrouter \
-      --cap-add NET_RAW \
-      --net host \
-      --name jrouter \
-      jrouter
-    ```
-
-Notes:
-
-- Put `jrouter.yaml` inside a `cfg` directory (or some path of your choice and bind-mount it at `/etc/jrouter`) for it to find the config file.
-- Both `--cap-add NET_RAW` and `--net host` is needed for EtherTalk access to the network interface.
-- By using `--net host`, the default AURP port (387) will be bound without `-p`.
-
-### Building with Mage
-
-For managing building everything at once, I use [mage](https://magefile.org/).
-You are welcome to do likewise. Depending on what you want to build, you will
-need Go and/or Docker installed. Output files are stored in `./dist` and
-container image builds then assume they can use pre-built binaries from there.
-
-`mage binary` runs locally and needs the build-time dependencies like
-libpcap-dev. Most other mage targets run commands within containers.
-
-## Bibliography / Acknowledgements
-
-This software wouldn't be possible without:
-
-- [Sidhu, G S, Andrews, R F, & Oppenheimer, A B (1990), _Inside AppleTalk_, 2nd edn, Addison-Wesley, Reading, Mass.](https://vintageapple.org/macbooks/pdf/Inside_AppleTalk_Second_Edition_1990.pdf)
-- [Apple Computer Inc. (1993), _AppleTalk Update-Based Routing Protocol: Enhanced AppleTalk Routing_, Cupertino, Calif.](/josh/jrouter/src/branch/main/docs/AURP_Enhanced_ATalk_Routing.pdf)
-- [Apple Internet Router 3.0](https://macintoshgarden.org/apps/apple-internet-router) itself
-- [sfiera/multitalk](https://github.com/sfiera/multitalk)
-- [tcpdump and libpcap](https://www.tcpdump.org/)
-- [google/gopacket](https://github.com/google/gopacket)
-- Encouragement from #GlobalTalk and #MARCHintosh
-
-## Non-acknowledgements
-
-Aside from standard reformatting and analysis tools (gofmt, gopls) this software
-is 100% organically written.
-
-I do not use LLMs or generative "AI" in my work. I _will not_ use LLMs or
-generative "AI" in my work. I write enough bugs on my own, I don't need a
-stochastic parrot to hallucinate more for me.
-
-## Bug reports? Feature requests? Complaints? Praise?
-
-You can contact me on the Fediverse at @DrJosh9000@cloudisland.nz, or email me at josh.deprez@gmail.com.
+See [`LICENSE`](LICENSE) for license terms.
