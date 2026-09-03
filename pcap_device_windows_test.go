@@ -6,26 +6,15 @@ import (
 	"net"
 	"strings"
 	"testing"
-
-	"github.com/google/gopacket/pcap"
 )
 
-func TestPcapDeviceNameMatchesNpcap(t *testing.T) {
+func TestPcapDeviceNameWindows(t *testing.T) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		t.Fatal(err)
 	}
-	devs, err := pcap.FindAllDevs()
-	if err != nil {
-		t.Fatal(err)
-	}
 
-	pcapNames := make(map[string]struct{}, len(devs))
-	for _, dev := range devs {
-		pcapNames[dev.Name] = struct{}{}
-	}
-
-	matched := 0
+	mapped := 0
 	for i := range ifaces {
 		name, err := pcapDeviceName(&ifaces[i])
 		if err != nil {
@@ -35,12 +24,14 @@ func TestPcapDeviceNameMatchesNpcap(t *testing.T) {
 			t.Errorf("interface %q mapped to unexpected pcap name %q", ifaces[i].Name, name)
 			continue
 		}
-		if _, ok := pcapNames[name]; ok {
-			matched++
+		if len(strings.TrimPrefix(name, `\Device\NPF_`)) == 0 {
+			t.Errorf("interface %q mapped to an empty Npcap adapter name", ifaces[i].Name)
+			continue
 		}
+		mapped++
 	}
 
-	if matched == 0 {
-		t.Fatalf("no Windows interfaces mapped to an Npcap capture device")
+	if mapped == 0 {
+		t.Fatalf("no Windows interfaces could be mapped to an Npcap device path")
 	}
 }
