@@ -16,6 +16,7 @@ func TestEtherTalkBroadcastNode(t *testing.T) {
 		{name: "network-broadcast-ff", node: 0xFF, want: true},
 		{name: "ordinary-unicast-one", node: 1, want: false},
 		{name: "ordinary-unicast-188", node: 188, want: false},
+		{name: "ordinary-unicast-fd", node: 0xFD, want: false},
 		{name: "reserved-fe-not-broadcast", node: 0xFE, want: false},
 	}
 
