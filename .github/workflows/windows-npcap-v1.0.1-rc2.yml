@@ -1,9 +1,9 @@
-name: jrouter v1.0.1-rc2 Windows Npcap
+name: jrouter v1.0.1-rc2 EtherTalk node zero
 
 on:
   push:
     branches:
-      - petar/windows-npcap-v1.0.1-rc2-20260903
+      - petar/ethertalk-node0-v1.0.1-rc2-20260903
   workflow_dispatch:
 
 permissions:
