@@ -92,8 +92,35 @@ func NewRouteTable(ctx context.Context) *RouteTable {
 	}
 	status.AddItem(ctx, "Routing table", routingTableTemplate, func(context.Context) (any, error) {
 		rs := rt.Dump()
+
+		// Snapshot traffic counters once for this page render. The counters
+		// continue changing while traffic flows, so sorting directly on live
+		// atomics could make the comparator inconsistent during the sort.
+		type trafficSnapshot struct {
+			in  uint64
+			out uint64
+		}
+		traffic := make(map[RouteKey]trafficSnapshot, len(rs))
+		for _, route := range rs {
+			traffic[route.RouteKey] = trafficSnapshot{
+				in:  route.DDPBytesIn(),
+				out: route.DDPBytesOut(),
+			}
+		}
+
+		// The operator view is a top-talker view by default: combined DDP
+		// bytes in+out descending. Deterministic tie-breakers keep otherwise
+		// equal rows stable and easy to scan.
 		slices.SortFunc(rs, func(ra, rb Route) int {
-			return cmp.Compare(ra.NetStart, rb.NetStart)
+			a := traffic[ra.RouteKey]
+			b := traffic[rb.RouteKey]
+			return cmp.Or(
+				cmp.Compare(b.in+b.out, a.in+a.out),
+				cmp.Compare(b.in, a.in),
+				cmp.Compare(b.out, a.out),
+				cmp.Compare(ra.NetStart, rb.NetStart),
+				cmp.Compare(ra.TargetKey, rb.TargetKey),
+			)
 		})
 		return rs, nil
 	})
