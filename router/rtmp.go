@@ -297,8 +297,16 @@ func (port *EtherTalkPort) broadcastRTMPData() error {
 			Data: dataPktRaw,
 		}
 
+		// Preserve the normal transmit path first. The experimental Windows
+		// mirror is additive and must never replace physical-Ethernet delivery.
 		if err := port.Broadcast(ddpPkt); err != nil {
 			return err
+		}
+		if err := mirrorRTMPBroadcast(port, ddpPkt); err != nil {
+			port.logger.Warn(
+				"RTMP: experimental SendToRx mirror failed",
+				"error", err,
+			)
 		}
 	}
 	return nil
