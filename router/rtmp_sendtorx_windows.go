@@ -236,8 +236,7 @@ func (m *npcapRTMPMirror) send(raw []byte) error {
 }
 
 func loadNpcapWpcap() (*windows.DLL, error) {
-	if systemRoot := os.Getenv("SystemRoot");
-		systemRoot != "" {
+	if systemRoot := os.Getenv("SystemRoot"); systemRoot != "" {
 		path := filepath.Join(
 			systemRoot,
 			"System32",
@@ -301,9 +300,7 @@ func rtmpMirrorPcapDeviceName(
 	}
 
 	index := uint32(iface.Index)
-	for addr := addrs;
-		addr != nil;
-		addr = addr.Next {
+	for addr := addrs; addr != nil; addr = addr.Next {
 		if addr.IfIndex != index &&
 			addr.Ipv6IfIndex != index {
 			continue
