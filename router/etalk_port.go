@@ -458,10 +458,15 @@ func (port *EtherTalkPort) Serve(ctx context.Context) {
 	}
 }
 
+func etherTalkBroadcastNode(node ddp.Node) bool {
+	return node == 0 || node == 0xFF
+}
+
 // Send sends a DDP packet out this port to the destination node.
-// If pkt.DstNode = 0xFF, then the packet is broadcast.
+// Node 0 means any router on the network and node 0xFF is the
+// network/zone broadcast; both are Ethernet broadcasts on EtherTalk.
 func (port *EtherTalkPort) Send(ctx context.Context, pkt *ddp.ExtPacket) error {
-	if pkt.DstNode == 0xFF {
+	if etherTalkBroadcastNode(pkt.DstNode) {
 		return port.send(ethertalk.AppleTalkBroadcast, pkt)
 	}
 
