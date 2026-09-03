@@ -1,0 +1,111 @@
+name: jrouter v1.0.1-rc3-exp2 Windows ZIP SendToRx
+
+on:
+  push:
+    branches:
+      - exp/windows-sendtorx-rc3-e2-20260903
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Install libpcap headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpcap-dev
+      - name: Verify version identity
+        shell: bash
+        run: test "$(tr -d '\r\n' < meta/VERSION)" = "1.0.1-rc3-exp2"
+      - name: Global gofmt gate
+        shell: bash
+        run: |
+          mapfile -t gofiles < <(git ls-files '*.go')
+          files="$(gofmt -l "${gofiles[@]}")"
+          if [ -n "$files" ]; then
+            echo "$files"
+            exit 1
+          fi
+      - name: Go vet
+        run: go vet ./...
+      - name: Unit tests
+        run: go test ./...
+      - name: Race tests
+        run: go test -race ./router ./aurp ./atalk/zip ./status
+      - name: AURP stress x100
+        run: go test ./router ./aurp ./atalk/zip -count=100
+
+  windows-amd64:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Verify version identity
+        shell: pwsh
+        run: |
+          $Version = (Get-Content .\meta\VERSION -Raw).Trim()
+          if ($Version -ne '1.0.1-rc3-exp2') {
+            throw "meta/VERSION is $Version instead of 1.0.1-rc3-exp2"
+          }
+      - name: Prove Windows interface to Npcap mapping
+        shell: pwsh
+        run: go test -v . -run TestPcapDeviceNameWindows
+      - name: Prove EtherTalk node-zero broadcast semantics
+        shell: pwsh
+        run: go test -v ./router -run TestEtherTalkBroadcastNode
+      - name: Compile Windows router package with RTMP and ZIP SendToRx helpers
+        shell: pwsh
+        run: go test -run '^$' ./router
+      - name: Build Windows amd64
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          $BuildSHA = '${{ github.sha }}'
+          $env:GOOS = 'windows'
+          $env:GOARCH = 'amd64'
+          $env:CGO_ENABLED = '0'
+          go build -ldflags "-X drjosh.dev/jrouter/meta.Build=$BuildSHA" -o dist\jrouter-v1.0.1-rc3-exp2-windows-amd64.exe .
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Windows amd64 build failed.'
+          }
+      - name: Verify executable identity
+        shell: pwsh
+        run: |
+          $Expected = "jrouter v1.0.1-rc3-exp2 build ${{ github.sha }}"
+          $Actual = (& .\dist\jrouter-v1.0.1-rc3-exp2-windows-amd64.exe -version).Trim()
+          $Actual | Set-Content -Encoding ascii .\dist\VERSION-WINDOWS-OUTPUT.txt
+          if ($Actual -ne $Expected) {
+            throw "Version identity mismatch: $Actual"
+          }
+      - name: Generate SHA256
+        shell: pwsh
+        run: |
+          $File = '.\dist\jrouter-v1.0.1-rc3-exp2-windows-amd64.exe'
+          $Hash = (Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$Hash  jrouter-v1.0.1-rc3-exp2-windows-amd64.exe" |
+            Set-Content -Encoding ascii .\dist\jrouter-v1.0.1-rc3-exp2-windows-amd64.exe.sha256
+          Write-Host "SHA256: $Hash"
+      - name: Upload Windows experimental artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: jrouter-v1.0.1-rc3-exp2-windows-amd64
+          path: |
+            dist/jrouter-v1.0.1-rc3-exp2-windows-amd64.exe
+            dist/jrouter-v1.0.1-rc3-exp2-windows-amd64.exe.sha256
+            dist/VERSION-WINDOWS-OUTPUT.txt
+          if-no-files-found: error
