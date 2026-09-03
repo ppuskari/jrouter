@@ -98,7 +98,7 @@ func (port *EtherTalkPort) handleZIPQuery(ctx context.Context, ddpkt *ddp.ExtPac
 			},
 			Data: respRaw,
 		}
-		return port.Send(ctx, outDDP)
+		return port.sendZIPWithReceiveMirror(ctx, outDDP)
 	}
 
 	// Inside AppleTalk SE, pp 8-11:
@@ -255,7 +255,7 @@ func (port *EtherTalkPort) handleZIPGetNetInfo(ctx context.Context, ddpkt *ddp.E
 	if ddpkt.DstNode == 0xFF {
 		outDDP.DstNode = 0xFF
 	}
-	return port.Send(ctx, outDDP)
+	return port.sendZIPWithReceiveMirror(ctx, outDDP)
 }
 
 func (port *EtherTalkPort) handleZIPATP(ctx context.Context, ddpkt *ddp.ExtPacket) error {
@@ -358,5 +358,5 @@ func (port *EtherTalkPort) handleZIPTReq(ctx context.Context, ddpkt *ddp.ExtPack
 		},
 		Data: ddpBody,
 	}
-	return port.Send(ctx, respDDP)
+	return port.sendZIPWithReceiveMirror(ctx, respDDP)
 }
