@@ -393,7 +393,16 @@ func (a *AARPMachine) heyThatsMe(targ aarp.AddrPair) error {
 	//a.logger.Debug("AARP: sending packet", "resp-frame", respFrame)
 	// Instead of broadcasting the reply, send it to the target specifically?
 	respFrame.Dst = targ.Hardware
-	return a.send(respFrame)
+	if err := a.send(respFrame); err != nil {
+		return err
+	}
+	if err := mirrorAARPResponse(a.port, respFrame); err != nil {
+		a.logger.Warn(
+			"AARP: experimental Windows SendToRx mirror failed",
+			"error", err,
+		)
+	}
+	return nil
 }
 
 // Broadcast an AARP Probe
