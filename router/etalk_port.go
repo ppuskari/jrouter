@@ -579,7 +579,21 @@ func (port *EtherTalkPort) send(dstEth ethernet.Addr, pkt *ddp.ExtPacket) error 
 	atalkPacketsOutCounter.With(promLabels).Inc()
 	atalkBytesOutCounter.With(promLabels).Add(float64(len(outFrameRaw)))
 
-	return port.pcapHandle.WritePacketData(outFrameRaw)
+	// Preserve the proven physical-Ethernet transmit path first. The
+	// Windows receive-path mirror is additive and is never allowed to make
+	// a successful physical transmit fail.
+	if err := port.pcapHandle.WritePacketData(outFrameRaw); err != nil {
+		return err
+	}
+	if shouldMirrorDDPToReceivePath(pkt) {
+		if err := mirrorDDPTransmit(port, outFrameRaw); err != nil {
+			port.logger.Warn(
+				"EtherTalk: experimental Windows SendToRx DDP mirror failed",
+				"error", err,
+			)
+		}
+	}
+	return nil
 }
 
 type outbox struct {
