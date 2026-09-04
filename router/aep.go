@@ -24,6 +24,18 @@ import (
 	"github.com/sfiera/multitalk/pkg/ddp"
 )
 
+func prepareAEPReply(ddpkt *ddp.ExtPacket) {
+	ddpkt.DstNet, ddpkt.SrcNet = ddpkt.SrcNet, ddpkt.DstNet
+	ddpkt.DstNode, ddpkt.SrcNode = ddpkt.SrcNode, ddpkt.DstNode
+	ddpkt.DstSocket, ddpkt.SrcSocket = ddpkt.SrcSocket, ddpkt.DstSocket
+	ddpkt.Data[0] = byte(aep.EchoReply)
+
+	// The received checksum covered the request header and payload. After
+	// reversing the addresses/sockets and changing the AEP function, that
+	// checksum is stale. A zero DDP checksum explicitly means no checksum.
+	ddpkt.Cksum = 0
+}
+
 func (rtr *Router) HandleAEP(ctx context.Context, ddpkt *ddp.ExtPacket) error {
 	if ddpkt.Proto != ddp.ProtoAEP {
 		return fmt.Errorf("invalid DDP type %d on socket 4", ddpkt.Proto)
@@ -42,11 +54,7 @@ func (rtr *Router) HandleAEP(ctx context.Context, ddpkt *ddp.ExtPacket) error {
 		// Uno Reverso the packet
 		// "The client can send the Echo Request datagram through any socket
 		// the client has open, and the Echo Reply will come back to this socket."
-		ddpkt.DstNet, ddpkt.SrcNet = ddpkt.SrcNet, ddpkt.DstNet
-		ddpkt.DstNode, ddpkt.SrcNode = ddpkt.SrcNode, ddpkt.DstNode
-		ddpkt.DstSocket, ddpkt.SrcSocket = ddpkt.SrcSocket, ddpkt.DstSocket
-		ddpkt.Data[0] = byte(aep.EchoReply)
-
+		prepareAEPReply(ddpkt)
 		return rtr.Output(ctx, ddpkt)
 
 	default:
