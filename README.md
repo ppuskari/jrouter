@@ -1,122 +1,202 @@
-# GlobalTalk AURP Router 1.0
+# P-AURP 1.0
 
-**GlobalTalk AURP Router** is a modern AppleTalk router with EtherTalk and AppleTalk Update-Based Routing Protocol (AURP) support. Version **1.0.0** is the first stable release from the RFC 1504 implementation and field-soak line maintained in this repository.
+**P-AURP 1.0** is a cross-platform EtherTalk/AURP router for modern Linux and
+Windows systems, with a strong focus on practical GlobalTalk operation,
+RFC 1504 behavior, observability and compatibility with classic AppleTalk
+networks.
 
-The executable remains named `jrouter` internally and in configuration compatibility surfaces. Release binaries use the product name in their filenames.
+The first public P-AURP 1.0 patch release is **v1.0.1**.
 
-## 1.0 capabilities
+The historical repository/module name remains `jrouter` / `drjosh.dev/jrouter`
+for source compatibility, but the public release identity is **P-AURP**.
 
-- EtherTalk routing on modern systems.
-- AURP peer routing for GlobalTalk and other compatible AURP deployments.
-- RFC 1504 core routing plus the Chapter 4 behavior tracked in [`docs/RFC1504-CONFORMANCE.md`](docs/RFC1504-CONFORMANCE.md).
-- Hard-seed, soft-seed, and non-seed EtherTalk operation.
-- Route and zone learning and propagation.
-- Split-horizon and route-lifecycle hardening.
-- Bounded AURP routing/zone datagrams and bounded ZIP request sets.
-- Static network remapping.
-- HTTP operator status, detailed peering status, health/readiness JSON, and Prometheus metrics.
-- Per-route DDP byte counters and top-talker ordering on the routing status view.
+## Release status
 
-Dynamic network remapping is not implemented; RFC 1504 permits static or dynamic remapping. The historical Apple Internet Router SNMP MIB is not implemented; this project exposes modern status and metrics interfaces instead.
+P-AURP 1.0 was promoted from clean v1.0.1 RC3 after more than 56 hours of
+continuous Windows routing with multi-gigabyte DDP/AURP traffic, live AFP
+transfers, ZIP zone discovery, NBP traversal, local and remote AEP, dynamic
+non-seed EtherTalk operation and continuous AURP route churn.
 
-## Release identity
+See:
 
-The stable release version is stored in `meta/VERSION`. Official binaries embed the exact source Git SHA and report it with:
+- [P-AURP 1.0 release notes](docs/P-AURP-1.0-RELEASE.md)
+- [Linux and Windows build/deployment guide](docs/P-AURP-1.0-BUILD.md)
+- [RFC 1504 conformance matrix](docs/RFC1504-CONFORMANCE.md)
 
-```text
-jrouter -version
+## Major capabilities
+
+- EtherTalk Phase 2 routing
+- AURP over UDP, including RFC 1504 routing behavior
+- RTMP and ZIP route/zone exchange
+- NBP forwarding across routed AppleTalk networks
+- AEP echo handling
+- hard-seed, soft-seed and true non-seed EtherTalk operation
+- static network remapping
+- peer-scoped import/export policy controls
+- route ownership/provenance and split-horizon protections
+- bounded/chunked routing and zone-information exchange
+- per-route DDP byte telemetry for top-talker visibility
+- operator `/status` and `/peering` pages
+- `/healthz`, `/readyz`, `/api/v1/aurp` and Prometheus `/metrics`
+- Windows friendly adapter-name to Npcap capture-device mapping
+- Linux and Windows amd64 release builds from one shared Go protocol core
+
+## Quick start: Linux
+
+Install prerequisites on Debian/Ubuntu/Raspberry Pi OS:
+
+```bash
+sudo apt update
+sudo apt install -y git build-essential libpcap-dev
 ```
 
-For 1.0.0 the expected form is:
+Build:
 
-```text
-jrouter v1.0.0 build <40-character-git-sha>
+```bash
+git clone https://github.com/ppuskari/jrouter.git
+cd jrouter
+git checkout release/p-aurp-v1.0-20260906
+mkdir -p dist
+BUILD_SHA="$(git rev-parse HEAD)"
+CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
+  go build \
+  -ldflags "-X drjosh.dev/jrouter/meta.Build=${BUILD_SHA}" \
+  -o dist/p-aurp-v1.0.1-linux-amd64 .
 ```
 
-SHA-256 checksum files are published with each binary.
+Create the runtime config:
 
-## Supported 1.0 release binaries
-
-The initial 1.0 release publishes:
-
-- `globaltalk-aurp-router-v1.0.0-linux-amd64`
-- `globaltalk-aurp-router-v1.0.0-windows-amd64.exe`
-
-Both are produced from the same source commit by the `GlobalTalk AURP Router 1.0.0` GitHub Actions workflow.
-
-### Windows runtime note
-
-Windows packet capture uses the gopacket Windows pcap path. Install **Npcap** on the target system before using EtherTalk capture/injection. The Windows binary itself is built without a C compiler dependency.
-
-## Configuration
-
-Create a `jrouter.yaml` file using [`jrouter.yaml`](jrouter.yaml) as the configuration reference. By default `jrouter` looks for its configuration in the current directory; specify another path with:
-
-```text
-jrouter -config /path/to/jrouter.yaml
+```bash
+cp examples/jrouter-linux.yaml ./jrouter-linux.yaml
 ```
 
-AURP normally uses UDP port 387. EtherTalk requires access to raw Ethernet frames, so the process must have the necessary operating-system privileges.
+Grant the Linux capabilities required for raw EtherTalk and UDP 387:
 
-### Linux capabilities
-
-A typical Linux installation can grant the binary the required privileges without running it permanently as root:
-
-```shell
-sudo setcap 'CAP_NET_BIND_SERVICE=ep CAP_NET_RAW=ep' ./globaltalk-aurp-router-v1.0.0-linux-amd64
+```bash
+sudo setcap 'CAP_NET_BIND_SERVICE=ep CAP_NET_RAW=ep' \
+  ./dist/p-aurp-v1.0.1-linux-amd64
 ```
 
-## Operator status
+Run:
 
-Set `monitoring_addr` in the configuration and browse to the configured HTTP listener.
-
-- `/status` — operator-oriented router and routing-table status.
-- `/peering` — detailed AURP peer state and diagnostics.
-- `/metrics` — Prometheus metrics.
-
-The routing table includes aggregate DDP bytes in/out so active routes and top talkers can be identified quickly.
-
-## Building
-
-Go **1.26.4** is declared by `go.mod` for this release line.
-
-On Debian/Ubuntu Linux:
-
-```shell
-sudo apt install git build-essential libpcap-dev
-go test ./...
-go build .
+```bash
+./dist/p-aurp-v1.0.1-linux-amd64 \
+  -config ./jrouter-linux.yaml
 ```
 
-The final release workflow performs gofmt validation, `go vet`, unit tests, race tests on the critical router/AURP/ZIP/status packages, repeated AURP stress tests, full package builds, and Linux/Windows amd64 release builds.
+## Quick start: Windows
 
-## Preparing and publishing 1.0.0 from Windows PowerShell
-
-From a clean local clone of `ppuskari/jrouter`:
+Install Npcap, then build from PowerShell:
 
 ```powershell
-.\scripts\Prepare-Release1.ps1
-.\scripts\Download-Release1.ps1
+Set-Location 'C:\AppleIIgsDev\jrouter'
+git checkout release/p-aurp-v1.0-20260906
+if ($LASTEXITCODE -ne 0) { throw 'git checkout failed.' }
+
+New-Item -ItemType Directory -Path '.\dist' -Force | Out-Null
+$BuildSHA = (git rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'git rev-parse failed.' }
+
+$env:GOOS = 'windows'
+$env:GOARCH = 'amd64'
+$env:CGO_ENABLED = '0'
+
+go build -ldflags "-X drjosh.dev/jrouter/meta.Build=$BuildSHA" -o '.\dist\p-aurp-v1.0.1-windows-amd64.exe' .
+if ($LASTEXITCODE -ne 0) { throw 'Windows build failed.' }
 ```
 
-Test both downloaded binaries. When the final validation is satisfactory:
+Create the Windows runtime config:
 
 ```powershell
-.\scripts\Publish-Release1.ps1
+Copy-Item '.\examples\jrouter-windows.yaml' '.\jrouter-windows.yaml'
 ```
 
-The publish script refuses to proceed if the working tree is dirty, the local release branch differs from GitHub, the verified CI artifacts do not come from that exact commit, the version is not `1.0.0`, or an incompatible `v1.0.0` tag/release already exists.
+**Windows deployments should use `jrouter-windows.yaml` explicitly.**
 
-## Protocol references
+Find the friendly adapter name with:
 
-- Apple Computer, *AppleTalk Update-Based Routing Protocol: Enhanced AppleTalk Routing* (RFC 1504 / Apple AURP documentation).
-- Sidhu, Andrews & Oppenheimer, *Inside AppleTalk, Second Edition*.
-- Apple Internet Router 3.0 behavior and interoperability.
+```powershell
+Get-NetAdapter | Select-Object Name,Status,MacAddress,LinkSpeed
+```
 
-See [`docs/RFC1504-CONFORMANCE.md`](docs/RFC1504-CONFORMANCE.md) for the repository's conformance matrix and implementation notes.
+Put that friendly name in the YAML `device:` field, then start P-AURP:
 
-## Project lineage and license
+```powershell
+& '.\dist\p-aurp-v1.0.1-windows-amd64.exe' -config '.\jrouter-windows.yaml'
+```
 
-This repository is derived from Josh Deprez's `jrouter` implementation and retains the original Apache License 2.0 notices and attribution in the source tree. The GlobalTalk AURP Router 1.0 release line adds the AURP/RFC 1504 completion, resiliency, failover, observability, and operator-facing work developed and field-tested in this fork.
+P-AURP maps the friendly Windows adapter name to the correct Npcap
+`\\Device\\NPF_{GUID}` capture device internally.
 
-See [`LICENSE`](LICENSE) for license terms.
+For detached Windows operation with redirected logs, see the full build and
+deployment guide.
+
+## Annotated configuration examples
+
+- [Linux annotated example](examples/jrouter-linux.yaml)
+- [Windows annotated example](examples/jrouter-windows.yaml)
+
+The examples default to `seed_mode: none`, allowing P-AURP to discover the
+existing cable range and default zone dynamically. They also document the
+required fields for hard- and soft-seed operation.
+
+## Operator pages
+
+With:
+
+```yaml
+monitoring_addr: ":9459"
+```
+
+P-AURP exposes:
+
+- `/status` - EtherTalk, AARP, routes, zones and route traffic
+- `/peering` - detailed AURP peer/session state
+- `/healthz` - health endpoint
+- `/readyz` - readiness endpoint
+- `/api/v1/aurp` - AURP summary data
+- `/metrics` - Prometheus metrics
+
+## Windows + VirtualBox note
+
+A same-host Windows/Npcap/VirtualBox deployment sharing one physical NIC can
+hit an NDIS/filter-order hairpin limitation. A field-proven arrangement is:
+
+```text
+Windows NIC 1 -> Npcap / P-AURP
+Windows NIC 2 -> VirtualBox bridged guests
+Both NICs     -> same physical Ethernet switch
+```
+
+That topology has been proven with RTMP, ZIP, NBP, AEP, AURP and AFP traffic.
+
+## Build identity
+
+Release builds embed the exact Git commit:
+
+```text
+P-AURP v1.0.1 build <full-git-sha>
+```
+
+Check any binary with:
+
+```text
+p-aurp... -version
+```
+
+## Project history and acknowledgements
+
+P-AURP is based on the original `jrouter` project by Josh Deprez and retains
+its Apache-2.0 licensing and source history. The project also builds on the
+AppleTalk/AURP specifications and the open-source libraries already credited
+in the repository history, including `sfiera/multitalk`, `gopacket`/`libpcap`
+and the Prometheus Go client.
+
+Important historical references include:
+
+- *Inside AppleTalk*, 2nd edition
+- Apple Computer's *AppleTalk Update-Based Routing Protocol: Enhanced
+  AppleTalk Routing*
+- Apple Internet Router 3.0
+
+See the repository `LICENSE` file for licensing terms.

@@ -1,0 +1,68 @@
+# P-AURP 1.0 - annotated Linux example
+#
+# Copy this file to jrouter-linux.yaml and edit it for your site.
+# Run P-AURP with:
+#   ./p-aurp-v1.0.1-linux-amd64 -config ./jrouter-linux.yaml
+#
+# The example defaults to a true non-seed EtherTalk router. In non-seed mode,
+# P-AURP can discover the cable range and default zone dynamically from an
+# existing seed router. If this router must seed the cable, see the commented
+# hard/soft-seed settings below.
+
+# RFC 1504 AURP UDP port. 387 is the traditional/default port.
+listen_port: 387
+
+# Optional AURP Domain Identifier override.
+# Leave this commented when the host's normal IPv4 address is the correct
+# identity. Set it to the externally reachable IPv4 address when NAT or host
+# addressing would otherwise select the wrong identity.
+#local_ip: 203.0.113.10
+
+# Operator/status HTTP listener.
+# Provides /status, /peering, /healthz, /readyz, /api/v1/aurp and /metrics.
+monitoring_addr: ":9459"
+
+# AURP timing. These values are the field-tested P-AURP 1.0 defaults used by
+# the release line. update_interval must be at least 10s and a multiple of 10s.
+aurp:
+  update_interval: 10s
+  last_heard_from_timeout: 90s
+  retry_interval: 10s
+  send_retry_limit: 5
+  tickle_retry_limit: 10
+  zone_info_retry_interval: 10s
+
+ethertalk:
+  # Linux interface name. Find it with: ip link
+  - device: enp0s3
+
+    # none = never seed; learn/adopt cable information dynamically.
+    seed_mode: none
+
+    # A true non-seed may omit zone_name/net_start/net_end. P-AURP begins in
+    # the Phase 2 startup range and adopts the live cable range through RTMP/ZIP.
+
+    # To use HARD seed mode instead, change seed_mode to hard and configure:
+    #zone_name: Example Zone
+    #net_start: 2000
+    #net_end: 2009
+
+    # To use SOFT seed mode, change seed_mode to soft, configure the same
+    # zone/range above, and optionally set the promotion delay:
+    #soft_seed_delay: 30s
+
+    # Optional MAC override when another AppleTalk implementation shares this
+    # host and a distinct EtherTalk identity is required.
+    #ethernet_addr: '08:00:07:fe:dc:ba'
+
+# Accept incoming AURP sessions from routers that are not explicitly listed.
+open_peering: true
+
+# Static peers to contact on startup. Replace these TEST-NET addresses or
+# remove the block if peerlist_url supplies the full peer set.
+peers:
+  - 192.0.2.10
+  - 198.51.100.20
+
+# Optional URL containing one peer hostname/IP per line.
+#peerlist_url: https://example.net/globaltalk-peers.txt

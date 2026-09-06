@@ -21,8 +21,8 @@ import (
 	"strings"
 )
 
-// Name of the software.
-const Name = "jrouter"
+// Name is the public product name.
+const Name = "P-AURP"
 
 //go:embed VERSION
 var rawVersion string

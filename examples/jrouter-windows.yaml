@@ -1,0 +1,64 @@
+# P-AURP 1.0 - annotated Windows example
+#
+# IMPORTANT: for Windows deployments use a dedicated jrouter-windows.yaml.
+# Copy this example to the repository/runtime directory as jrouter-windows.yaml
+# and always pass it explicitly:
+#
+#   .\p-aurp-v1.0.1-windows-amd64.exe -config .\jrouter-windows.yaml
+#
+# P-AURP accepts the friendly Windows adapter name in device:. It maps that
+# adapter to the matching Npcap \Device\NPF_{GUID} capture device internally.
+# Use Get-NetAdapter to find the exact friendly name.
+
+# RFC 1504 AURP UDP port. 387 is the traditional/default port.
+listen_port: 387
+
+# Optional AURP Domain Identifier override.
+# Leave this commented when the host's normal IPv4 address is the correct
+# identity. Set it to the externally reachable IPv4 address when NAT or host
+# addressing would otherwise select the wrong identity.
+#local_ip: 203.0.113.10
+
+# Operator/status HTTP listener.
+monitoring_addr: ":9459"
+
+aurp:
+  update_interval: 10s
+  last_heard_from_timeout: 90s
+  retry_interval: 10s
+  send_retry_limit: 5
+  tickle_retry_limit: 10
+  zone_info_retry_interval: 10s
+
+ethertalk:
+  # Exact friendly Windows interface name from Get-NetAdapter.
+  # Example names include Ethernet, Ethernet 2, or a locally renamed adapter.
+  - device: Ethernet
+
+    # none = never seed; discover/adopt the live cable range and default zone.
+    seed_mode: none
+
+    # For a true non-seed, zone_name/net_start/net_end may be omitted.
+
+    # HARD seed example: change seed_mode to hard and uncomment all three.
+    #zone_name: Example Zone
+    #net_start: 2000
+    #net_end: 2009
+
+    # SOFT seed example: change seed_mode to soft, configure the zone/range
+    # above, and optionally set the promotion delay.
+    #soft_seed_delay: 30s
+
+    # Optional EtherTalk MAC override.
+    #ethernet_addr: '08:00:07:fe:dc:ba'
+
+open_peering: true
+
+# Replace these TEST-NET addresses with real peers, or remove this block when
+# peerlist_url provides the active peer list.
+peers:
+  - 192.0.2.10
+  - 198.51.100.20
+
+# Optional URL containing one peer hostname/IP per line.
+#peerlist_url: https://example.net/globaltalk-peers.txt
