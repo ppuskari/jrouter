@@ -1,217 +1,202 @@
-# jrouter
+# P-AURP 1.0
 
-Home-grown alternative implementation of Apple Internet Router 3.0
+**P-AURP 1.0** is a cross-platform EtherTalk/AURP router for modern Linux and
+Windows systems, with a strong focus on practical GlobalTalk operation,
+RFC 1504 behavior, observability and compatibility with classic AppleTalk
+networks.
 
-## Goals
+The first public P-AURP 1.0 patch release is **v1.0.1**.
 
-- Full compatibility with Apple Internet Router 3.0
-- Function on modern operating systems
-- EtherTalk support
-- Be observable (there's a HTTP server with `/status` and `/metrics` pages)
+The historical repository/module name remains `jrouter` / `drjosh.dev/jrouter`
+for source compatibility, but the public release identity is **P-AURP**.
 
-### Stretch goals
+## Release status
 
-- Direct TashTalk support
-- Non-seed and soft-seed modes
-- Netatalk compatibility (on same host)
+P-AURP 1.0 was promoted from clean v1.0.1 RC3 after more than 56 hours of
+continuous Windows routing with multi-gigabyte DDP/AURP traffic, live AFP
+transfers, ZIP zone discovery, NBP traversal, local and remote AEP, dynamic
+non-seed EtherTalk operation and continuous AURP route churn.
 
-## Things that used to be caveats
+See:
 
-- Previously it would listen for all EtherTalk traffic, regardless of
-  destination. Now it doesn't do that, which should help it co-exist with other
-  routers on the same host.
-- You can configure an alternate Ethernet address if you are reusing the same
-  network interface for multiple different EtherTalk software.
-- In addition to the configured EtherTalk network and zone, it now learns
-  routes and zones from other EtherTalk routers, and should share them across
-  AURP.
-- There's a status endpoint that outputs diagnostic information about the
-  state of the server. Set the `monitoring_addr` config option and then browse
-  to `http://[your router]:[port you configured]/status` to see information
-  about the state of jrouter.
+- [P-AURP 1.0 release notes](docs/P-AURP-1.0-RELEASE.md)
+- [Linux and Windows build/deployment guide](docs/P-AURP-1.0-BUILD.md)
+- [RFC 1504 conformance matrix](docs/RFC1504-CONFORMANCE.md)
 
-## Caveats & pre-1.0 status
+## Major capabilities
 
-- Hard-seed, soft-seed, and non-seed EtherTalk operation are implemented.
-- AURP routing and zone information are chunked to bounded datagram sizes;
-  large ZIP query sets are also split into protocol-sized requests.
-- RFC 1504 core routing is implemented, together with the Chapter 4 features
-  tracked in [the RFC 1504 conformance matrix](docs/RFC1504-CONFORMANCE.md).
-- Static network remapping is implemented. Dynamic remapping is not currently
-  implemented; RFC 1504 permits static or dynamic remapping.
-- The historical Apple Internet Router SNMP MIB is not implemented. jrouter
-  exposes status, health/readiness JSON, and Prometheus metrics instead.
-- Running `jrouter` and `netatalk` on the same host still deserves dedicated
-  interoperability testing before 1.0; separate hosts remain the conservative
-  deployment choice.
-- The 0.0.28 line is release-candidate preparation. Field soak, hostile-wire
-  tests, failover tests, and measured data-plane performance are being used to
-  close the remaining release risk. See [the Set28 RC checklist](docs/SET28-RC-CHECKLIST.md).
+- EtherTalk Phase 2 routing
+- AURP over UDP, including RFC 1504 routing behavior
+- RTMP and ZIP route/zone exchange
+- NBP forwarding across routed AppleTalk networks
+- AEP echo handling
+- hard-seed, soft-seed and true non-seed EtherTalk operation
+- static network remapping
+- peer-scoped import/export policy controls
+- route ownership/provenance and split-horizon protections
+- bounded/chunked routing and zone-information exchange
+- per-route DDP byte telemetry for top-talker visibility
+- operator `/status` and `/peering` pages
+- `/healthz`, `/readyz`, `/api/v1/aurp` and Prometheus `/metrics`
+- Windows friendly adapter-name to Npcap capture-device mapping
+- Linux and Windows amd64 release builds from one shared Go protocol core
 
-The issues in this repo should be updated as things get fixed.
+## Quick start: Linux
 
-## How to use
+Install prerequisites on Debian/Ubuntu/Raspberry Pi OS:
 
-Pre-1.0 software: see "Caveats & pre-1.0 status" above and the RFC 1504 conformance matrix.
-
-First, write a `jrouter.yaml` config file.
-Use [the jrouter.yaml in this repo](/josh/jrouter/src/branch/main/jrouter.yaml)
-as both an example and for documentation of config options.
-
-Then choose from the options below:
-
-### Installing on Debian / Raspbian directly
-
-There's not an APT repository yet, but you can always directly install .debs:
-
-1. Download a `jrouter_(VERSION)_linux_arm64.deb` from the Releases page
-2. `sudo dpkg -i jrouter_..._arm64.deb`
-3. Put `jrouter.yaml` into `/etc/jrouter/`
-
-Then (assuming you are using systemd, which you probably are):
-
-4. `sudo systemctl enable --now jrouter.service`
-5. To see logs, use `journalctl -f -u jrouter.service`
-
-### Running with Docker
-
-Multiarch (x86_64 and arm64) container images are available from this server.
-
-- `gitea.drjosh.dev/josh/jrouter:latest` - latest release version
-- `gitea.drjosh.dev/josh/jrouter:0.0.12` - specific patch version
-- `gitea.drjosh.dev/josh/jrouter:0.0` - latest patch release for minor version
-- `gitea.drjosh.dev/josh/jrouter:0` - latest minor & patch release for major version
-- `gitea.drjosh.dev/josh/jrouter:dev` - pre-release that I'm currently testing
-
-Example `docker run` command:
-
-```shell
-# Run using a config file ./cfg/jrouter.yaml
-docker run \
-  -v ./cfg:/etc/jrouter \
-  --cap-add NET_RAW \
-  --net host \
-  --name jrouter \
-  gitea.drjosh.dev/josh/jrouter:latest
+```bash
+sudo apt update
+sudo apt install -y git build-essential libpcap-dev
 ```
 
-Notes:
+Build:
 
-- Put `jrouter.yaml` inside a `cfg` directory (or some path of your choice and bind-mount it at `/etc/jrouter`) for it to find the config file.
-- `--cap-add NET_RAW` and `--net host` is needed for EtherTalk access to the network interface.
-- By using `--net host`, the default AURP port (387) will be bound without `-p`.
+```bash
+git clone https://github.com/ppuskari/jrouter.git
+cd jrouter
+git checkout release/p-aurp-v1.0-20260906
+mkdir -p dist
+BUILD_SHA="$(git rev-parse HEAD)"
+CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
+  go build \
+  -ldflags "-X drjosh.dev/jrouter/meta.Build=${BUILD_SHA}" \
+  -o dist/p-aurp-v1.0.1-linux-amd64 .
+```
 
-### Docker Compose
+Create the runtime config:
 
-Example `docker-compose.yml` file:
+```bash
+cp examples/jrouter-linux.yaml ./jrouter-linux.yaml
+```
+
+Grant the Linux capabilities required for raw EtherTalk and UDP 387:
+
+```bash
+sudo setcap 'CAP_NET_BIND_SERVICE=ep CAP_NET_RAW=ep' \
+  ./dist/p-aurp-v1.0.1-linux-amd64
+```
+
+Run:
+
+```bash
+./dist/p-aurp-v1.0.1-linux-amd64 \
+  -config ./jrouter-linux.yaml
+```
+
+## Quick start: Windows
+
+Install Npcap, then build from PowerShell:
+
+```powershell
+Set-Location 'C:\AppleIIgsDev\jrouter'
+git checkout release/p-aurp-v1.0-20260906
+if ($LASTEXITCODE -ne 0) { throw 'git checkout failed.' }
+
+New-Item -ItemType Directory -Path '.\dist' -Force | Out-Null
+$BuildSHA = (git rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'git rev-parse failed.' }
+
+$env:GOOS = 'windows'
+$env:GOARCH = 'amd64'
+$env:CGO_ENABLED = '0'
+
+go build -ldflags "-X drjosh.dev/jrouter/meta.Build=$BuildSHA" -o '.\dist\p-aurp-v1.0.1-windows-amd64.exe' .
+if ($LASTEXITCODE -ne 0) { throw 'Windows build failed.' }
+```
+
+Create the Windows runtime config:
+
+```powershell
+Copy-Item '.\examples\jrouter-windows.yaml' '.\jrouter-windows.yaml'
+```
+
+**Windows deployments should use `jrouter-windows.yaml` explicitly.**
+
+Find the friendly adapter name with:
+
+```powershell
+Get-NetAdapter | Select-Object Name,Status,MacAddress,LinkSpeed
+```
+
+Put that friendly name in the YAML `device:` field, then start P-AURP:
+
+```powershell
+& '.\dist\p-aurp-v1.0.1-windows-amd64.exe' -config '.\jrouter-windows.yaml'
+```
+
+P-AURP maps the friendly Windows adapter name to the correct Npcap
+`\\Device\\NPF_{GUID}` capture device internally.
+
+For detached Windows operation with redirected logs, see the full build and
+deployment guide.
+
+## Annotated configuration examples
+
+- [Linux annotated example](examples/jrouter-linux.yaml)
+- [Windows annotated example](examples/jrouter-windows.yaml)
+
+The examples default to `seed_mode: none`, allowing P-AURP to discover the
+existing cable range and default zone dynamically. They also document the
+required fields for hard- and soft-seed operation.
+
+## Operator pages
+
+With:
 
 ```yaml
-services:
-  jrouter:
-    image: gitea.drjosh.dev/josh/jrouter:latest
-    restart: unless-stopped
-    volumes:
-      - type: bind
-        source: ./jrouter
-        target: /etc/jrouter
-    network_mode: host
-    cap_add:
-      - NET_RAW
+monitoring_addr: ":9459"
 ```
 
-### Building and running manually
+P-AURP exposes:
 
-These instructions ignore `mage` or containerised builds, and build the binary
-directly.
+- `/status` - EtherTalk, AARP, routes, zones and route traffic
+- `/peering` - detailed AURP peer/session state
+- `/healthz` - health endpoint
+- `/readyz` - readiness endpoint
+- `/api/v1/aurp` - AURP summary data
+- `/metrics` - Prometheus metrics
 
-1. Install [Go](https://go.dev/dl).
-2. Run these commands (for Debian-variety Linuxen, e.g. Ubuntu, Raspbian, Mint...):
+## Windows + VirtualBox note
 
-```shell
-sudo apt install git build-essential libpcap-dev
-go install drjosh.dev/jrouter@latest   # or substitute @latest with @(version) e.g. @v0.0.12
-sudo setcap 'CAP_NET_BIND_SERVICE=ep CAP_NET_RAW=ep' ~/go/bin/jrouter
+A same-host Windows/Npcap/VirtualBox deployment sharing one physical NIC can
+hit an NDIS/filter-order hairpin limitation. A field-proven arrangement is:
+
+```text
+Windows NIC 1 -> Npcap / P-AURP
+Windows NIC 2 -> VirtualBox bridged guests
+Both NICs     -> same physical Ethernet switch
 ```
 
-3. Configure `jrouter.yaml`
-4. To run:
+That topology has been proven with RTMP, ZIP, NBP, AEP, AURP and AFP traffic.
 
-```shell
-~/go/bin/jrouter
+## Build identity
+
+Release builds embed the exact Git commit:
+
+```text
+P-AURP v1.0.1 build <full-git-sha>
 ```
 
-Notes:
+Check any binary with:
 
-- `git` is needed for `go install` to fetch the module
-- `build-essential` and `libpcap-dev` are needed for [gopacket](https://github.com/google/gopacket), which uses [CGo](https://pkg.go.dev/cmd/cgo)
-- `NET_BIND_SERVICE` is needed for `jrouter` to bind UDP port 387 (for talking between AIRs)
-- `NET_RAW` is needed for `jrouter` to listen for and send EtherTalk packets
-- By default `jrouter` looks for `jrouter` in the current directory. It can be
-  changed with the `config` flag:
+```text
+p-aurp... -version
+```
 
-  ```shell
-  jrouter -config /etc/jrouter/jrouter.yaml
-  ```
+## Project history and acknowledgements
 
-TODO: instructions for non-Linux / non-Debian-like machines
+P-AURP is based on the original `jrouter` project by Josh Deprez and retains
+its Apache-2.0 licensing and source history. The project also builds on the
+AppleTalk/AURP specifications and the open-source libraries already credited
+in the repository history, including `sfiera/multitalk`, `gopacket`/`libpcap`
+and the Prometheus Go client.
 
-### Building and running with Docker manually
+Important historical references include:
 
-These instructions ignore `mage`, and use `Dockerfile` which builds the binary
-specifically for the container.
+- *Inside AppleTalk*, 2nd edition
+- Apple Computer's *AppleTalk Update-Based Routing Protocol: Enhanced
+  AppleTalk Routing*
+- Apple Internet Router 3.0
 
-1.  Install Docker.
-2.  Clone the repo and `cd` into it.
-3.  `docker build -t jrouter .`
-
-Example `docker run` command:
-
-    ```shell
-    docker run \
-      -v ./cfg:/etc/jrouter \
-      --cap-add NET_RAW \
-      --net host \
-      --name jrouter \
-      jrouter
-    ```
-
-Notes:
-
-- Put `jrouter.yaml` inside a `cfg` directory (or some path of your choice and bind-mount it at `/etc/jrouter`) for it to find the config file.
-- Both `--cap-add NET_RAW` and `--net host` is needed for EtherTalk access to the network interface.
-- By using `--net host`, the default AURP port (387) will be bound without `-p`.
-
-### Building with Mage
-
-For managing building everything at once, I use [mage](https://magefile.org/).
-You are welcome to do likewise. Depending on what you want to build, you will
-need Go and/or Docker installed. Output files are stored in `./dist` and
-container image builds then assume they can use pre-built binaries from there.
-
-`mage binary` runs locally and needs the build-time dependencies like
-libpcap-dev. Most other mage targets run commands within containers.
-
-## Bibliography / Acknowledgements
-
-This software wouldn't be possible without:
-
-- [Sidhu, G S, Andrews, R F, & Oppenheimer, A B (1990), _Inside AppleTalk_, 2nd edn, Addison-Wesley, Reading, Mass.](https://vintageapple.org/macbooks/pdf/Inside_AppleTalk_Second_Edition_1990.pdf)
-- [Apple Computer Inc. (1993), _AppleTalk Update-Based Routing Protocol: Enhanced AppleTalk Routing_, Cupertino, Calif.](/josh/jrouter/src/branch/main/docs/AURP_Enhanced_ATalk_Routing.pdf)
-- [Apple Internet Router 3.0](https://macintoshgarden.org/apps/apple-internet-router) itself
-- [sfiera/multitalk](https://github.com/sfiera/multitalk)
-- [tcpdump and libpcap](https://www.tcpdump.org/)
-- [google/gopacket](https://github.com/google/gopacket)
-- Encouragement from #GlobalTalk and #MARCHintosh
-
-## Non-acknowledgements
-
-Aside from standard reformatting and analysis tools (gofmt, gopls) this software
-is 100% organically written.
-
-I do not use LLMs or generative "AI" in my work. I _will not_ use LLMs or
-generative "AI" in my work. I write enough bugs on my own, I don't need a
-stochastic parrot to hallucinate more for me.
-
-## Bug reports? Feature requests? Complaints? Praise?
-
-You can contact me on the Fediverse at @DrJosh9000@cloudisland.nz, or email me at josh.deprez@gmail.com.
+See the repository `LICENSE` file for licensing terms.
