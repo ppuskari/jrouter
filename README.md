@@ -5,20 +5,35 @@ Windows systems, with a strong focus on practical GlobalTalk operation,
 RFC 1504 behavior, observability and compatibility with classic AppleTalk
 networks.
 
-The first public P-AURP 1.0 patch release is **v1.0.1**.
+The current P-AURP 1.0 patch release is **v1.0.2**.
 
 The historical repository/module name remains `jrouter` / `drjosh.dev/jrouter`
 for source compatibility, but the public release identity is **P-AURP**.
 
 ## Release status
 
-P-AURP 1.0 was promoted from clean v1.0.1 RC3 after more than 56 hours of
-continuous Windows routing with multi-gigabyte DDP/AURP traffic, live AFP
-transfers, ZIP zone discovery, NBP traversal, local and remote AEP, dynamic
-non-seed EtherTalk operation and continuous AURP route churn.
+P-AURP 1.0 was originally promoted from clean v1.0.1 RC3 after more than
+56 hours of continuous Windows routing with multi-gigabyte DDP/AURP traffic,
+live AFP transfers, ZIP zone discovery, NBP traversal, local and remote AEP,
+dynamic non-seed EtherTalk operation and continuous AURP route churn.
+
+P-AURP v1.0.2 adds a field-proven AppleTalk interoperability fix for
+checksummed NBP Forward Requests. When an NBP FwdReq with a non-zero DDP
+checksum is sent through an AURP peer, P-AURP now clones the packet and clears
+the checksum before AURP forwarding. This prevents older routers from
+rebroadcasting a stale checksum after converting the FwdReq into a local NBP
+lookup. Zero is a valid DDP checksum value, so the normalized packet remains
+valid across the peer's rewrite.
+
+The v1.0.2 field reproduction used a Linux Netatalk NBP requester at
+1004.82, requester tuple socket 223, querying `=:AFPServer@btr`. Without the
+compatibility normalization, the remote AFP service `Cloudberry` on 2137.47
+was not discoverable through an older jrouter peer. With the normalization,
+the same lookup returned `Cloudberry:AFPServer` at 2137.47:129 immediately.
 
 See:
 
+- [P-AURP 1.0.2 release notes](docs/P-AURP-1.0.2-RELEASE.md)
 - [P-AURP 1.0 release notes](docs/P-AURP-1.0-RELEASE.md)
 - [Linux and Windows build/deployment guide](docs/P-AURP-1.0-BUILD.md)
 - [RFC 1504 conformance matrix](docs/RFC1504-CONFORMANCE.md)
@@ -29,6 +44,7 @@ See:
 - AURP over UDP, including RFC 1504 routing behavior
 - RTMP and ZIP route/zone exchange
 - NBP forwarding across routed AppleTalk networks
+- NBP FwdReq checksum compatibility normalization for older AURP peers
 - AEP echo handling
 - hard-seed, soft-seed and true non-seed EtherTalk operation
 - static network remapping
@@ -55,13 +71,13 @@ Build:
 ```bash
 git clone https://github.com/ppuskari/jrouter.git
 cd jrouter
-git checkout release/p-aurp-v1.0-20260906
+git checkout release/p-aurp-v1.0.2-20260909
 mkdir -p dist
 BUILD_SHA="$(git rev-parse HEAD)"
 CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
   go build \
   -ldflags "-X drjosh.dev/jrouter/meta.Build=${BUILD_SHA}" \
-  -o dist/p-aurp-v1.0.1-linux-amd64 .
+  -o dist/p-aurp-v1.0.2-linux-amd64 .
 ```
 
 Create the runtime config:
@@ -74,23 +90,23 @@ Grant the Linux capabilities required for raw EtherTalk and UDP 387:
 
 ```bash
 sudo setcap 'CAP_NET_BIND_SERVICE=ep CAP_NET_RAW=ep' \
-  ./dist/p-aurp-v1.0.1-linux-amd64
+  ./dist/p-aurp-v1.0.2-linux-amd64
 ```
 
 Run:
 
 ```bash
-./dist/p-aurp-v1.0.1-linux-amd64 \
+./dist/p-aurp-v1.0.2-linux-amd64 \
   -config ./jrouter-linux.yaml
 ```
 
 ## Quick start: Windows
 
-Install Npcap, then build from PowerShell:
+Install Npcap, then build from PowerShell on a development system with Go:
 
 ```powershell
 Set-Location 'C:\AppleIIgsDev\jrouter'
-git checkout release/p-aurp-v1.0-20260906
+git checkout release/p-aurp-v1.0.2-20260909
 if ($LASTEXITCODE -ne 0) { throw 'git checkout failed.' }
 
 New-Item -ItemType Directory -Path '.\dist' -Force | Out-Null
@@ -101,9 +117,12 @@ $env:GOOS = 'windows'
 $env:GOARCH = 'amd64'
 $env:CGO_ENABLED = '0'
 
-go build -ldflags "-X drjosh.dev/jrouter/meta.Build=$BuildSHA" -o '.\dist\p-aurp-v1.0.1-windows-amd64.exe' .
+go build -ldflags "-X drjosh.dev/jrouter/meta.Build=$BuildSHA" -o '.\dist\p-aurp-v1.0.2-windows-amd64.exe' .
 if ($LASTEXITCODE -ne 0) { throw 'Windows build failed.' }
 ```
+
+GitHub Actions also produces the official Windows amd64 release artifact, so a
+Go toolchain is not required on deployment-only Windows hosts.
 
 Create the Windows runtime config:
 
@@ -122,7 +141,7 @@ Get-NetAdapter | Select-Object Name,Status,MacAddress,LinkSpeed
 Put that friendly name in the YAML `device:` field, then start P-AURP:
 
 ```powershell
-& '.\dist\p-aurp-v1.0.1-windows-amd64.exe' -config '.\jrouter-windows.yaml'
+& '.\dist\p-aurp-v1.0.2-windows-amd64.exe' -config '.\jrouter-windows.yaml'
 ```
 
 P-AURP maps the friendly Windows adapter name to the correct Npcap
@@ -175,7 +194,7 @@ That topology has been proven with RTMP, ZIP, NBP, AEP, AURP and AFP traffic.
 Release builds embed the exact Git commit:
 
 ```text
-P-AURP v1.0.1 build <full-git-sha>
+P-AURP v1.0.2 build <full-git-sha>
 ```
 
 Check any binary with:
