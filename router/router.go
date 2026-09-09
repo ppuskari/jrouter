@@ -163,6 +163,16 @@ func (rtr *Router) outputRoute(
 	)
 }
 
+func (rtr *Router) prepareOutboundForRoute(
+	ddpkt *ddp.ExtPacket,
+	route Route,
+) *ddp.ExtPacket {
+	if route.Target.Class() != TargetClassAURPPeer {
+		return ddpkt
+	}
+	return normalizeAURPNBPFwdReqChecksum(ddpkt, rtr.Logger)
+}
+
 // Output outputs the packet in the direction of the destination.
 // (It does not check or adjust the hop count.)
 func (rtr *Router) Output(ctx context.Context, ddpkt *ddp.ExtPacket) error {
@@ -170,10 +180,11 @@ func (rtr *Router) Output(ctx context.Context, ddpkt *ddp.ExtPacket) error {
 	if err != nil {
 		return err
 	}
-	if err := route.Target.Forward(ctx, ddpkt); err != nil {
+	outDDP := rtr.prepareOutboundForRoute(ddpkt, route)
+	if err := route.Target.Forward(ctx, outDDP); err != nil {
 		return err
 	}
-	rtr.noteRouteTraffic(ddpkt, route, nil)
+	rtr.noteRouteTraffic(outDDP, route, nil)
 	return nil
 }
 
@@ -231,9 +242,10 @@ func (rtr *Router) OutputFromAURP(
 			ingress.hopCountReductions.Add(1)
 		}
 	}
-	if err := route.Target.Forward(ctx, ddpkt); err != nil {
+	outDDP := rtr.prepareOutboundForRoute(ddpkt, route)
+	if err := route.Target.Forward(ctx, outDDP); err != nil {
 		return err
 	}
-	rtr.noteRouteTraffic(ddpkt, route, ingress)
+	rtr.noteRouteTraffic(outDDP, route, ingress)
 	return nil
 }
