@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"drjosh.dev/jrouter/atalk/nbp"
 	"drjosh.dev/jrouter/aurp"
 
 	"github.com/sfiera/multitalk/pkg/ddp"
@@ -163,6 +164,36 @@ func (rtr *Router) outputRoute(
 	)
 }
 
+func normalizeOutboundAURPNBPFwdReq(
+	ddpkt *ddp.ExtPacket,
+	target RouteTarget,
+	logger *slog.Logger,
+) *ddp.ExtPacket {
+	if ddpkt == nil ||
+		target == nil ||
+		target.Class() != TargetClassAURPPeer ||
+		ddpkt.Cksum == 0 ||
+		ddpkt.Proto != ddp.ProtoNBP {
+		return ddpkt
+	}
+
+	nbpkt, err := nbp.Unmarshal(ddpkt.Data)
+	if err != nil || nbpkt.Function != nbp.FunctionFwdReq {
+		return ddpkt
+	}
+
+	normalized := *ddpkt
+	normalized.Cksum = 0
+	if logger != nil {
+		logger.Debug(
+			"AURP: cleared DDP checksum on outbound NBP FwdReq",
+			"dstnet", normalized.DstNet,
+			"original-checksum", ddpkt.Cksum,
+		)
+	}
+	return &normalized
+}
+
 // Output outputs the packet in the direction of the destination.
 // (It does not check or adjust the hop count.)
 func (rtr *Router) Output(ctx context.Context, ddpkt *ddp.ExtPacket) error {
@@ -170,10 +201,11 @@ func (rtr *Router) Output(ctx context.Context, ddpkt *ddp.ExtPacket) error {
 	if err != nil {
 		return err
 	}
-	if err := route.Target.Forward(ctx, ddpkt); err != nil {
+	outDDP := normalizeOutboundAURPNBPFwdReq(ddpkt, route.Target, rtr.Logger)
+	if err := route.Target.Forward(ctx, outDDP); err != nil {
 		return err
 	}
-	rtr.noteRouteTraffic(ddpkt, route, nil)
+	rtr.noteRouteTraffic(outDDP, route, nil)
 	return nil
 }
 
