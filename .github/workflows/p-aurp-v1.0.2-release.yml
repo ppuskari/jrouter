@@ -1,0 +1,166 @@
+name: P-AURP 1.0.2 release
+
+on:
+  push:
+    branches:
+      - release/p-aurp-v1.0.2-20260909
+    tags:
+      - v1.0.2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-amd64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Install libpcap headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpcap-dev
+      - name: Verify P-AURP release identity
+        shell: bash
+        run: |
+          test "$(tr -d '\r\n' < meta/VERSION)" = "1.0.2"
+          grep -q 'const Name = "P-AURP"' meta/meta.go
+      - name: Global gofmt gate
+        shell: bash
+        run: |
+          mapfile -t gofiles < <(git ls-files '*.go')
+          files="$(gofmt -l "${gofiles[@]}")"
+          if [ -n "$files" ]; then
+            echo "$files"
+            exit 1
+          fi
+      - name: Go vet
+        run: go vet ./...
+      - name: NBP FwdReq checksum regression
+        run: go test -v ./router -run TestNormalizeAURPNBPFwdReqChecksum
+      - name: Unit tests
+        run: go test ./...
+      - name: Race tests
+        run: go test -race ./router ./aurp ./atalk/zip ./status
+      - name: AURP stress x100
+        run: go test ./router ./aurp ./atalk/zip -count=100
+      - name: Build Linux amd64
+        shell: bash
+        run: |
+          mkdir -p dist
+          BUILD_SHA='${{ github.sha }}'
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
+            go build \
+            -ldflags "-X drjosh.dev/jrouter/meta.Build=${BUILD_SHA}" \
+            -o dist/p-aurp-v1.0.2-linux-amd64 .
+      - name: Verify Linux executable identity
+        shell: bash
+        run: |
+          expected="P-AURP v1.0.2 build ${{ github.sha }}"
+          actual="$(./dist/p-aurp-v1.0.2-linux-amd64 -version)"
+          printf '%s\n' "$actual" | tee dist/VERSION-LINUX-OUTPUT.txt
+          test "$actual" = "$expected"
+      - name: Generate Linux SHA256
+        shell: bash
+        run: |
+          cd dist
+          sha256sum p-aurp-v1.0.2-linux-amd64 > p-aurp-v1.0.2-linux-amd64.sha256
+          cat p-aurp-v1.0.2-linux-amd64.sha256
+      - name: Upload Linux release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: p-aurp-v1.0.2-linux-amd64
+          path: |
+            dist/p-aurp-v1.0.2-linux-amd64
+            dist/p-aurp-v1.0.2-linux-amd64.sha256
+            dist/VERSION-LINUX-OUTPUT.txt
+            examples/jrouter-linux.yaml
+            docs/P-AURP-1.0.2-RELEASE.md
+            README.md
+          if-no-files-found: error
+
+  windows-amd64:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Verify P-AURP release identity
+        shell: pwsh
+        run: |
+          $Version = (Get-Content .\meta\VERSION -Raw).Trim()
+          if ($Version -ne '1.0.2') {
+            throw "meta/VERSION is $Version instead of 1.0.2"
+          }
+          $Meta = Get-Content .\meta\meta.go -Raw
+          if ($Meta -notmatch 'const Name = "P-AURP"') {
+            throw 'P-AURP product identity missing from meta/meta.go'
+          }
+      - name: Prove Windows interface to Npcap mapping
+        shell: pwsh
+        run: go test -v . -run TestPcapDeviceNameWindows
+      - name: Prove EtherTalk node-zero broadcast semantics
+        shell: pwsh
+        run: go test -v ./router -run TestEtherTalkBroadcastNode
+      - name: Prove AEP reply checksum reset
+        shell: pwsh
+        run: go test -v ./router -run TestPrepareAEPReplyClearsStaleChecksum
+      - name: Prove NBP FwdReq checksum compatibility
+        shell: pwsh
+        run: go test -v ./router -run TestNormalizeAURPNBPFwdReqChecksum
+      - name: Unit tests
+        shell: pwsh
+        run: |
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { throw 'go test failed.' }
+      - name: Build Windows amd64
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          $BuildSHA = '${{ github.sha }}'
+          $env:GOOS = 'windows'
+          $env:GOARCH = 'amd64'
+          $env:CGO_ENABLED = '0'
+          go build -ldflags "-X drjosh.dev/jrouter/meta.Build=$BuildSHA" -o dist\p-aurp-v1.0.2-windows-amd64.exe .
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Windows amd64 build failed.'
+          }
+      - name: Verify Windows executable identity
+        shell: pwsh
+        run: |
+          $Expected = "P-AURP v1.0.2 build ${{ github.sha }}"
+          $Actual = (& .\dist\p-aurp-v1.0.2-windows-amd64.exe -version).Trim()
+          $Actual | Set-Content -Encoding ascii .\dist\VERSION-WINDOWS-OUTPUT.txt
+          if ($Actual -ne $Expected) {
+            throw "Version identity mismatch: $Actual"
+          }
+      - name: Generate Windows SHA256
+        shell: pwsh
+        run: |
+          $File = '.\dist\p-aurp-v1.0.2-windows-amd64.exe'
+          $Hash = (Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$Hash  p-aurp-v1.0.2-windows-amd64.exe" |
+            Set-Content -Encoding ascii .\dist\p-aurp-v1.0.2-windows-amd64.exe.sha256
+          Write-Host "SHA256: $Hash"
+      - name: Upload Windows release artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: p-aurp-v1.0.2-windows-amd64
+          path: |
+            dist/p-aurp-v1.0.2-windows-amd64.exe
+            dist/p-aurp-v1.0.2-windows-amd64.exe.sha256
+            dist/VERSION-WINDOWS-OUTPUT.txt
+            examples/jrouter-windows.yaml
+            docs/P-AURP-1.0.2-RELEASE.md
+            README.md
+          if-no-files-found: error
